@@ -4,6 +4,11 @@ name: release
 # package is built (pinned, so the same commit gives the same bytes as ci.yml's build); each file's SHA-256 is written
 # to SHA256SUMS; and each file, SHA256SUMS included, is signed with Sigstore's keyless signing as this workflow's own
 # identity, so each signature is recorded in the public Rekor log (D539). Nothing here holds a key.
+#
+# The kit is checked out into kit/, not the workspace's root: the Sigstore action installs its own tools with
+# `uv pip` from the root, and there uv would read the kit's pyproject.toml and its lock-only constraint on cryptography,
+# which the action's own pins do not meet (the first v0.1.0 run failed so, before signing anything). ci.yml's
+# signing-setup job runs the action's setup the same way, signing nothing.
 on:
   push:
     tags: ["v*"]
@@ -19,9 +24,13 @@ jobs:
     permissions:
       contents: write         # to publish the release
       id-token: write         # Sigstore's keyless signing: the identity GitHub gives this workflow's run
+    defaults:
+      run:
+        working-directory: kit
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          path: kit
           fetch-depth: 0
           persist-credentials: false
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
@@ -39,10 +48,10 @@ jobs:
       - run: uv run python -m pytest -q -rsf
       - run: uv build --out-dir dist
       - run: sha256sum -- *.whl *.tar.gz | tee SHA256SUMS
-        working-directory: dist
+        working-directory: kit/dist
       - uses: sigstore/gh-action-sigstore-python@790bc6befb9d733738f18d8f895854b453640ec9 # v3.5.0
         with:
-          inputs: ./dist/*.whl ./dist/*.tar.gz ./dist/SHA256SUMS
+          inputs: ./kit/dist/*.whl ./kit/dist/*.tar.gz ./kit/dist/SHA256SUMS
           verify: true
           verify-cert-identity: https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}
           verify-oidc-issuer: https://token.actions.githubusercontent.com
@@ -63,4 +72,4 @@ jobs:
             echo
             echo "Each file is signed with Sigstore's keyless signing by this repository's release workflow. Its signature is beside it (.sigstore.json) and is recorded in the public Rekor log."
           } > notes.md
-          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md

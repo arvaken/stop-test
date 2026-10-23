@@ -48,6 +48,28 @@ jobs:
       - run: sha256sum -- *.whl *.tar.gz | tee SHA256SUMS
         working-directory: dist
 
+  # release.yml's signing step as far as it goes before signing: the Sigstore action's own setup, run from the
+  # workspace's root as the action runs it, with the kit checked out into kit/ as release.yml has it. It signs nothing.
+  signing-setup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: kit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: sigstore/gh-action-sigstore-python
+          ref: 790bc6befb9d733738f18d8f895854b453640ec9 # v3.5.0, as release.yml
+          path: sigstore-action
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12.14"
+      - run: |
+          GITHUB_ACTION_PATH="$PWD/sigstore-action" bash -c 'source sigstore-action/setup/setup.bash'
+          sigstore-action/.action-env/bin/python -m sigstore --version
+
   endpoint:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
