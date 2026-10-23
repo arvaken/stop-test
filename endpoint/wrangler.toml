@@ -1,4 +1,5 @@
-# Arvaken's test endpoint for the stop test (worker.js). Not deployed: deploying it is Arvaken's, on its own approval.
+# Arvaken's test endpoint for the stop test (worker.js; D532, K3). Deployed by Arvaken, served at
+# https://stop-test.arvaken.com: a custom domain attached once in Cloudflare (23 October 2026), not by this file.
 name = "arvaken-stop-test-endpoint"
 main = "worker.js"
 compatibility_date = "2026-10-01"
