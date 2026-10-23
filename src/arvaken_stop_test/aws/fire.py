@@ -36,11 +36,17 @@ OWN_TRIGGER_WARNING = ("Your own trigger may stop more than the test agent. It r
 
 REVOKE = "revoke active sessions"                     # the second kind's declared stop, in place of a policy's ARN
 REVOKE_POLICY = "AWSRevokeOlderSessions"
-KINDS = {"policy on a role": "AttachRolePolicy", REVOKE: "PutRolePolicy"}     # each kind, and the call CloudTrail records
+# The third kind (D538, M2): a policy written on the agent's role itself, denying every action, as a customer's stop
+# written inline on a role would be. Its declared stop names it by the policy's name, as the record does (0122).
+INLINE = "arvaken-stop-test-deny-all"
+INLINE_KIND = "policy written on the role"
+INLINE_DOCUMENT = '{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"*","Resource":"*"}]}'
+KINDS = {"policy on a role": "AttachRolePolicy", REVOKE: "PutRolePolicy", INLINE_KIND: "PutRolePolicy"}
 
 
 def kind_of(stop_ref: str) -> str:
-    return REVOKE if stop_ref == REVOKE else "policy on a role"
+    """Each kind, and the call CloudTrail records for it, in KINDS."""
+    return REVOKE if stop_ref == REVOKE else INLINE_KIND if stop_ref == INLINE else "policy on a role"
 
 
 class Refused(Exception):
@@ -49,7 +55,7 @@ class Refused(Exception):
 
 def why_not(stop_ref: str) -> str | None:
     """Why the kit will not fire this declared stop, or None if it will."""
-    if stop_ref == REVOKE:
+    if stop_ref in (REVOKE, INLINE):
         return None
     if re.fullmatch(r"p-[0-9a-z]{8,128}", stop_ref):
         return ("this is an organization's service control policy: it reaches every identity in the accounts it is "
@@ -79,7 +85,10 @@ def fire(iam: Any, run: str, stop_ref: str, now: Callable[[], float] = time.time
         raise Refused(reason)
     role = the_runs_own_role(iam, run)
     before = now()
-    iam.attach_role_policy(RoleName=role, PolicyArn=stop_ref)
+    if stop_ref == INLINE:
+        iam.put_role_policy(RoleName=role, PolicyName=INLINE, PolicyDocument=INLINE_DOCUMENT)
+    else:
+        iam.attach_role_policy(RoleName=role, PolicyArn=stop_ref)
     return before, now()
 
 
@@ -113,6 +122,11 @@ def remove(iam: Any, run: str, stop_ref: str) -> bool:
                 found = True
         return found
     role = names(run)["agent_role"]
+    if stop_ref == INLINE:
+        if INLINE in iam.list_role_policies(RoleName=role).get("PolicyNames", []):
+            iam.delete_role_policy(RoleName=role, PolicyName=INLINE)
+            return True
+        return False
     attached = {p["PolicyArn"] for p in iam.list_attached_role_policies(RoleName=role).get("AttachedPolicies", [])}
     if stop_ref in attached:
         iam.detach_role_policy(RoleName=role, PolicyArn=stop_ref)

@@ -62,6 +62,7 @@ class FakeAWS:
         self.objects: set[str] = set()
         self.invocations = 0
         self.revoked: dict[str, tuple[float, float]] = {}      # role -> (sessions before this moment, when it was put)
+        self.inline: dict[str, float] = {}                      # role -> when a deny-all policy was written on it
         self.put_calls: list[tuple[str, float]] = []
         self.session_issued: float | None = None
         self.log_groups = [f"/aws/lambda/arvaken-stop-test-r0123abcd-agent"] if log_group else []
@@ -102,16 +103,22 @@ class FakeAWS:
         return {"AttachedPolicies": [{"PolicyArn": a} for a in self.attached]}
 
     def list_role_policies(self, RoleName):
-        return {"PolicyNames": ["own-calls"] + (["AWSRevokeOlderSessions"] if RoleName in self.revoked else [])}
+        return {"PolicyNames": ["own-calls"] + (["AWSRevokeOlderSessions"] if RoleName in self.revoked else [])
+                + ([firing.INLINE] if RoleName in self.inline else [])}
 
     def put_role_policy(self, RoleName, PolicyName, PolicyDocument):
-        moment = json.loads(PolicyDocument)["Statement"][0]["Condition"]["DateLessThan"]["aws:TokenIssueTime"]
-        before = datetime.fromisoformat(moment.replace("Z", "+00:00")).timestamp()
-        self.revoked[RoleName] = (before, self.clock.now())
+        statement = json.loads(PolicyDocument)["Statement"][0]
+        if PolicyName == "AWSRevokeOlderSessions":
+            moment = statement["Condition"]["DateLessThan"]["aws:TokenIssueTime"]
+            before = datetime.fromisoformat(moment.replace("Z", "+00:00")).timestamp()
+            self.revoked[RoleName] = (before, self.clock.now())
+        else:                                    # a policy written on the role: it denies what it names, at once
+            assert statement == {"Effect": "Deny", "Action": "*", "Resource": "*"}, statement
+            self.inline[RoleName] = self.clock.now()
         self.put_calls.append((RoleName, self.clock.now()))
 
     def delete_role_policy(self, RoleName, PolicyName):
-        self.revoked.pop(RoleName, None)
+        (self.revoked if PolicyName == "AWSRevokeOlderSessions" else self.inline).pop(RoleName, None)
 
     def get_role(self, RoleName):
         if self.gone():
@@ -125,7 +132,9 @@ class FakeAWS:
     # lambda
     def stopped(self) -> bool:
         return (any(self.clock.now() >= at + self.delay for at in self.attached.values())
-                or self.revoked_for("-agent", T0 - 3600))            # the agent's own session predates the run
+                or self.revoked_for("-agent", T0 - 3600)             # the agent's own session predates the run
+                or any(name.endswith("-agent") and self.clock.now() >= at + self.delay
+                       for name, at in self.inline.items()))
 
     def invoke(self, FunctionName, Payload):
         self.invocations += 1
@@ -360,3 +369,19 @@ def test_revoking_sessions_reaches_the_session_the_agent_took_for_the_role_it_be
     details = running.details(r, doc)
     assert details["repeats"][0]["another_identity"]["effect_between_seconds"][1] >= 8.0
     assert details["checked_gone"] and details["left_behind"] == []
+
+
+def test_a_policy_written_on_the_agents_role_is_a_kind_of_its_own_and_stops_its_own_calls():
+    """The third kind (D538, M2): a deny-all policy written on the agent's role, timed from its PutRolePolicy, taken off
+    between repeats and checked gone with the role."""
+    clock = Clock()
+    aws = FakeAWS(clock)
+    r, doc = a_run(aws, clock, stop_ref=firing.INLINE, repeats=2)
+    assert doc["stop"] == {"kind": "policy written on the role", "fired_by": "the kit", "ref": firing.INLINE}
+    assert [rep["own_calls"]["outcome"] for rep in doc["repeats"]] == ["stopped", "stopped"]
+    assert [rep["another_identity"]["outcome"] for rep in doc["repeats"]] == ["not stopped", "not stopped"]
+    assert len(aws.put_calls) == 2 and not aws.inline and not aws.attach_calls
+    assert all(name.endswith("-agent") for name, _ in aws.put_calls)
+    found = running.results(r)[0][1]["own_calls"]
+    assert found.fired_source == "CloudTrail's record of the call, to the whole second" and found.effect_between[1] >= 8.0
+    assert doc["run"]["left_behind"] == []

@@ -332,9 +332,11 @@ def check_gone(c: Clients, r: Run) -> tuple[list[str], list[str]]:
         if not any(x.startswith(f"the role {role}") for x in left):
             continue
         try:
-            if r.stop_ref == firing.REVOKE:
-                if firing.REVOKE_POLICY in c.iam.list_role_policies(RoleName=role).get("PolicyNames", []):
-                    left.append(f"the stop {firing.REVOKE_POLICY} on the role {role}")
+            if r.stop_ref in (firing.REVOKE, firing.INLINE):
+                name = firing.REVOKE_POLICY if r.stop_ref == firing.REVOKE else firing.INLINE
+                if (which == "agent_role" or r.stop_ref == firing.REVOKE) and \
+                        name in c.iam.list_role_policies(RoleName=role).get("PolicyNames", []):
+                    left.append(f"the stop {name} on the role {role}")
             elif which == "agent_role" and r.stop_ref in {
                     a["PolicyArn"] for a in c.iam.list_attached_role_policies(RoleName=role).get("AttachedPolicies", [])}:
                 left.append(f"the stop {r.stop_ref} attached to the role {role}")

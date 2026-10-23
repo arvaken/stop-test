@@ -69,7 +69,7 @@ def test_a_run_names_one_kind_of_stop_and_revoking_says_what_it_reaches(capsys):
     for both in (["--stop", "arn:aws:iam::aws:policy/AWSDenyAll", "--revoke-sessions"], []):
         with pytest.raises(SystemExit):
             cli.main(["aws", "plan", "--region", "eu-central-1", *both])
-    assert "give one of --stop, --revoke-sessions or --own-trigger" in capsys.readouterr().err
+    assert "give one of --stop, --revoke-sessions, --inline-deny or --own-trigger" in capsys.readouterr().err
     cli.main(["aws", "plan", "--revoke-sessions", "--region", "eu-central-1", "--run", "r0123abcd"])
     out = capsys.readouterr().out
     assert "revokes the active sessions of the test agent's role and of the role it became" in out

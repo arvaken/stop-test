@@ -33,11 +33,16 @@ def calls_for(window: float, repeats: int) -> int:
     return int(WARM_UP + repeats * (window + HOLD) + (repeats - 1) * RECOVERY)
 
 
+def _stop(args) -> str:
+    from arvaken_stop_test.aws import fire
+    return fire.REVOKE if args.revoke_sessions else fire.INLINE if args.inline_deny else args.stop
+
+
 def _plan(args, run_name: str) -> str:
     from arvaken_stop_test.aws import fire
     from arvaken_stop_test.aws.stack import names
     n = names(run_name)
-    stop = fire.REVOKE if args.revoke_sessions else args.stop
+    stop = _stop(args)
     reason = fire.why_not(stop) if not args.own_trigger else None
     lines = [f"Run {run_name} in {args.region}:",
              f"- creates one stack, {n['stack']}: a test agent ({n['function']}), its role and a second role, and a",
@@ -46,6 +51,7 @@ def _plan(args, run_name: str) -> str:
               if args.own_trigger else
               "- revokes the active sessions of the test agent's role and of the role it became, both made for the "
               "run, by AWS's own policy (AWSRevokeOlderSessions);" if args.revoke_sessions else
+              "- writes a policy denying every action on the test agent's role alone;" if args.inline_deny else
               f"- attaches your stop, {args.stop}, to the test agent's role alone;"),
              f"- times each path for {int(args.window)} seconds after firing, {args.repeats} time(s);",
              f"- invokes the test agent about {calls_for(args.window, args.repeats)} times;",
@@ -67,6 +73,8 @@ def main(argv: list[str] | None = None) -> int:
         a.add_argument("--own-trigger", action="store_true", help="you fire your own stop; the kit watches")
         a.add_argument("--revoke-sessions", action="store_true",
                        help="the stop is revoking the active sessions of the agent's role and the role it became")
+        a.add_argument("--inline-deny", action="store_true",
+                       help="the stop is a policy written on the agent's role, denying every action")
         a.add_argument("--window", type=_duration, default=WINDOW, help="time after firing, e.g. 15m (default)")
         a.add_argument("--repeats", type=int, default=1, help="1 to 5")
         a.add_argument("--region", required=True)
@@ -91,8 +99,8 @@ def main(argv: list[str] | None = None) -> int:
 
     from arvaken_stop_test.aws.stack import new_run
     if args.action in ("plan", "run"):
-        if sum((bool(args.stop), args.own_trigger, args.revoke_sessions)) != 1:
-            p.error("give one of --stop, --revoke-sessions or --own-trigger")
+        if sum((bool(args.stop), args.own_trigger, args.revoke_sessions, args.inline_deny)) != 1:
+            p.error("give one of --stop, --revoke-sessions, --inline-deny or --own-trigger")
     run_name = args.run_name or new_run()
     if args.action == "plan":
         print(_plan(args, run_name))
@@ -109,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
               "Left for you to delete:\n" + "\n".join(r.left_behind))
         return 0
     print(_plan(args, run_name))
-    stop = fire.REVOKE if args.revoke_sessions else args.stop
+    stop = _stop(args)
     if not args.own_trigger and fire.why_not(stop):
         return 1
     if args.own_trigger:
