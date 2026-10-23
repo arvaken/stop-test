@@ -1,6 +1,6 @@
 # Arvaken stop test
 
-**In development. Nothing here runs yet.**
+**In development, not yet released.**
 
 The stop test is a kit you run yourself, in your own cloud account, with your own credentials. It deploys a test
 agent of its own, fires the stop you have declared on that test agent alone, and times what actually stops. When it

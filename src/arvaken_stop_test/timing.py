@@ -16,6 +16,13 @@ For each path, after the stop is fired:
 - **not run**: the path was not tried (it could not be set up), or no heartbeat came after the stop was fired.
 
 An outcome is worded by its window (D532: "an outcome is worded by its window ('not stopped within 15 minutes')").
+
+**Time to effect** is a range, never one number (the founder, 23 October 2026). Where a path stopped, the stop took
+effect after the last success before its final run of failures and by that run's first failure; and the firing moment
+is known only to its precision: CloudTrail records a call to the whole second, so the call was made within the second
+after the time it gives. The range is (last success - (fired + precision), first failure of the final run - fired).
+**Successes after the first refusal** are counted on every path: where it is not 0, the path was not yet stopped at its
+first refusal, and it is timed from the run of failures that stopped it.
 """
 from __future__ import annotations
 
@@ -58,6 +65,11 @@ class PathResult:
     failures_after: int = 0
     errors: dict[str, int] = field(default_factory=dict)
     reason: str | None = None                   # for NOT_RUN: why
+    effect_between: tuple[float, float] | None = None   # where it stopped: seconds after firing, at least and at most
+    successes_after_first_refusal: int = 0
+    keeps_working_until: float | None = None    # a session that was not stopped: when it expires, by AWS's clock
+    fired_source: str | None = None             # where the firing moment came from, and its precision
+    fired_at: float | None = None               # the path's own firing moment, where it differs from its repeat's
 
     def words(self) -> str:
         return worded(self.outcome, self.window)
@@ -95,7 +107,7 @@ def _runs(beats: Sequence[Beat]) -> list[tuple[float, float, bool]]:
 
 
 def judge(beats: Iterable[Beat], fired_at: float | None, window: float = WINDOW, hold: float = HOLD,
-          tried: bool = True, setup_errors: dict[str, int] | None = None) -> PathResult:
+          tried: bool = True, setup_errors: dict[str, int] | None = None, fired_precision: float = 0.0) -> PathResult:
     """What the test found on one path, from its heartbeats and the moment the stop was fired."""
     if not tried:
         return PathResult(NOT_RUN, window, errors=dict(setup_errors or {}), reason="the path could not be set up")
@@ -107,17 +119,24 @@ def judge(beats: Iterable[Beat], fired_at: float | None, window: float = WINDOW,
         return PathResult(NOT_RUN, window, reason="no heartbeat came after the stop was fired")
     successes = [b.at for b in after if b.ok]
     failures = [b for b in after if not b.ok]
-    common = dict(window=window, last_success_after=max(successes, default=None),
-                  first_failure_after=min((b.at for b in failures), default=None), tries_after=len(after),
-                  failures_after=len(failures), errors=dict(Counter(b.error or "unknown" for b in failures)))
+    first_failure = min((b.at for b in failures), default=None)
+    common = dict(window=window, last_success_after=max(successes, default=None), first_failure_after=first_failure,
+                  tries_after=len(after), failures_after=len(failures),
+                  errors=dict(Counter(b.error or "unknown" for b in failures)),
+                  successes_after_first_refusal=sum(1 for t in successes if first_failure is not None and t > first_failure))
+
+    def effect(stopped_at: float) -> tuple[float, float]:
+        before = max((t for t in successes if t < stopped_at), default=None)
+        low = max(0.0, before - (fired_at + fired_precision)) if before is not None else 0.0
+        return round(low, 3), round(stopped_at - fired_at, 3)
     runs = _runs(after)
     # A run lasts from its first failure to the last heartbeat before the next success, or to the last heartbeat seen.
     last_seen = after[-1].at
     held = [(start, (last if followed else last_seen) - start >= hold, followed) for start, last, followed in runs]
     if any(long_enough and followed for _, long_enough, followed in held):
         flapped_at = next(start for start, long_enough, followed in held if long_enough and followed)
-        return PathResult(FLAPPED, stopped_at=flapped_at, **common)
+        return PathResult(FLAPPED, stopped_at=flapped_at, effect_between=effect(flapped_at), **common)
     final = held[-1] if held else None
     if final is not None and not final[2] and final[1] and final[0] <= fired_at + window:
-        return PathResult(STOPPED, stopped_at=final[0], **common)
+        return PathResult(STOPPED, stopped_at=final[0], effect_between=effect(final[0]), **common)
     return PathResult(NOT_STOPPED, **common)

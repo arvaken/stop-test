@@ -37,12 +37,16 @@ def _plan(args, run_name: str) -> str:
     from arvaken_stop_test.aws import fire
     from arvaken_stop_test.aws.stack import names
     n = names(run_name)
-    reason = fire.why_not(args.stop) if not args.own_trigger else None
+    stop = fire.REVOKE if args.revoke_sessions else args.stop
+    reason = fire.why_not(stop) if not args.own_trigger else None
     lines = [f"Run {run_name} in {args.region}:",
              f"- creates one stack, {n['stack']}: a test agent ({n['function']}), its role and a second role, and a",
              "  bucket of its own, each tagged with the run;",
              (f"- waits for your own trigger, then times what stops; {fire.OWN_TRIGGER_WARNING.split('.')[0]}."
-              if args.own_trigger else f"- attaches your stop, {args.stop}, to the test agent's role alone;"),
+              if args.own_trigger else
+              "- revokes the active sessions of the test agent's role and of the role it became, both made for the "
+              "run, by AWS's own policy (AWSRevokeOlderSessions);" if args.revoke_sessions else
+              f"- attaches your stop, {args.stop}, to the test agent's role alone;"),
              f"- times each path for {int(args.window)} seconds after firing, {args.repeats} time(s);",
              f"- invokes the test agent about {calls_for(args.window, args.repeats)} times;",
              "- then removes the stop it fired and everything it made, and names anything left."]
@@ -61,6 +65,8 @@ def main(argv: list[str] | None = None) -> int:
         a = aws_sub.add_parser(name)
         a.add_argument("--stop", default="", help="your declared stop: a managed policy's ARN")
         a.add_argument("--own-trigger", action="store_true", help="you fire your own stop; the kit watches")
+        a.add_argument("--revoke-sessions", action="store_true",
+                       help="the stop is revoking the active sessions of the agent's role and the role it became")
         a.add_argument("--window", type=_duration, default=WINDOW, help="time after firing, e.g. 15m (default)")
         a.add_argument("--repeats", type=int, default=1, help="1 to 5")
         a.add_argument("--region", required=True)
@@ -84,8 +90,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     from arvaken_stop_test.aws.stack import new_run
-    if args.action in ("plan", "run") and not args.own_trigger and not args.stop:
-        p.error("--stop is required unless you use --own-trigger")
+    if args.action in ("plan", "run"):
+        if sum((bool(args.stop), args.own_trigger, args.revoke_sessions)) != 1:
+            p.error("give one of --stop, --revoke-sessions or --own-trigger")
     run_name = args.run_name or new_run()
     if args.action == "plan":
         print(_plan(args, run_name))
@@ -102,21 +109,24 @@ def main(argv: list[str] | None = None) -> int:
               "Left for you to delete:\n" + "\n".join(r.left_behind))
         return 0
     print(_plan(args, run_name))
-    if not args.own_trigger and fire.why_not(args.stop):
+    stop = fire.REVOKE if args.revoke_sessions else args.stop
+    if not args.own_trigger and fire.why_not(stop):
         return 1
     if args.own_trigger:
         print(fire.OWN_TRIGGER_WARNING)
     if input(f"Type {run_name} to go on: ").strip() != run_name:
         print("Nothing was made.")
         return 1
-    r, doc = running.run(c, args.stop, endpoint=args.endpoint,
+    r, doc = running.run(c, stop, endpoint=args.endpoint,
                          fired_by="your own trigger" if args.own_trigger else "the kit", window=args.window,
                          repeats=args.repeats, run_name=run_name, say=print)
     out = Path(f"stop-test-{run_name}.json")
     out.write_text(json.dumps(doc, indent=1, sort_keys=True), encoding="utf-8")
     Path(f"stop-test-{run_name}.html").write_text(report.page(doc, [d for _, d in running.results(r)]),
                                                   encoding="utf-8")
-    print(f"Wrote {out} and its page. Nothing was sent: submitting the result is your choice.")
+    Path(f"stop-test-{run_name}-details.json").write_text(json.dumps(running.details(r, doc), indent=1),
+                                                          encoding="utf-8")
+    print(f"Wrote {out}, its page and its details. Nothing was sent: submitting the result is your choice.")
     return 0
 
 

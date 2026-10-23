@@ -3,7 +3,12 @@
 The fake holds what the kit's run depends on, as this file's reading of AWS's documented behaviour, not AWS's own
 answer: a managed policy attached to a role takes effect after a propagation delay (8 seconds here); CloudTrail records
 the attach call some time later (two minutes here), its time to the second; a deleted stack is no longer described;
-anything the stack could not delete keeps its tag. Each case's expectations are worked out by hand from those rules."""
+anything the stack could not delete keeps its tag. Each case's expectations are worked out by hand from those rules.
+
+What is gone is answered as AWS answers it, by each service's own error code (NoSuchEntity, ResourceNotFoundException,
+404, and CloudFormation's ValidationError "does not exist"). Revoking a role's sessions (AWSRevokeOlderSessions) denies
+each session of that role issued before its moment, after the same propagation delay; the agent's own session was
+issued before the run, and the second role's when the kit asked the agent to assume it."""
 from __future__ import annotations
 
 import io
@@ -19,6 +24,14 @@ from arvaken_stop_test.aws.stack import INLINE_LIMIT, TAG, agent_code, names, te
 
 T0 = 1_761_220_000.0
 STOP = "arn:aws:iam::111122223333:policy/agent-stop"
+
+
+class ClientError(Exception):
+    """An AWS error as botocore raises it: its code in `response`."""
+
+    def __init__(self, code: str, message: str = ""):
+        super().__init__(message or code)
+        self.response = {"Error": {"Code": code, "Message": message or code}}
 ENDPOINT = "https://stop-test.example/heartbeat"
 
 
@@ -40,7 +53,7 @@ class FakeAWS:
     """One account, as the kit's run sees it."""
 
     def __init__(self, clock: Clock, *, delay=8.0, trail_delay=120.0, skew=0.05, left=(), role_tagged=True,
-                 endpoint_error=None):
+                 endpoint_error=None, log_group=False, bucket_stays=False):
         self.clock, self.delay, self.trail_delay, self.skew = clock, delay, trail_delay, skew
         self.left, self.role_tagged, self.endpoint_error = list(left), role_tagged, endpoint_error
         self.stack = None
@@ -48,15 +61,23 @@ class FakeAWS:
         self.attach_calls: list[float] = []
         self.objects: set[str] = set()
         self.invocations = 0
+        self.revoked: dict[str, tuple[float, float]] = {}      # role -> (sessions before this moment, when it was put)
+        self.put_calls: list[tuple[str, float]] = []
+        self.session_issued: float | None = None
+        self.log_groups = [f"/aws/lambda/arvaken-stop-test-r0123abcd-agent"] if log_group else []
+        self.bucket_stays = bucket_stays
 
     # cloudformation
     def create_stack(self, StackName, TemplateBody, Capabilities, Tags):
         self.stack = {"name": StackName, "template": json.loads(TemplateBody), "status": "CREATE_COMPLETE",
                       "run": Tags[0]["Value"]}
 
+    def gone(self) -> bool:
+        return not self.stack or self.stack["status"] == "DELETED"
+
     def describe_stacks(self, StackName):
-        if not self.stack or self.stack["status"] == "DELETED":
-            raise RuntimeError("Stack does not exist")
+        if self.gone():
+            raise ClientError("ValidationError", f"Stack with id {StackName} does not exist")
         n = names(self.stack["run"])
         return {"Stacks": [{"StackStatus": self.stack["status"], "Outputs": [
             {"OutputKey": "Bucket", "OutputValue": f"{n['stack']}-bucket-abc"},
@@ -81,11 +102,30 @@ class FakeAWS:
         return {"AttachedPolicies": [{"PolicyArn": a} for a in self.attached]}
 
     def list_role_policies(self, RoleName):
-        return {"PolicyNames": ["own-calls"]}
+        return {"PolicyNames": ["own-calls"] + (["AWSRevokeOlderSessions"] if RoleName in self.revoked else [])}
+
+    def put_role_policy(self, RoleName, PolicyName, PolicyDocument):
+        moment = json.loads(PolicyDocument)["Statement"][0]["Condition"]["DateLessThan"]["aws:TokenIssueTime"]
+        before = datetime.fromisoformat(moment.replace("Z", "+00:00")).timestamp()
+        self.revoked[RoleName] = (before, self.clock.now())
+        self.put_calls.append((RoleName, self.clock.now()))
+
+    def delete_role_policy(self, RoleName, PolicyName):
+        self.revoked.pop(RoleName, None)
+
+    def get_role(self, RoleName):
+        if self.gone():
+            raise ClientError("NoSuchEntity", f"The role with name {RoleName} cannot be found.")
+        return {"Role": {"RoleName": RoleName}}
+
+    def revoked_for(self, role_suffix: str, issued: float) -> bool:
+        return any(name.endswith(role_suffix) and issued < before and self.clock.now() >= put + self.delay
+                   for name, (before, put) in self.revoked.items())
 
     # lambda
     def stopped(self) -> bool:
-        return any(self.clock.now() >= at + self.delay for at in self.attached.values())
+        return (any(self.clock.now() >= at + self.delay for at in self.attached.values())
+                or self.revoked_for("-agent", T0 - 3600))            # the agent's own session predates the run
 
     def invoke(self, FunctionName, Payload):
         self.invocations += 1
@@ -95,12 +135,14 @@ class FakeAWS:
         if event.get("action") == "assume":
             if self.stopped():
                 raise RuntimeError("AccessDenied on sts:AssumeRole")
-            body = {"at": agent_now, "session": {"key": "k", "secret": "s", "token": "t"}}
+            self.session_issued = agent_now
+            body = {"at": agent_now, "session": {"key": "k", "secret": "s", "token": "t", "expires": agent_now + 3600}}
         else:
             own = not self.stopped()
             body = {"at": agent_now, "beats": {
                 "own_calls": {"at": agent_now, "ok": own, **({} if own else {"error": "AccessDenied"})},
-                "another_identity": {"at": agent_now, "ok": bool(event.get("session"))},
+                "another_identity": {"at": agent_now, "ok": bool(event.get("session")) and not (
+                    self.session_issued is not None and self.revoked_for("-second", self.session_issued))},
                 **{p: ({"at": agent_now, "ok": False, "error": self.endpoint_error} if self.endpoint_error else
                        {"at": agent_now, "ok": True}) for p in ("outside_key", "open_internet")}}}
             if own:
@@ -109,11 +151,25 @@ class FakeAWS:
         return {"Payload": io.BytesIO(json.dumps(body).encode())}
 
     def get_function(self, FunctionName):
+        if self.gone():
+            raise ClientError("ResourceNotFoundException", f"Function not found: {FunctionName}")
         return {"Configuration": {"State": "Active"}}
+
+    # logs: the function's log group, which Lambda makes only where the function may write logs
+    def describe_log_groups(self, logGroupNamePrefix):
+        return {"logGroups": [{"logGroupName": g} for g in self.log_groups if g.startswith(logGroupNamePrefix)]}
+
+    def delete_log_group(self, logGroupName):
+        self.log_groups.remove(logGroupName)
 
     # s3
     def list_objects_v2(self, Bucket):
         return {"Contents": [{"Key": k} for k in sorted(self.objects)][:1000]}
+
+    def head_bucket(self, Bucket):
+        if self.gone() and not self.bucket_stays:
+            raise ClientError("404", "Not Found")
+        return {}
 
     def delete_objects(self, Bucket, Delete):
         for o in Delete["Objects"]:
@@ -121,9 +177,11 @@ class FakeAWS:
 
     # cloudtrail
     def lookup_events(self, LookupAttributes, StartTime, EndTime):
-        return {"Events": [{"EventName": "AttachRolePolicy", "EventTime": datetime.fromtimestamp(int(at), tz=timezone.utc)}
-                           for at in self.attach_calls
-                           if StartTime <= at <= EndTime and self.clock.now() >= at + self.trail_delay]}
+        role = LookupAttributes[0]["AttributeValue"]
+        calls = [("AttachRolePolicy", at) for at in self.attach_calls if role.endswith("-agent")]
+        calls += [("PutRolePolicy", at) for name, at in self.put_calls if name == role]
+        return {"Events": [{"EventName": name, "EventTime": datetime.fromtimestamp(int(at), tz=timezone.utc)}
+                           for name, at in calls if StartTime <= at <= EndTime and self.clock.now() >= at + self.trail_delay]}
 
     # tagging
     def get_resources(self, TagFilters):
@@ -132,13 +190,14 @@ class FakeAWS:
 
 def clients(aws: FakeAWS) -> running.Clients:
     return running.Clients(cloudformation=aws, iam=aws, lambda_=aws, s3=aws, cloudtrail=aws, tagging=aws,
-                           region="eu-central-1")
+                           region="eu-central-1", logs=aws)
 
 
 def a_run(aws: FakeAWS, clock: Clock, **over):
     kw = dict(endpoint=ENDPOINT, window=60.0, clock=running.Clock(clock.now, clock.sleep), run_name="r0123abcd")
     kw.update(over)
-    return running.run(clients(aws), STOP, **kw)
+    stop = kw.pop("stop_ref", STOP)
+    return running.run(clients(aws), stop, **kw)
 
 
 def test_a_run_fires_the_stop_on_the_test_agent_alone_and_times_each_path():
@@ -181,11 +240,45 @@ def test_a_role_not_the_runs_own_is_never_fired_on_and_the_run_is_still_torn_dow
     assert not aws.attach_calls and aws.stack["status"] == "DELETED"
 
 
-def test_anything_left_is_named_for_the_customer_to_delete():
+def test_anything_left_is_named_for_the_customer_to_delete_by_its_own_identifier():
+    """A bucket the stack could not delete is found by its name, and its tag names it only once; anything else with
+    the run's tag is named by its ARN."""
     clock = Clock()
-    left = "arn:aws:s3:::arvaken-stop-test-r0123abcd-bucket-abc"
-    _, doc = a_run(FakeAWS(clock, left=[left]), clock)
-    assert (doc["run"]["left_anything"], doc["run"]["left_behind"]) == (True, [left])
+    bucket = "arn:aws:s3:::arvaken-stop-test-r0123abcd-bucket-abc"
+    other = "arn:aws:ec2:eu-central-1:111122223333:security-group/sg-0abc"
+    r, doc = a_run(FakeAWS(clock, left=[bucket, other], bucket_stays=True), clock)
+    assert doc["run"]["left_behind"] == sorted(["the bucket arvaken-stop-test-r0123abcd-bucket-abc", other])
+    assert doc["run"]["left_anything"] is True
+
+
+def test_the_teardown_checks_each_thing_gone_by_its_identifier_and_removes_a_log_group():
+    """Lambda makes a function's log group only where the function may write logs, which the test agent may not; if
+    one is there all the same, the kit deletes it, and checks it gone like everything else it made."""
+    clock = Clock()
+    aws = FakeAWS(clock, log_group=True)
+    r, doc = a_run(aws, clock)
+    assert doc["run"]["left_behind"] == [] and aws.log_groups == []
+    assert r.checked_gone == ["the stack arvaken-stop-test-r0123abcd", "the function arvaken-stop-test-r0123abcd-agent",
+                              "the role arvaken-stop-test-r0123abcd-agent", "the role arvaken-stop-test-r0123abcd-second",
+                              "the bucket arvaken-stop-test-r0123abcd-bucket-abc",
+                              "the log group /aws/lambda/arvaken-stop-test-r0123abcd-agent"]
+
+
+def test_time_to_effect_is_a_range_and_successes_after_the_first_refusal_are_counted():
+    """CloudTrail gives the attach call's whole second; the stop took hold 8 seconds after the call; the kit's
+    heartbeat comes every 1.2 seconds (two 0.1 s legs and a 1 s sleep). So the range runs from the last success before
+    the refusals, less the call's second, to the first refusal."""
+    clock = Clock()
+    aws = FakeAWS(clock)
+    r, doc = a_run(aws, clock)
+    found = running.results(r)[0][1]["own_calls"]
+    fired = int(aws.attach_calls[0])
+    low, high = found.effect_between
+    assert found.fired_source == "CloudTrail's record of the call, to the whole second"
+    assert high == pytest.approx(found.stopped_at - fired, abs=0.001) and 8.0 <= high <= 8.0 + 1.0 + 1.2 + aws.skew
+    assert low == pytest.approx(found.last_success_after - (fired + 1.0), abs=0.001) and low < 8.0 + 0.0 < high + 1.0
+    assert found.successes_after_first_refusal == 0
+    assert running.results(r)[0][1]["another_identity"].keeps_working_until is not None
 
 
 def test_without_cloudtrails_record_the_firing_moment_is_the_kits_own_clock_moved_onto_the_agents():
@@ -248,3 +341,22 @@ def test_a_path_that_never_worked_before_the_stop_is_not_run_and_the_page_says_w
     page = report.page(doc, [d for _, d in running.results(r)])
     assert page.count(f"the path could not be set up: HTTP403 {running.WARM_UP}") == 2
     assert "HTTP403" not in json.dumps(doc) and result.check(doc)
+
+
+def test_revoking_sessions_reaches_the_session_the_agent_took_for_the_role_it_became():
+    """The second kind (the founder, 23 October 2026: "both roles, K4 widened"): revoked on the agent's role and on its
+    second role, each path is timed from the call on its own role, and both are put back off between repeats."""
+    clock = Clock()
+    aws = FakeAWS(clock)
+    r, doc = a_run(aws, clock, stop_ref=firing.REVOKE, repeats=2)
+    assert doc["stop"] == {"kind": "revoke active sessions", "fired_by": "the kit", "ref": "revoke active sessions"}
+    assert [{p: v["outcome"] for p, v in rep.items()} for rep in doc["repeats"]] == [{
+        "own_calls": "stopped", "another_identity": "stopped", "outside_key": "not stopped",
+        "open_internet": "not stopped"}] * 2
+    assert len(aws.put_calls) == 4 and not aws.revoked and not aws.attach_calls
+    second = [at for name, at in aws.put_calls if name.endswith("-second")]
+    assert doc["repeats"][0]["another_identity"]["fired_at"] == running._iso(float(int(second[0])))
+    assert running.results(r)[0][1]["another_identity"].keeps_working_until is None
+    details = running.details(r, doc)
+    assert details["repeats"][0]["another_identity"]["effect_between_seconds"][1] >= 8.0
+    assert details["checked_gone"] and details["left_behind"] == []

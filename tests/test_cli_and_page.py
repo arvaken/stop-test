@@ -62,3 +62,29 @@ def test_cloudtrail_is_asked_where_iams_calls_are_recorded(monkeypatch):
     c = clients_for("eu-central-1")
     assert c.cloudtrail.meta.region_name == "us-east-1"
     assert c.lambda_.meta.region_name == c.cloudformation.meta.region_name == c.region == "eu-central-1"
+
+
+def test_a_run_names_one_kind_of_stop_and_revoking_says_what_it_reaches(capsys):
+    import pytest
+    for both in (["--stop", "arn:aws:iam::aws:policy/AWSDenyAll", "--revoke-sessions"], []):
+        with pytest.raises(SystemExit):
+            cli.main(["aws", "plan", "--region", "eu-central-1", *both])
+    assert "give one of --stop, --revoke-sessions or --own-trigger" in capsys.readouterr().err
+    cli.main(["aws", "plan", "--revoke-sessions", "--region", "eu-central-1", "--run", "r0123abcd"])
+    out = capsys.readouterr().out
+    assert "revokes the active sessions of the test agent's role and of the role it became" in out
+    assert "It will not run" not in out
+
+
+def test_the_page_gives_time_to_effect_as_a_range_the_successes_after_a_refusal_and_a_sessions_expiry():
+    clock = Clock()
+    r, doc = a_run(FakeAWS(clock), clock)
+    from arvaken_stop_test.aws.run import results
+    page = report.page(doc, [d for _, d in results(r)])
+    found = results(r)[0][1]["own_calls"]
+    low, high = found.effect_between
+    assert f"took effect {low:.1f} to {high:.1f} seconds after the stop was fired" in page
+    assert "0 successful call(s) after its first refusal" in page
+    assert "keeps working until" in page and "when its session expires" in page
+    assert "CloudTrail&#x27;s record of the call, to the whole second" in page    # the page escapes what it writes
+    assert "took effect" not in json.dumps(doc) and "keeps_working" not in json.dumps(doc)

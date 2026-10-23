@@ -65,7 +65,7 @@ def handler(event, context):
         c = sts.assume_role(RoleArn=os.environ["SECOND_ROLE"], RoleSessionName="arvaken-stop-test",
                             DurationSeconds=3600)["Credentials"]
         return {"at": time.time(), "session": {"key": c["AccessKeyId"], "secret": c["SecretAccessKey"],
-                                               "token": c["SessionToken"]}}
+                                               "token": c["SessionToken"], "expires": c["Expiration"].timestamp()}}
     s3 = boto3.client("s3", config=CONFIG)
     n = str(event.get("n", 0))
 

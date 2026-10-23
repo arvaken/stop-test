@@ -57,7 +57,10 @@ def iso(t: float | None) -> str | None:
 
 
 def path_part(r: PathResult, fired_at: float | None) -> dict[str, Any]:
-    return {"fired_at": iso(fired_at), "last_success_after": iso(r.last_success_after),
+    """One path's part: its own firing moment where it has one (revoking sessions fires on two roles), else its
+    repeat's."""
+    return {"fired_at": iso(r.fired_at if r.fired_at is not None else fired_at),
+            "last_success_after": iso(r.last_success_after),
             "first_refused_after": iso(r.first_failure_after), "outcome": r.outcome}
 
 
