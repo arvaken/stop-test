@@ -50,3 +50,15 @@ def test_the_page_shows_expected_beside_found_and_keeps_error_codes_off_the_resu
     assert "AccessDenied" in page and "AccessDenied" not in json.dumps(doc)
     assert "Nothing the kit made was left." in page and "<script" not in page
     assert result.check(doc)
+
+
+def test_cloudtrail_is_asked_where_iams_calls_are_recorded(monkeypatch):
+    """IAM's calls are in us-east-1's event history whatever region the run is in (read in install-test, 23 October
+    2026); the fake in test_aws_run.py answers from one account and cannot hold this, so it is held here."""
+    from arvaken_stop_test.aws.boto import clients_for, trail_region
+    assert trail_region("eu-central-1") == trail_region("us-east-1") == trail_region("ap-southeast-2") == "us-east-1"
+    assert trail_region("us-gov-west-1") == "us-gov-west-1" and trail_region("cn-north-1") == "cn-north-1"
+    monkeypatch.delenv("AWS_PROFILE", raising=False)              # clients are made without credentials
+    c = clients_for("eu-central-1")
+    assert c.cloudtrail.meta.region_name == "us-east-1"
+    assert c.lambda_.meta.region_name == c.cloudformation.meta.region_name == c.region == "eu-central-1"
