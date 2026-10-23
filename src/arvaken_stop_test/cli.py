@@ -17,6 +17,12 @@ from arvaken_stop_test.timing import HOLD, WINDOW
 ENDPOINT = "https://stop-test.arvaken.com"        # Arvaken's test endpoint (D532, K3); see endpoint/ in this repository
 
 
+def write(path: Path, text: str) -> None:
+    """Every file the kit writes: UTF-8, with LF line endings on every platform, so a result's bytes and their SHA-256
+    are the same wherever the kit ran (D536). Python's own default writes CRLF on Windows."""
+    path.write_text(text, encoding="utf-8", newline="\n")
+
+
 def _duration(text: str) -> float:
     text = text.strip().lower()
     if text.endswith("m"):
@@ -83,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     clean = aws_sub.add_parser("clean", help="remove what an interrupted run left")
     clean.add_argument("--run", dest="run_name", required=True)
     clean.add_argument("--region", required=True)
-    clean.add_argument("--stop", default="")
+    clean.add_argument("--stop", default="", help="the policy's ARN, if the run attached your managed policy")
     verify = sub.add_parser("verify", help="check a result file's format and signature")
     verify.add_argument("file", type=Path)
     args = p.parse_args(argv)
@@ -112,6 +118,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.action == "clean":
         r = running.Run(run=run_name, stop_ref=args.stop, fired_by="the kit", window=0.0, region=args.region)
         r.outputs = running.outputs_of(c, run_name)
+        # The stops the kit writes itself, on the run's own roles, are taken off whichever kind the run fired: an
+        # interrupted run's roles cannot be deleted with them on. A managed policy of yours is named with --stop.
+        for written in (fire.INLINE, fire.REVOKE):
+            try:
+                fire.remove(c.iam, run_name, written)
+            except Exception:  # noqa: BLE001 - a role already gone has no stop on it
+                pass
         running.tear_down(c, r, running.Clock())
         print("Nothing the kit made is left." if not r.left_behind else
               "Left for you to delete:\n" + "\n".join(r.left_behind))
@@ -129,12 +142,10 @@ def main(argv: list[str] | None = None) -> int:
                          fired_by="your own trigger" if args.own_trigger else "the kit", window=args.window,
                          repeats=args.repeats, run_name=run_name, say=print)
     out = Path(f"stop-test-{run_name}.json")
-    out.write_text(json.dumps(doc, indent=1, sort_keys=True), encoding="utf-8")
-    Path(f"stop-test-{run_name}.html").write_text(report.page(doc, [d for _, d in running.results(r)]),
-                                                  encoding="utf-8")
-    Path(f"stop-test-{run_name}-details.json").write_text(json.dumps(running.details(r, doc), indent=1),
-                                                          encoding="utf-8")
-    print(f"Wrote {out}, its page and its details. Nothing was sent: submitting the result is your choice.")
+    write(out, json.dumps(doc, indent=1, sort_keys=True))
+    write(Path(f"stop-test-{run_name}.html"), report.page(doc, [d for _, d in running.results(r)]))
+    write(Path(f"stop-test-{run_name}-details.json"), json.dumps(running.details(r, doc), indent=1))
+    print(f"Wrote {out}, its page and its details. Nothing about your account was sent to Arvaken.")
     return 0
 
 

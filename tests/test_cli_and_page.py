@@ -41,6 +41,52 @@ def test_verify_says_what_a_signature_shows_and_refuses_a_changed_file(tmp_path,
     assert cli.main(["verify", str(bad)]) == 1
 
 
+def test_a_run_writes_its_three_files_with_lf_on_every_platform(tmp_path, monkeypatch, capsys):
+    """The result, its page and its details are written with LF, never the platform's CRLF, so their SHA-256 is the
+    same wherever the kit ran (D536). CI runs this on Windows as well as Linux, where Python's default would be CRLF."""
+    from arvaken_stop_test.aws import boto
+    from arvaken_stop_test.aws import run as running
+    clock = Clock()
+    made = a_run(FakeAWS(clock), clock)
+    monkeypatch.setattr(boto, "clients_for", lambda region: None)
+    monkeypatch.setattr(running, "run", lambda *a, **kw: made)
+    monkeypatch.setattr("builtins.input", lambda prompt: "r0123abcd")
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["aws", "run", "--inline-deny", "--region", "eu-central-1", "--run", "r0123abcd"]) == 0
+    assert ("Wrote stop-test-r0123abcd.json, its page and its details. Nothing about your account was sent to "
+            "Arvaken.") in capsys.readouterr().out
+    names = ("stop-test-r0123abcd.json", "stop-test-r0123abcd.html", "stop-test-r0123abcd-details.json")
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted(names)
+    for name in names:
+        written = (tmp_path / name).read_bytes()
+        assert b"\n" in written and b"\r" not in written, name
+    assert json.loads((tmp_path / names[0]).read_bytes()) == made[1]
+
+
+def test_clean_takes_off_the_stops_the_kit_writes_itself_after_an_interrupted_run(monkeypatch, capsys):
+    """An interrupted --inline-deny or --revoke-sessions run leaves the kit's own policy on the run's roles; `clean`
+    takes it off with no --stop, so the stack's roles can be deleted."""
+    from arvaken_stop_test.aws import boto
+    from arvaken_stop_test.aws import fire
+    from arvaken_stop_test.aws import run as running
+    from test_aws_run import ENDPOINT, clients
+    for kind in (fire.INLINE, fire.REVOKE):
+        clock = Clock()
+        aws = FakeAWS(clock)
+        c = clients(aws)
+        r = running.Run(run="r0123abcd", stop_ref=kind, fired_by="the kit", window=60.0)
+        running.deploy(c, r, ENDPOINT, running.Clock(clock.now, clock.sleep))
+        if kind == fire.INLINE:
+            fire.fire(aws, "r0123abcd", kind, now=clock.now)
+        else:
+            fire.revoke(aws, "r0123abcd", before=clock.now(), now=clock.now)
+        assert aws.inline or aws.revoked                              # interrupted here, the stop still on
+        monkeypatch.setattr(boto, "clients_for", lambda region: c)
+        assert cli.main(["aws", "clean", "--run", "r0123abcd", "--region", "eu-central-1"]) == 0
+        assert not aws.inline and not aws.revoked and aws.stack["status"] == "DELETED", kind
+        assert "Nothing the kit made is left." in capsys.readouterr().out
+
+
 def test_the_page_shows_expected_beside_found_and_keeps_error_codes_off_the_result():
     clock = Clock()
     r, doc = a_run(FakeAWS(clock), clock)

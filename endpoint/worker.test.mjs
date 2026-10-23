@@ -29,7 +29,18 @@ test("it writes no log and keeps nothing: no console call, no storage binding", 
   const fs = await import("node:fs");
   const source = fs.readFileSync(new URL("./worker.js", import.meta.url), "utf8");
   assert.ok(!/console\./.test(source.replace(/^\s*\/\/.*$/gm, "")));
-  const config = fs.readFileSync(new URL("./wrangler.toml", import.meta.url), "utf8");
-  assert.match(config, /\[observability\]\s*\nenabled = false\s*\nlogpush = false/);
-  assert.ok(!/kv_namespaces|d1_databases|r2_buckets|durable_objects|analytics_engine/.test(config));
+  const config = fs.readFileSync(new URL("./wrangler.toml", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  // Each table's own lines, comments dropped: "" is the top level, before the first [table].
+  const tables = { "": [] };
+  let table = "";
+  for (const line of config.split("\n").map((l) => l.replace(/#.*$/, "").trim()).filter(Boolean)) {
+    const header = /^\[+([^\]]+)\]+$/.exec(line);
+    if (header) tables[(table = header[1].trim())] = [];
+    else tables[table].push(line);
+  }
+  // Workers Logs off, no Logpush, no tail consumer, as the record's own verify page holds its own (apps/verify).
+  assert.ok(tables[""].includes("logpush = false"), "logpush = false at the top level, where wrangler reads it");
+  assert.deepEqual(tables.observability, ["enabled = false"]);
+  assert.deepEqual(Object.keys(tables).sort(), ["", "observability"]);
+  assert.ok(!/tail_consumers|kv_namespaces|d1_databases|r2_buckets|durable_objects|analytics_engine/.test(config));
 });

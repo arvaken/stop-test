@@ -82,7 +82,7 @@ test agent's were {doc['run']['clock_gap_ms']} ms apart.</p>
 </tbody></table>
 <p>{left}</p>
 <p>{html.escape(_source(details))}</p>
-<p>This page stays on your machine. The result file beside it is what you may choose to submit; it holds no error
-codes and nothing of your agents' work.</p>
+<p>This page stays on your machine. The result file beside it holds no error codes and nothing of your agents'
+work.</p>
 </body></html>
 """

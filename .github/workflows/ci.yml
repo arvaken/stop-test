@@ -11,7 +11,12 @@ permissions:
 # Each action pinned to a full commit SHA, its release in a comment; uv and Python to exact versions.
 jobs:
   test:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows too: there Python writes CRLF unless told otherwise, and the kit's files must be LF everywhere.
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -23,6 +28,23 @@ jobs:
           python-version: "3.12.14"
       - run: uv sync --locked --extra aws        # the AWS module's clients are tested too
       - run: uv run python -m pytest -q -rsf
+
+  # The package a release from this commit would publish, and its SHA-256: the build is pinned (pyproject.toml), so
+  # release.yml makes the same bytes from the same commit.
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: "0.12.23"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12.14"
+      - run: uv build --out-dir dist
+      - run: sha256sum -- *.whl *.tar.gz | tee SHA256SUMS
+        working-directory: dist
 
   endpoint:
     runs-on: ubuntu-24.04

@@ -1,0 +1,67 @@
+name: release
+
+# A release is made only from a version tag a maintainer pushes, on a commit already on main. Its tests run again; the
+# package is built (pinned, so the same commit gives the same bytes as ci.yml's build); each file's SHA-256 is written
+# to SHA256SUMS; and each file, SHA256SUMS included, is signed with Sigstore's keyless signing as this workflow's own
+# identity, so each signature is recorded in the public Rekor log (D539). Nothing here holds a key.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+# Each action pinned to a full commit SHA, its release in a comment; uv and Python to exact versions.
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write         # to publish the release
+      id-token: write         # Sigstore's keyless signing: the identity GitHub gives this workflow's run
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: "0.12.23"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12.14"
+      - name: The tag is the package's version, on a commit on main
+        run: |
+          version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          test "$GITHUB_REF_NAME" = "v$version" || { echo "the tag $GITHUB_REF_NAME is not v$version"; exit 1; }
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "$GITHUB_SHA is not on main"; exit 1; }
+      - run: uv sync --locked --extra aws
+      - run: uv run python -m pytest -q -rsf
+      - run: uv build --out-dir dist
+      - run: sha256sum -- *.whl *.tar.gz | tee SHA256SUMS
+        working-directory: dist
+      - uses: sigstore/gh-action-sigstore-python@790bc6befb9d733738f18d8f895854b453640ec9 # v3.5.0
+        with:
+          inputs: ./dist/*.whl ./dist/*.tar.gz ./dist/SHA256SUMS
+          verify: true
+          verify-cert-identity: https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}
+          verify-oidc-issuer: https://token.actions.githubusercontent.com
+          release-signing-artifacts: false      # this job publishes the release itself, below
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          {
+            echo "The stop test kit, version $version. How to install it, check it and run it: README.md."
+            echo
+            echo "SHA-256 of each file:"
+            echo
+            echo '```'
+            cat dist/SHA256SUMS
+            echo '```'
+            echo
+            echo "Each file is signed with Sigstore's keyless signing by this repository's release workflow. Its"
+            echo "signature is beside it (.sigstore.json) and is recorded in the public Rekor log."
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md

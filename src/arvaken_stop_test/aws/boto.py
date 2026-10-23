@@ -17,7 +17,7 @@ def clients_for(region: str) -> Clients:
         import boto3
         import botocore.config
     except ImportError as e:  # pragma: no cover - said, with the fix
-        raise SystemExit("The AWS module needs boto3: pip install 'arvaken-stop-test[aws]'") from e
+        raise SystemExit("The AWS module needs boto3: install the kit with its aws extra, as its README says.") from e
     config = botocore.config.Config(retries={"max_attempts": 3, "mode": "standard"})
     session = boto3.Session(region_name=region)
     make = lambda name: session.client(name, config=config)  # noqa: E731
