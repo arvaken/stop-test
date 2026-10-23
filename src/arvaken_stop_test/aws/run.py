@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -121,6 +122,27 @@ def outputs_of(c: Clients, run: str) -> dict[str, str]:
     return {o["OutputKey"]: o["OutputValue"] for o in found.get("Outputs", [])}
 
 
+# Lambda's own refusals to run the test agent. While Lambda refuses, the agent makes no call on any path, so each path
+# counts each refusal as refused, by Lambda's code: the stop has stopped the agent itself. Arvaken's inline measurement
+# found the first (23 October 2026): with a deny-all policy written on the agent's role, once Lambda needed a new
+# environment for the agent, it refused the invocation, as it decrypts the agent's environment as that role. A function
+# your own trigger deleted, or set to no concurrency, is refused the same way. Anything else from Invoke (the kit's own
+# credentials expiring, say) is not the stop, and ends the run as before: it must never read as a path stopped.
+LAMBDA_REFUSED = ("KMSAccessDeniedException", "KMSDisabledException", "KMSInvalidStateException",
+                  "KMSNotFoundException", "ResourceNotFoundException")
+NO_CONCURRENCY = "ReservedFunctionConcurrentInvocationLimitExceeded"
+REFUSED = "Lambda refused: "          # the prefix of such a beat's error, so the page can say what it was
+
+
+def refused_by_lambda(e: Exception) -> str | None:
+    """Lambda's code, where an Invoke error is Lambda refusing to run the agent; else None."""
+    response = getattr(e, "response", None) or {}
+    code = response.get("Error", {}).get("Code")
+    if code in LAMBDA_REFUSED or (code == "TooManyRequestsException" and response.get("Reason") == NO_CONCURRENCY):
+        return code
+    return None
+
+
 def _invoke(c: Clients, r: Run, payload: dict, clock: Clock) -> tuple[dict, float, float]:
     sent = clock.now()
     response = c.lambda_.invoke(FunctionName=names(r.run)["function"], Payload=json.dumps(payload).encode())
@@ -133,9 +155,21 @@ def assume(c: Clients, r: Run, clock: Clock) -> dict:
     return body["session"]
 
 
-def heartbeat(c: Clients, r: Run, n: int, session: dict, clock: Clock) -> tuple[dict[str, Beat], float, float, float]:
-    """One heartbeat: each path's result, the kit's clock when it was asked and answered, and the agent's own clock."""
-    body, sent, received = _invoke(c, r, {"n": n, "session": session}, clock)
+def heartbeat(c: Clients, r: Run, n: int, session: dict,
+              clock: Clock) -> tuple[dict[str, Beat], float, float, float | None]:
+    """One heartbeat: each path's result, the kit's clock when it was asked and answered, and the agent's own clock.
+    Where Lambda refused to run the agent, each path's beat is that refusal, at the kit's clock moved onto the agent's,
+    and the agent's own clock is None: it did not run."""
+    sent = clock.now()
+    try:
+        body, sent, received = _invoke(c, r, {"n": n, "session": session}, clock)
+    except Exception as e:
+        code = refused_by_lambda(e)
+        if code is None:
+            raise
+        received = clock.now()
+        at = (sent + received) / 2 + r.offset
+        return {p: Beat(at, False, REFUSED + code) for p in AWS_PATHS}, sent, received, None
     beats = {p: Beat(float(b["at"]), bool(b["ok"]), b.get("error")) for p, b in (body.get("beats") or {}).items()}
     r.calls += len(beats)
     return beats, sent, received, float(body["at"])
@@ -152,7 +186,7 @@ def warm_up(c: Clients, r: Run, session: dict, clock: Clock) -> None:
                 codes = r.setup_errors.setdefault(p, {})
                 codes[b.error or "unknown"] = codes.get(b.error or "unknown", 0) + 1
         trip = received - sent
-        if best is None or trip < best[0]:
+        if agent_at is not None and (best is None or trip < best[0]):
             best = (trip, agent_at - (sent + received) / 2)
         clock.sleep(1.0)
     r.offset = best[1] if best else 0.0
@@ -395,9 +429,12 @@ def details(r: Run, doc: dict) -> dict:
             "last_success": _iso(f.last_success_after), "tries_after": f.tries_after, "failures_after": f.failures_after,
             "errors": f.errors, "reason": f.reason, "keeps_working_until": _iso(f.keeps_working_until)}
             for p, f in found.items()})
+    # each repeat's refusals by Lambda to run the agent at all, by Lambda's code: every path counts each one
+    refused = [dict(Counter(b.error.removeprefix(REFUSED) for b in rep.beats.get("own_calls", [])
+                            if b.error and b.error.startswith(REFUSED))) for rep in r.repeats]
     return {"format": "stop-test-details/1", "run": r.run, "result_signature": doc["signature"],
             "stop_kind": r.stop_kind, "window_seconds": r.window, "left_behind": r.left_behind,
-            "checked_gone": r.checked_gone, "repeats": repeats}
+            "checked_gone": r.checked_gone, "repeats": repeats, "lambda_refused": refused}
 
 
 def the_result(r: Run, key=None) -> dict:

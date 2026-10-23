@@ -29,9 +29,9 @@ STOP = "arn:aws:iam::111122223333:policy/agent-stop"
 class ClientError(Exception):
     """An AWS error as botocore raises it: its code in `response`."""
 
-    def __init__(self, code: str, message: str = ""):
+    def __init__(self, code: str, message: str = "", **fields):
         super().__init__(message or code)
-        self.response = {"Error": {"Code": code, "Message": message or code}}
+        self.response = {"Error": {"Code": code, "Message": message or code}, **fields}
 ENDPOINT = "https://stop-test.example/heartbeat"
 
 
@@ -53,7 +53,7 @@ class FakeAWS:
     """One account, as the kit's run sees it."""
 
     def __init__(self, clock: Clock, *, delay=8.0, trail_delay=120.0, skew=0.05, left=(), role_tagged=True,
-                 endpoint_error=None, log_group=False, bucket_stays=False):
+                 endpoint_error=None, log_group=False, bucket_stays=False, cold_after=None, invoke_error=None):
         self.clock, self.delay, self.trail_delay, self.skew = clock, delay, trail_delay, skew
         self.left, self.role_tagged, self.endpoint_error = list(left), role_tagged, endpoint_error
         self.stack = None
@@ -67,6 +67,12 @@ class FakeAWS:
         self.session_issued: float | None = None
         self.log_groups = [f"/aws/lambda/arvaken-stop-test-r0123abcd-agent"] if log_group else []
         self.bucket_stays = bucket_stays
+        # Lambda refusing to run the agent: `cold_after` seconds after a stop on its role took hold, Lambda needs a new
+        # environment and cannot decrypt its environment as the role (KMSAccessDeniedException) while the stop is on;
+        # a function set to no concurrency is throttled. `invoke_error` is any other error from Invoke after the stop.
+        self.cold_after, self.invoke_error = cold_after, invoke_error
+        self.stopped_from: float | None = None
+        self.concurrency: int | None = None
 
     # cloudformation
     def create_stack(self, StackName, TemplateBody, Capabilities, Tags):
@@ -139,6 +145,20 @@ class FakeAWS:
     def invoke(self, FunctionName, Payload):
         self.invocations += 1
         self.clock.t += 0.1                       # the call's way there; the agent stamps its time; and back (below)
+        stopped = self.stopped()
+        self.stopped_from = (self.stopped_from or self.clock.now()) if stopped else None
+        refusal = None
+        if self.concurrency == 0:
+            refusal = ClientError("TooManyRequestsException", "Rate Exceeded.",
+                                  Reason="ReservedFunctionConcurrentInvocationLimitExceeded")
+        elif stopped and self.cold_after is not None and self.clock.now() >= self.stopped_from + self.cold_after:
+            refusal = ClientError("KMSAccessDeniedException", "Lambda was unable to decrypt the environment variables "
+                                  "because KMS access was denied.")
+        elif stopped and self.invoke_error:
+            refusal = ClientError(self.invoke_error)
+        if refusal:
+            self.clock.t += 0.1
+            raise refusal
         event = json.loads(Payload)
         agent_now = self.clock.now() + self.skew
         if event.get("action") == "assume":
@@ -162,7 +182,9 @@ class FakeAWS:
     def get_function(self, FunctionName):
         if self.gone():
             raise ClientError("ResourceNotFoundException", f"Function not found: {FunctionName}")
-        return {"Configuration": {"State": "Active"}}
+        return {"Configuration": {"State": "Active"},
+                **({"Concurrency": {"ReservedConcurrentExecutions": self.concurrency}}
+                   if self.concurrency is not None else {})}
 
     # logs: the function's log group, which Lambda makes only where the function may write logs
     def describe_log_groups(self, logGroupNamePrefix):
@@ -385,3 +407,54 @@ def test_a_policy_written_on_the_agents_role_is_a_kind_of_its_own_and_stops_its_
     found = running.results(r)[0][1]["own_calls"]
     assert found.fired_source == "CloudTrail's record of the call, to the whole second" and found.effect_between[1] >= 8.0
     assert doc["run"]["left_behind"] == []
+
+
+def test_lambda_refusing_to_run_the_agent_is_timed_on_every_path_not_a_crash():
+    """Arvaken's inline measurement (23 October 2026): with a deny-all policy written on the agent's role, once Lambda
+    needed a new environment for the agent it refused the invocation (KMSAccessDeniedException), and the kit crashed.
+    While Lambda refuses, the agent makes no call on any path, so each path counts each refusal as refused."""
+    clock = Clock()
+    aws = FakeAWS(clock, cold_after=20.0)
+    r, doc = a_run(aws, clock, stop_ref=firing.INLINE, repeats=2)
+    assert [{p: v["outcome"] for p, v in rep.items()} for rep in doc["repeats"]] == [
+        {p: "stopped" for p in running.AWS_PATHS}] * 2
+    found = running.results(r)[0][1]
+    assert found["own_calls"].effect_between[1] < found["open_internet"].effect_between[1]   # its own calls first
+    assert found["open_internet"].errors == {running.REFUSED + "KMSAccessDeniedException": found["open_internet"]
+                                             .failures_after}
+    details = running.details(r, doc)
+    assert [set(d) for d in details["lambda_refused"]] == [{"KMSAccessDeniedException"}] * 2
+    assert doc["run"]["calls"] < aws.invocations * 4                  # a refused invocation made no call
+    from arvaken_stop_test import report
+    page = report.page(doc, [d for _, d in running.results(r)])
+    assert ("Lambda refused to run the test agent (KMSAccessDeniedException). While it refused, the agent made no call "
+            "on any path, and each path counts each refusal as refused.") in page
+    assert "as when a stop on the role denies it while Lambda starts a new environment for the agent" in page
+    assert "KMS" not in json.dumps(doc) and "refused:" not in json.dumps(doc) and result.check(doc)
+    assert not aws.inline and aws.stack["status"] == "DELETED" and doc["run"]["left_behind"] == []
+
+
+def test_a_function_your_own_trigger_set_to_no_concurrency_is_timed_as_refused():
+    clock = Clock()
+    aws = FakeAWS(clock)
+
+    def the_customer(t):                     # 20 seconds into watching, the customer's own trigger stops the function
+        if aws.concurrency is None and aws.stack and aws.invocations > running.WARM_UP + 1 and t >= T0 + 40:
+            aws.concurrency = 0
+    clock.hooks.append(the_customer)
+    r, doc = a_run(aws, clock, fired_by="your own trigger")
+    assert {p: v["outcome"] for p, v in doc["repeats"][0].items()} == {p: "stopped" for p in running.AWS_PATHS}
+    refusals = [b for b in r.repeats[0].beats["own_calls"] if b.error == running.REFUSED + "TooManyRequestsException"]
+    assert running.details(r, doc)["lambda_refused"] == [{"TooManyRequestsException": len(refusals)}]
+    assert len(refusals) >= running.results(r)[0][1]["own_calls"].failures_after > 0
+
+
+def test_any_other_error_from_invoke_ends_the_run_and_is_never_read_as_stopped():
+    """The kit's own credentials expiring is not the stop: the run ends, torn down, and writes no result."""
+    clock = Clock()
+    aws = FakeAWS(clock, invoke_error="ExpiredTokenException")
+    with pytest.raises(ClientError, match="ExpiredTokenException"):
+        a_run(aws, clock, stop_ref=firing.INLINE)
+    assert not aws.inline and aws.stack["status"] == "DELETED"
+    assert running.refused_by_lambda(ClientError("ExpiredTokenException")) is None
+    assert running.refused_by_lambda(ClientError("TooManyRequestsException")) is None           # a throttle, not 0

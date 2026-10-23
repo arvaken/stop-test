@@ -46,6 +46,21 @@ def _source(details: list[Mapping[str, PathResult]] | None) -> str:
             "the stop, less that moment's precision, to the first refusal that it held from.")
 
 
+def _refused(details: list[Mapping[str, PathResult]] | None) -> str:
+    """Where Lambda refused to run the test agent: that, and what it means for every path."""
+    from arvaken_stop_test.aws.run import REFUSED
+    codes = sorted({code.removeprefix(REFUSED) for d in details or [] for f in d.values() for code in f.errors
+                    if code.startswith(REFUSED)})
+    if not codes:
+        return ""
+    said = (f"Lambda refused to run the test agent ({', '.join(codes)}). While it refused, the agent made no call on "
+            "any path, and each path counts each refusal as refused.")
+    if "KMSAccessDeniedException" in codes:
+        said += (" Lambda gives KMSAccessDeniedException when it cannot decrypt the agent's environment as the agent's "
+                 "role, as when a stop on the role denies it while Lambda starts a new environment for the agent.")
+    return said
+
+
 def page(doc: Mapping[str, Any], details: list[Mapping[str, PathResult]] | None = None) -> str:
     window = float(doc["run"]["window_seconds"])
     rows = []
@@ -81,6 +96,7 @@ test agent's were {doc['run']['clock_gap_ms']} ms apart.</p>
 {''.join(rows)}
 </tbody></table>
 <p>{left}</p>
+<p>{html.escape(_refused(details))}</p>
 <p>{html.escape(_source(details))}</p>
 <p>This page stays on your machine. The result file beside it holds no error codes and nothing of your agents'
 work.</p>
