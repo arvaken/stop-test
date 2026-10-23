@@ -29,6 +29,7 @@ packages = ["src/arvaken_stop_test"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests"]
 
 [tool.uv]
 # The lock only: the newest cryptography has no Windows-on-ARM wheel, and one maintainer builds there. Users are not

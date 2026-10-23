@@ -1,0 +1,10 @@
+# Arvaken's test endpoint for the stop test (worker.js). Not deployed: deploying it is Arvaken's, on its own approval.
+name = "arvaken-stop-test-endpoint"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+workers_dev = false
+
+# The endpoint keeps nothing: no request logs, no traces.
+[observability]
+enabled = false
+logpush = false
