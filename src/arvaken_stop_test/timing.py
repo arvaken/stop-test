@@ -95,10 +95,10 @@ def _runs(beats: Sequence[Beat]) -> list[tuple[float, float, bool]]:
 
 
 def judge(beats: Iterable[Beat], fired_at: float | None, window: float = WINDOW, hold: float = HOLD,
-          tried: bool = True) -> PathResult:
+          tried: bool = True, setup_errors: dict[str, int] | None = None) -> PathResult:
     """What the test found on one path, from its heartbeats and the moment the stop was fired."""
     if not tried:
-        return PathResult(NOT_RUN, window, reason="the path could not be set up")
+        return PathResult(NOT_RUN, window, errors=dict(setup_errors or {}), reason="the path could not be set up")
     if fired_at is None:
         return PathResult(NOT_RUN, window, reason="the stop was not fired")
     end = fired_at + window + hold

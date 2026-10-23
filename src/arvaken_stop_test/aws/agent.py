@@ -27,6 +27,8 @@ import botocore.exceptions
 
 CONFIG = botocore.config.Config(connect_timeout=2, read_timeout=2, retries={"max_attempts": 1})
 TIMEOUT = 2.0
+# Named, as Cloudflare in front of Arvaken's endpoint refuses Python's default (403, its error 1010).
+AGENT = "arvaken-stop-test-agent (+https://github.com/arvaken/stop-test)"
 
 
 def _code(e):
@@ -50,7 +52,7 @@ def _try(fn):
 
 
 def _get(url, headers):
-    request = urllib.request.Request(url, headers=headers, method="GET")
+    request = urllib.request.Request(url, headers={"User-Agent": AGENT, **headers}, method="GET")
     with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
         response.read(64)
 

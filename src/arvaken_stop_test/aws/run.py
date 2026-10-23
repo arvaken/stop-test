@@ -19,7 +19,7 @@ from typing import Any
 from arvaken_stop_test import __version__, result
 from arvaken_stop_test.aws import fire as firing
 from arvaken_stop_test.aws.stack import MEMORY_MB, RUNTIME, TAG, names, template_body
-from arvaken_stop_test.timing import HOLD, WINDOW, Beat, PathResult, judge
+from arvaken_stop_test.timing import HOLD, PATH_WORDS, WINDOW, Beat, PathResult, judge
 
 AWS_PATHS = ("own_calls", "another_identity", "outside_key", "open_internet")
 WARM_UP = 10                 # heartbeats before the first firing
@@ -65,6 +65,7 @@ class Run:
     offset: float = 0.0                 # the test agent's clock minus the kit's, from the warm-up
     calls: int = 0
     working: set[str] = field(default_factory=set)      # the paths that worked in the warm-up
+    setup_errors: dict[str, dict[str, int]] = field(default_factory=dict)   # and the errors of those that did not
     repeats: list[Repeat] = field(default_factory=list)
     left_behind: list[str] = field(default_factory=list)
 
@@ -128,6 +129,10 @@ def warm_up(c: Clients, r: Run, session: dict, clock: Clock) -> None:
     for i in range(WARM_UP):
         beats, sent, received, agent_at = heartbeat(c, r, -1 - i, session, clock)
         r.working |= {p for p, b in beats.items() if b.ok}
+        for p, b in beats.items():
+            if not b.ok:
+                codes = r.setup_errors.setdefault(p, {})
+                codes[b.error or "unknown"] = codes.get(b.error or "unknown", 0) + 1
         trip = received - sent
         if best is None or trip < best[0]:
             best = (trip, agent_at - (sent + received) / 2)
@@ -233,7 +238,8 @@ def tear_down(c: Clients, r: Run, clock: Clock) -> None:
 
 
 def results(r: Run) -> list[tuple[float | None, dict[str, PathResult]]]:
-    return [(rep.fired_at, {p: judge(rep.beats.get(p, []), rep.fired_at, window=r.window, tried=p in r.working)
+    return [(rep.fired_at, {p: judge(rep.beats.get(p, []), rep.fired_at, window=r.window, tried=p in r.working,
+                                     setup_errors=r.setup_errors.get(p))
                             for p in AWS_PATHS}) for rep in r.repeats]
 
 
@@ -252,8 +258,9 @@ def the_result(r: Run, key=None) -> dict:
 
 def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", window: float = WINDOW,
         repeats: int = 1, clock: Clock | None = None, run_name: str | None = None,
-        trail_wait: float = TRAIL_WAIT) -> tuple[Run, dict]:
-    """A whole run, torn down whatever happens. Returns the run's record and its signed result."""
+        trail_wait: float = TRAIL_WAIT, say: Callable[[str], None] = lambda _: None) -> tuple[Run, dict]:
+    """A whole run, torn down whatever happens. Returns the run's record and its signed result. `say` is told, as the
+    run goes, of a path that did not work before the stop."""
     from arvaken_stop_test.aws.stack import new_run
     clock = clock or Clock()
     if fired_by not in result.FIRED_BY:
@@ -271,6 +278,11 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", 
     try:
         deploy(c, r, endpoint, clock)
         warm_up(c, r, assume(c, r, clock), clock)
+        for p in AWS_PATHS:
+            if p not in r.working:
+                codes = ", ".join(f"{code} {k}" for code, k in sorted(r.setup_errors.get(p, {}).items()))
+                say(f"Before the stop, {PATH_WORDS[p]} did not work ({codes or 'no answer'}): it will be reported as "
+                    "not run.")
         n = 0
         for i in range(repeats):
             if i:

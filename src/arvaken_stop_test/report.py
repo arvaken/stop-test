@@ -24,8 +24,11 @@ def page(doc: Mapping[str, Any], details: list[Mapping[str, PathResult]] | None 
         for path, part in repeat.items():
             expected, actual = worded(EXPECTED[path], window), worded(part["outcome"], window)
             errors = ""
-            if details and i < len(details) and path in details[i] and details[i][path].errors:
-                errors = ", ".join(f"{code} {n}" for code, n in sorted(details[i][path].errors.items()))
+            if details and i < len(details) and path in details[i]:
+                found = details[i][path]
+                errors = ", ".join(f"{code} {n}" for code, n in sorted(found.errors.items()))
+                if found.reason and part["outcome"] == "not run":
+                    errors = f"{found.reason}: {errors}" if errors else found.reason
             mark = "" if EXPECTED[path] == part["outcome"] else ' class="differs"'
             rows.append(f"<tr{mark}><td>{i + 1}</td><td>{html.escape(PATH_WORDS[path])}</td>"
                         f"<td>{html.escape(expected)}</td><td>{html.escape(actual)}</td>"

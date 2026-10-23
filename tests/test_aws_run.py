@@ -39,9 +39,10 @@ class Clock:
 class FakeAWS:
     """One account, as the kit's run sees it."""
 
-    def __init__(self, clock: Clock, *, delay=8.0, trail_delay=120.0, skew=0.05, left=(), role_tagged=True):
+    def __init__(self, clock: Clock, *, delay=8.0, trail_delay=120.0, skew=0.05, left=(), role_tagged=True,
+                 endpoint_error=None):
         self.clock, self.delay, self.trail_delay, self.skew = clock, delay, trail_delay, skew
-        self.left, self.role_tagged = list(left), role_tagged
+        self.left, self.role_tagged, self.endpoint_error = list(left), role_tagged, endpoint_error
         self.stack = None
         self.attached: dict[str, float] = {}
         self.attach_calls: list[float] = []
@@ -100,7 +101,8 @@ class FakeAWS:
             body = {"at": agent_now, "beats": {
                 "own_calls": {"at": agent_now, "ok": own, **({} if own else {"error": "AccessDenied"})},
                 "another_identity": {"at": agent_now, "ok": bool(event.get("session"))},
-                "outside_key": {"at": agent_now, "ok": True}, "open_internet": {"at": agent_now, "ok": True}}}
+                **{p: ({"at": agent_now, "ok": False, "error": self.endpoint_error} if self.endpoint_error else
+                       {"at": agent_now, "ok": True}) for p in ("outside_key", "open_internet")}}}
             if own:
                 self.objects.add(f"own/{event['n']}")
         self.clock.t += 0.1
@@ -231,3 +233,18 @@ def test_the_stack_holds_the_agent_and_reaches_only_the_runs_own_things():
     assert "logs:" not in json.dumps(t)                           # no permission to write logs
     assert len(agent_code()) <= INLINE_LIMIT and '"""The test agent' not in agent_code()
     assert resources["Agent"]["Properties"]["Environment"]["Variables"]["ENDPOINT"] == ENDPOINT
+
+
+def test_a_path_that_never_worked_before_the_stop_is_not_run_and_the_page_says_why():
+    """The first proof run's endpoint answered the agent 403 throughout (test_agent.py); the page said only "not run"."""
+    clock = Clock()
+    said = []
+    r, doc = a_run(FakeAWS(clock, endpoint_error="HTTP403"), clock, say=said.append)
+    assert {p: v["outcome"] for p, v in doc["repeats"][0].items()} == {
+        "own_calls": "stopped", "another_identity": "not stopped", "outside_key": "not run", "open_internet": "not run"}
+    assert said == [f"Before the stop, {words} did not work (HTTP403 {running.WARM_UP}): it will be reported as not run."
+                    for words in ("a key for a service outside the cloud", "the open internet")]
+    from arvaken_stop_test import report
+    page = report.page(doc, [d for _, d in running.results(r)])
+    assert page.count(f"the path could not be set up: HTTP403 {running.WARM_UP}") == 2
+    assert "HTTP403" not in json.dumps(doc) and result.check(doc)

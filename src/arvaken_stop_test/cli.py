@@ -111,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     r, doc = running.run(c, args.stop, endpoint=args.endpoint,
                          fired_by="your own trigger" if args.own_trigger else "the kit", window=args.window,
-                         repeats=args.repeats, run_name=run_name)
+                         repeats=args.repeats, run_name=run_name, say=print)
     out = Path(f"stop-test-{run_name}.json")
     out.write_text(json.dumps(doc, indent=1, sort_keys=True), encoding="utf-8")
     Path(f"stop-test-{run_name}.html").write_text(report.page(doc, [d for _, d in running.results(r)]),
