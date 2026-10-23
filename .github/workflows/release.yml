@@ -61,7 +61,6 @@ jobs:
             cat dist/SHA256SUMS
             echo '```'
             echo
-            echo "Each file is signed with Sigstore's keyless signing by this repository's release workflow. Its"
-            echo "signature is beside it (.sigstore.json) and is recorded in the public Rekor log."
+            echo "Each file is signed with Sigstore's keyless signing by this repository's release workflow. Its signature is beside it (.sigstore.json) and is recorded in the public Rekor log."
           } > notes.md
           gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md
