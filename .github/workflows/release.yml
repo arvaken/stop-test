@@ -47,11 +47,18 @@ jobs:
       - run: uv sync --locked --extra aws
       - run: uv run python -m pytest -q -rsf
       - run: uv build --out-dir dist
-      - run: sha256sum -- *.whl *.tar.gz | tee SHA256SUMS
+      # The hash-pinned requirements file the README installs from (the founder's README changes, item 7): the wheel by
+      # its address and SHA-256, every package by its hashes from uv.lock. Signed below with the other files.
+      - name: The hash-pinned requirements file
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          uv export --format requirements-txt --frozen --extra aws --no-dev --no-emit-project > deps.txt
+          python scripts/release_requirements.py "$version" "dist/arvaken_stop_test-$version-py3-none-any.whl" deps.txt             > "dist/requirements-$version.txt"
+      - run: sha256sum -- *.whl *.tar.gz requirements-*.txt | tee SHA256SUMS
         working-directory: kit/dist
       - uses: sigstore/gh-action-sigstore-python@790bc6befb9d733738f18d8f895854b453640ec9 # v3.5.0
         with:
-          inputs: ./kit/dist/*.whl ./kit/dist/*.tar.gz ./kit/dist/SHA256SUMS
+          inputs: ./kit/dist/*.whl ./kit/dist/*.tar.gz ./kit/dist/requirements-*.txt ./kit/dist/SHA256SUMS
           verify: true
           verify-cert-identity: https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}
           verify-oidc-issuer: https://token.actions.githubusercontent.com

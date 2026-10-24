@@ -53,51 +53,50 @@ there is named for you to delete.
 
 ## Install
 
-You need Python 3.11 or later, and AWS credentials where the AWS command line finds them. With
-[uv](https://docs.astral.sh/uv/):
+You need Python 3.11 or later; for AWS, credentials where the AWS command line finds them; for Google Cloud, the
+Google Cloud CLI (`gcloud`), signed in.
 
-```
-uv tool install "arvaken-stop-test[aws] @ https://github.com/arvaken/stop-test/releases/download/v0.1.1/arvaken_stop_test-0.1.1-py3-none-any.whl"
-```
+Every install is checked first. You check one file's signature, and that file names every file the install takes by its
+SHA-256: the kit's own package and each package it needs. pip then installs exactly those files, or nothing.
 
-Or with pip, in a virtual environment:
+1. Make a virtual environment, and install Sigstore's checker in it:
 
-```
-python -m pip install "arvaken-stop-test[aws] @ https://github.com/arvaken/stop-test/releases/download/v0.1.1/arvaken_stop_test-0.1.1-py3-none-any.whl"
-```
+   ```
+   python -m venv stop-test
+   stop-test/bin/python -m pip install sigstore
+   ```
 
-### Check what you download
+   On Windows, use `stop-test\Scripts\python` in place of `stop-test/bin/python`, here and below.
 
-Each release lists its files' SHA-256 in `SHA256SUMS`. Each file, `SHA256SUMS` included, is signed with Sigstore's
-keyless signing by this repository's release workflow: its signature is beside it, as `<file>.sigstore.json`, and is
-recorded in the public Rekor log. To check the package before you install it, download it and its `.sigstore.json`
-from the release, then:
+2. Download the release's requirements file and its signature (in Windows PowerShell, type `curl.exe`):
 
-```
-python -m pip install sigstore
-python -m sigstore verify github arvaken_stop_test-0.1.1-py3-none-any.whl --cert-identity https://github.com/arvaken/stop-test/.github/workflows/release.yml@refs/tags/v0.1.1
-```
+   ```
+   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.2.0/requirements-0.2.0.txt
+   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.2.0/requirements-0.2.0.txt.sigstore.json
+   ```
 
-and install the file you checked:
+3. Check that this repository's release workflow signed it, for that version. The signature is also recorded in the
+   public Rekor log:
 
-```
-uv tool install "./arvaken_stop_test-0.1.1-py3-none-any.whl[aws]"
-```
+   ```
+   stop-test/bin/python -m sigstore verify github requirements-0.2.0.txt --cert-identity https://github.com/arvaken/stop-test/.github/workflows/release.yml@refs/tags/v0.2.0
+   ```
+
+4. Install exactly what it names. pip refuses any file whose SHA-256 differs:
+
+   ```
+   stop-test/bin/python -m pip install --require-hashes -r requirements-0.2.0.txt
+   ```
+
+The kit is then `stop-test/bin/stop-test`. Each release also lists its files' SHA-256 in `SHA256SUMS`, signed the same
+way.
 
 ### On Windows on Arm
 
 Use an x64 Python. The kit and sigstore need the cryptography package, whose current versions have no build for
 Windows on Arm, so under an Arm Python their install tries to build it from source and fails. Windows 11 runs x64
-Python on Arm.
-
-With uv, add `--python cpython-3.13-windows-x86_64-none` to each `uv tool install` above, for example:
-
-```
-uv tool install --python cpython-3.13-windows-x86_64-none "arvaken-stop-test[aws] @ https://github.com/arvaken/stop-test/releases/download/v0.1.1/arvaken_stop_test-0.1.1-py3-none-any.whl"
-```
-
-With pip, make the virtual environment with Python from python.org's "Windows installer (64-bit)", not its ARM64 one,
-and install sigstore in it too.
+Python on Arm: make the virtual environment with Python from python.org's "Windows installer (64-bit)", not its ARM64
+one.
 
 ## Run it
 

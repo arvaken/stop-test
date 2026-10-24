@@ -47,6 +47,17 @@ jobs:
       - run: uv build --out-dir dist
       - run: sha256sum -- *.whl *.tar.gz | tee SHA256SUMS
         working-directory: dist
+      # The main install path, end to end (the founder's README changes, item 7): the release's hash-pinned requirements
+      # file, made as release.yml makes it, pointed at the wheel just built, and installed with --require-hashes in a
+      # fresh environment. A file that left any byte unpinned, or a lock pip could not install from, fails here.
+      - name: Install the built wheel through its hash-pinned requirements file
+        run: |
+          version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          uv export --format requirements-txt --frozen --extra aws --no-dev --no-emit-project > deps.txt
+          python scripts/release_requirements.py "$version" "dist/arvaken_stop_test-$version-py3-none-any.whl" deps.txt             | sed "s#https://github.com/arvaken/stop-test/releases/download/v$version/#file://$PWD/dist/#" > requirements.txt
+          python -m venv /tmp/fresh
+          /tmp/fresh/bin/python -m pip install --require-hashes -r requirements.txt
+          /tmp/fresh/bin/stop-test --help > /dev/null
 
   # release.yml's signing step as far as it goes before signing: the Sigstore action's own setup, run from the
   # workspace's root as the action runs it, with the kit checked out into kit/ as release.yml has it. It signs nothing.
