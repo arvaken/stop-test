@@ -16,6 +16,7 @@ the run was honest (the terms' 3.3).
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 from collections.abc import Mapping
 from typing import Any
@@ -96,6 +97,13 @@ def sign(doc: Mapping[str, Any], key: Ed25519PrivateKey) -> dict[str, Any]:
     signed["signature"] = {"alg": "ed25519", "public_key": base64.b64encode(public).decode("ascii"),
                            "value": base64.b64encode(key.sign(canonical(doc))).decode("ascii")}
     return signed
+
+
+def reference(doc: Mapping[str, Any]) -> str:
+    """The result's reference: the SHA-256 of its signature's 64 bytes, as hex. Arvaken's record keeps this alone of a
+    signature, and its page shows it when a result is sent: it names the result without testing any guess of what the
+    signature covers, which only the run's key, never kept, could sign."""
+    return hashlib.sha256(base64.b64decode(doc["signature"]["value"], validate=True)).hexdigest()
 
 
 def _exactly(d: Any, where: str) -> None:
