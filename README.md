@@ -35,8 +35,8 @@ One CloudFormation stack, `arvaken-stop-test-<run>`, whose resources are each na
 - an S3 bucket, private and encrypted, which only the two roles may write to.
 
 The test agent writes no logs of its own. Your account's activity log (CloudTrail) records what the kit does, as it
-records any change, and the kit cannot remove those records. The kit touches nothing it did not make, except to attach your stop to the test agent's role when your stop is a
-policy of yours.
+records any change, and the kit cannot remove those records. The kit touches nothing it did not make, except to attach
+your stop to the test agent's role when your stop is a policy of yours.
 
 During a run, the kit invokes the test agent about once a second, and each time the agent tries each of four paths:
 
