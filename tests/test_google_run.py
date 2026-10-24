@@ -97,16 +97,21 @@ class FakeGoogle:
             return self.agent(body)
         if path.endswith("/serviceAccounts") and method == "POST":
             email = f"{body['accountId']}@{PROJECT}.iam.gserviceaccount.com"
-            self.accounts[email] = {"email": email, "description": body["serviceAccount"]["description"]
+            self.accounts[email] = {"email": email, "uniqueId": str(100000000000000000000 + len(self.accounts)),
+                                    "description": body["serviceAccount"]["description"]
                                     if self.described else "someone else's"}
             return self.accounts[email]
+        if path.endswith("/serviceAccounts") and method == "GET":
+            return {"accounts": [{"email": e} for e in self.accounts]}
         if "/serviceAccounts/" in path:
             email = path.split("/serviceAccounts/")[1].split(":")[0]
             if email not in self.accounts:
-                raise GoogleError(404, "NOT_FOUND")
+                raise GoogleError(403, "PERMISSION_DENIED")      # Google's answer for an account that is gone
             if path.endswith(":disable"):
                 self.disabled[email] = self.clock.now()
-                self.audit.append((firing.METHODS[firing.DISABLE_KIND], f"projects/-/serviceAccounts/{email}", self.clock.now()))
+                unique = self.accounts[email]["uniqueId"]       # Cloud Audit Logs name it so, never by its email
+                self.audit.append((firing.METHODS[firing.DISABLE_KIND], f'protoPayload.resourceName="projects/-/serviceAccounts/{unique}"',
+                                   self.clock.now()))
                 return {}
             if path.endswith(":enable"):
                 self.disabled.pop(email, None)
@@ -149,7 +154,8 @@ class FakeGoogle:
             if method == "POST":
                 pid = urllib.parse.parse_qs(u.query)["policyId"][0]
                 self.deny[pid] = {"at": self.clock.now(), "body": body}
-                self.audit.append((firing.METHODS[firing.DENY_KIND], f"policies/.../denypolicies/{pid}", self.clock.now()))
+                # the record names the attachment point as its resource, and the policy by its ID in its request
+                self.audit.append((firing.METHODS[firing.DENY_KIND], f'protoPayload.request.policyId="{pid}"', self.clock.now()))
                 return {"name": "operations/2"}
             pid = path.rsplit("/", 1)[1]
             if path.endswith("/denypolicies"):
@@ -161,12 +167,11 @@ class FakeGoogle:
             return {"name": pid}
         if url == running.LOGGING:
             f = body["filter"]
-            which = f.split('protoPayload.resourceName:"')[1].split('"')[0]
             method_name = f.split('protoPayload.methodName="')[1].split('"')[0]
             since = datetime.fromisoformat(f.split('timestamp>="')[1].split('"')[0].replace("Z", "+00:00")).timestamp()
             until = datetime.fromisoformat(f.split('timestamp<="')[1].split('"')[0].replace("Z", "+00:00")).timestamp()
-            return {"entries": [{"timestamp": iso(when)} for m, res, when in self.audit
-                                if m == method_name and which in res and since <= when <= until
+            return {"entries": [{"timestamp": iso(when)} for m, clause, when in self.audit
+                                if m == method_name and f" AND {clause} AND " in f and since <= when <= until
                                 and self.clock.now() >= when + self.log_delay]}
         raise AssertionError(f"a call the fake does not know: {method} {url}")
 

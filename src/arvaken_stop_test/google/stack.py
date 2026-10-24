@@ -100,8 +100,9 @@ def deploy(g: Google, run: str, endpoint: str, *, outside_key: str | None = None
            sleep: Callable[[float], None] = time.sleep, wait: float = 600.0) -> dict[str, str]:
     """Make the run's things, in order; returns their names and the test agent's address."""
     n = names(run, g.project)
+    made: dict[str, dict] = {}
     for which, words in (("agent_account", "the test agent"), ("second_account", "a second identity")):
-        g.call("POST", f"{IAM}/projects/{g.project}/serviceAccounts", {
+        made[which] = g.call("POST", f"{IAM}/projects/{g.project}/serviceAccounts", {
             "accountId": n[which].split("@")[0],
             "serviceAccount": {"displayName": f"Arvaken stop test {run}: {words}",
                                "description": f"{LABEL}={run}. Removed when the run ends."}})
@@ -136,8 +137,10 @@ def deploy(g: Google, run: str, endpoint: str, *, outside_key: str | None = None
         sleep(5.0)
     if not uri:
         raise TimeoutError(f"the test agent's service was not ready in {int(wait)} seconds")
+    # Cloud Audit Logs name a disabled account by its unique ID, never its email: kept, to find the firing call
     return {"Bucket": n["bucket"], "Agent": service_name(g, run), "AgentAccount": n["agent_account"],
-            "SecondAccount": n["second_account"], "Uri": uri}
+            "AgentAccountId": str(made["agent_account"].get("uniqueId") or ""), "SecondAccount": n["second_account"],
+            "Uri": uri}
 
 
 def quoted(name: str) -> str:

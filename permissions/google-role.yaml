@@ -8,6 +8,7 @@ stage: GA
 includedPermissions:
 # the test agent's two service accounts: made, read, given to Cloud Run, granted to each other, disabled, deleted
 - iam.serviceAccounts.create
+- iam.serviceAccounts.list
 - iam.serviceAccounts.get
 - iam.serviceAccounts.delete
 - iam.serviceAccounts.disable

@@ -170,13 +170,17 @@ def recover(g: Google, r: Run, clock: Clock) -> None:
 
 
 def _audit_filter(r: Run, rep: Repeat) -> str:
+    """The firing call's record in Cloud Audit Logs, as Google writes it (read in Arvaken's sandbox, 24 October 2026):
+    a deny policy's creation names the project's attachment point as its resource, and the policy by its ID in its
+    request; an account's disabling names the account by its unique ID, never its email."""
     n = names(r.run, r.project)
     method = firing.METHODS[r.stop_kind]
-    which = n["agent_account"] if r.stop_kind == firing.DISABLE_KIND else n["deny_policy"]
+    which = (f'protoPayload.resourceName="projects/-/serviceAccounts/{r.outputs.get("AgentAccountId", "")}"'
+             if r.stop_kind == firing.DISABLE_KIND else f'protoPayload.request.policyId="{n["deny_policy"]}"')
     since = datetime.fromtimestamp(rep.fired_before - 5, tz=timezone.utc).isoformat().replace("+00:00", "Z")
     until = datetime.fromtimestamp(rep.fired_after + 5, tz=timezone.utc).isoformat().replace("+00:00", "Z")
     return (f'logName="projects/{r.project}/logs/cloudaudit.googleapis.com%2Factivity" '
-            f'AND protoPayload.methodName="{method}" AND protoPayload.resourceName:"{which}" '
+            f'AND protoPayload.methodName="{method}" AND {which} '
             f'AND timestamp>="{since}" AND timestamp<="{until}"')
 
 
@@ -243,17 +247,34 @@ def check_gone(g: Google, r: Run, clock: Clock, wait: float = 120.0) -> tuple[li
     service is asked again for up to `wait` seconds before it is named as left."""
     n = names(r.run, r.project)
     attachment = quoted(f"cloudresourcemanager.googleapis.com/projects/{r.project}")
+    def listed(email: str) -> Callable[[], object]:
+        """An account, asked for in the project's list of accounts: Google answers 403, not 404, for an account that
+        is gone (\"or it may not exist\"), so a missing account is read from the list, never from that answer."""
+        def find() -> object:
+            token, emails = None, set()
+            while True:
+                page = g.call("GET", f"{IAM}/projects/{r.project}/serviceAccounts?pageSize=100"
+                              + (f"&pageToken={quoted(token)}" if token else ""))
+                emails |= {a.get("email") for a in page.get("accounts") or []}
+                token = page.get("nextPageToken")
+                if not token:
+                    break
+            if email not in emails:
+                raise GoogleError(404, "NOT_IN_THE_LIST")
+            return email
+        return find
+
     things = [
         (f"the service {n['service']}", lambda: g.call("GET", f"{RUN}/projects/{r.project}/locations/{r.region}/services/{n['service']}")),
         (f"the bucket {n['bucket']}", lambda: g.call("GET", f"{STORAGE}/b/{n['bucket']}")),
-        (f"the account {n['agent_account']}", lambda: g.call("GET", f"{IAM}/projects/-/serviceAccounts/{n['agent_account']}")),
-        (f"the account {n['second_account']}", lambda: g.call("GET", f"{IAM}/projects/-/serviceAccounts/{n['second_account']}")),
+        (f"the account {n['agent_account']}", listed(n["agent_account"])),
+        (f"the account {n['second_account']}", listed(n["second_account"])),
         (f"the deny policy {n['deny_policy']}",
          lambda: g.call("GET", f"https://iam.googleapis.com/v2/policies/{attachment}/denypolicies/{n['deny_policy']}")),
     ]
     left, gone = [], []
     for what, call in things:
-        found, end = _gone(call), clock.now() + (wait if what.startswith("the service") else 0)
+        found, end = _gone(call), clock.now() + (wait if what.startswith(("the service", "the account")) else 0)
         while found is False and clock.now() < end:
             clock.sleep(10.0)
             found = _gone(call)
