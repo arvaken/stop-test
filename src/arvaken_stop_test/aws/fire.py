@@ -68,6 +68,28 @@ def why_not(stop_ref: str) -> str | None:
     return None
 
 
+# The founder, 24 October 2026: before a run with --stop, the kit checks that the stop denies what the test agent does.
+# What it does, as its own calls, is write and read the run's bucket: a stop that denies neither tells nothing of itself.
+NOT_COVERED = "Your stop doesn't deny what the test agent does, so this test can't tell you about your stop."
+OWN_CALLS = ("s3:PutObject", "s3:GetObject")
+ALLOW_ALL = '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}'
+
+
+def covers(iam: Any, stop_ref: str, run: str) -> bool:
+    """Whether your managed policy denies the test agent's own calls: its default version, evaluated by IAM's policy
+    simulator beside an allow of everything, for each of those calls on an object of the run's bucket. Only an explicit
+    deny of each counts."""
+    import json
+    version = iam.get_policy(PolicyArn=stop_ref)["Policy"]["DefaultVersionId"]
+    document = iam.get_policy_version(PolicyArn=stop_ref, VersionId=version)["PolicyVersion"]["Document"]
+    document = document if isinstance(document, str) else json.dumps(document)
+    bucket_object = f"arn:aws:s3:::{names(run)['stack']}-bucket/own/0"
+    found = iam.simulate_custom_policy(PolicyInputList=[document, ALLOW_ALL], ActionNames=list(OWN_CALLS),
+                                       ResourceArns=[bucket_object]).get("EvaluationResults", [])
+    decided = {r["EvalActionName"]: r["EvalDecision"] for r in found}
+    return all(decided.get(a) == "explicitDeny" for a in OWN_CALLS)
+
+
 def the_runs_own_role(iam: Any, run: str, which: str = "agent_role") -> str:
     """The run's own role, checked to be its own by name and by tag; else Refused."""
     role = names(run)[which]

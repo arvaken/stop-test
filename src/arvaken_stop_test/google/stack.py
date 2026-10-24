@@ -120,7 +120,7 @@ def deploy(g: Google, run: str, endpoint: str, *, outside_key: str | None = None
         g.call("POST", f"{url}:setIamPolicy", {"policy": _add_binding(
             policy, "roles/iam.serviceAccountTokenCreator", f"serviceAccount:{n['agent_account']}")})
     _retry(token_creator, sleep)
-    key = outside_key or "ak-" + secrets.token_hex(16)
+    key = outside_key or secrets.token_hex(16)        # 32 hexadecimal characters, as the test endpoint takes one
     parent = f"projects/{g.project}/locations/{g.region}"
     _retry(lambda: g.call("POST", f"{RUN}/{parent}/services?serviceId={n['service']}",
                           service_body(g, run, endpoint, key)), sleep)

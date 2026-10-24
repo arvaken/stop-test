@@ -52,6 +52,10 @@ def _plan(args, run_name: str) -> str:
     n = names(run_name)
     stop = _stop(args)
     reason = fire.why_not(stop) if not args.own_trigger else None
+    if not reason and args.stop:
+        from arvaken_stop_test.aws.boto import clients_for
+        if not fire.covers(clients_for(args.region).iam, stop, run_name):
+            reason = fire.NOT_COVERED.rstrip(".")
     lines = [f"Run {run_name} in {args.region}:",
              f"- creates one stack, {n['stack']}: a test agent ({n['function']}), its role and a second role, and a",
              "  bucket of its own, each tagged with the run;",
@@ -80,6 +84,10 @@ def _google_plan(args, run_name: str) -> str:
     n = names(run_name, args.project)
     stop = _google_stop(args)
     reason = fire.why_not(stop) if not args.own_trigger else None
+    if not reason and args.stop:
+        from arvaken_stop_test.google.api import Google
+        if not fire.covers(fire.denied_permissions(Google(args.project, args.region), stop)):
+            reason = fire.NOT_COVERED.rstrip(".")
     lines = [f"Run {run_name} in {args.project}, {args.region}:",
              f"- creates a test agent, the Cloud Run service {n['service']}, running as its own service account",
              f"  {n['agent_account']}; a second account {n['second_account']}; and a bucket {n['bucket']};",
@@ -118,9 +126,10 @@ def _google(args, p) -> int:
         print("Nothing the kit made is left." if not r.left_behind else
               "Left for you to delete:\n" + "\n".join(r.left_behind))
         return 0
-    print(_google_plan(args, run_name))
+    plan = _google_plan(args, run_name)
+    print(plan)
     stop = _google_stop(args)
-    if not args.own_trigger and fire.why_not(stop):
+    if not args.own_trigger and "It will not run:" in plan:
         return 1
     if args.own_trigger:
         print(fire.OWN_TRIGGER_WARNING)
@@ -191,7 +200,8 @@ def main(argv: list[str] | None = None) -> int:
         except (result.NotAResult, ValueError) as e:
             print(f"Not a valid result: {e}", file=sys.stderr)
             return 1
-        print(f"A valid {doc['format']}: unchanged since the kit wrote it. (That is all a signature shows.)")
+        print(f"A valid {doc['format']}: unchanged since it was signed. That is all a signature shows: not that the kit "
+              "wrote it, who ran it, or that the run was honest.")
         return 0
     if args.command == "google":
         return _google(args, p)
@@ -222,9 +232,10 @@ def main(argv: list[str] | None = None) -> int:
         print("Nothing the kit made is left." if not r.left_behind else
               "Left for you to delete:\n" + "\n".join(r.left_behind))
         return 0
-    print(_plan(args, run_name))
+    plan = _plan(args, run_name)
+    print(plan)
     stop = _stop(args)
-    if not args.own_trigger and fire.why_not(stop):
+    if not args.own_trigger and "It will not run:" in plan:
         return 1
     if args.own_trigger:
         print(fire.OWN_TRIGGER_WARNING)

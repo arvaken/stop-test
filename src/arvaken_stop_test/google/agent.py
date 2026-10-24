@@ -1,9 +1,9 @@
 """The test agent on Google Cloud: the code of the Cloud Run service the kit deploys (the design's sections 3 and 4).
 
 The kit calls it once a second, with the kit's own identity. Each call tries each path once and returns, for each, when
-(by its own clock), whether it succeeded, and if not the error's code. It prints nothing and logs nothing, so a run
-leaves nothing in the project's logs, and a stop that denies the agent everything cannot stop its report: the reply
-goes back to the kit through Cloud Run, not through anything the agent's identity reaches.
+(by its own clock), whether it succeeded, and if not the error's code. It prints nothing and writes no logs of its own
+(Cloud Run's request logs and Cloud Audit Logs still record the kit's calls and acts), and a stop that denies the agent
+everything cannot stop its report: the reply goes back to the kit through Cloud Run, not through anything the agent's identity reaches.
 
 The paths (the design's section 4; D532, K3):
 - own_calls: writes and reads one small object in the kit's bucket, as the agent's own service account. Its access

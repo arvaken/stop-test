@@ -53,7 +53,8 @@ class FakeAWS:
     """One account, as the kit's run sees it."""
 
     def __init__(self, clock: Clock, *, delay=8.0, trail_delay=120.0, skew=0.05, left=(), role_tagged=True,
-                 endpoint_error=None, log_group=False, bucket_stays=False, cold_after=None, invoke_error=None):
+                 endpoint_error=None, log_group=False, bucket_stays=False, cold_after=None, invoke_error=None,
+                 stop_denies=("s3:PutObject", "s3:GetObject")):
         self.clock, self.delay, self.trail_delay, self.skew = clock, delay, trail_delay, skew
         self.left, self.role_tagged, self.endpoint_error = list(left), role_tagged, endpoint_error
         self.stack = None
@@ -71,6 +72,8 @@ class FakeAWS:
         # environment and cannot decrypt its environment as the role (KMSAccessDeniedException) while the stop is on;
         # a function set to no concurrency is throttled. `invoke_error` is any other error from Invoke after the stop.
         self.cold_after, self.invoke_error = cold_after, invoke_error
+        # what the declared managed policy denies, as IAM's policy simulator decides it (the kit's check before a run)
+        self.stop_denies = tuple(stop_denies)
         self.stopped_from: float | None = None
         self.concurrency: int | None = None
 
@@ -95,6 +98,18 @@ class FakeAWS:
         self.stack["status"] = "DELETED"
 
     # iam
+    def get_policy(self, PolicyArn):
+        return {"Policy": {"Arn": PolicyArn, "DefaultVersionId": "v1"}}
+
+    def get_policy_version(self, PolicyArn, VersionId):
+        return {"PolicyVersion": {"VersionId": VersionId, "Document": {"Version": "2012-10-17", "Statement": [
+            {"Effect": "Deny", "Action": list(self.stop_denies), "Resource": "*"}]}}}
+
+    def simulate_custom_policy(self, PolicyInputList, ActionNames, ResourceArns):
+        denied = set(json.loads(PolicyInputList[0])["Statement"][0]["Action"])
+        return {"EvaluationResults": [{"EvalActionName": a, "EvalDecision": "explicitDeny" if a in denied else "allowed"}
+                                      for a in ActionNames]}
+
     def list_role_tags(self, RoleName):
         return {"Tags": [{"Key": TAG, "Value": self.stack["run"]}] if self.role_tagged else []}
 
@@ -458,3 +473,20 @@ def test_any_other_error_from_invoke_ends_the_run_and_is_never_read_as_stopped()
     assert not aws.inline and aws.stack["status"] == "DELETED"
     assert running.refused_by_lambda(ClientError("ExpiredTokenException")) is None
     assert running.refused_by_lambda(ClientError("TooManyRequestsException")) is None           # a throttle, not 0
+
+
+def test_a_managed_policy_that_does_not_deny_the_agents_own_calls_is_refused_before_anything_is_made():
+    """The founder, 24 October 2026: before a run with --stop, the kit checks that the stop denies what the test agent
+    does. A policy denying only some other action tells nothing of itself here, and nothing is made."""
+    clock = Clock()
+    fake = FakeAWS(clock, stop_denies=("ec2:RunInstances",))
+    with pytest.raises(firing.Refused) as e:
+        a_run(fake, clock)
+    assert str(e.value) == "Your stop doesn't deny what the test agent does, so this test can't tell you about your stop."
+    assert fake.stack is None and fake.attach_calls == []
+    clock2 = Clock()
+    half = FakeAWS(clock2, stop_denies=("s3:PutObject",))             # one of the two own calls is not enough
+    with pytest.raises(firing.Refused, match="doesn't deny what the test agent does"):
+        a_run(half, clock2)
+    assert half.stack is None
+

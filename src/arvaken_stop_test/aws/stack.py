@@ -3,8 +3,8 @@
 Every resource is named with the run's prefix, `arvaken-stop-test-<run>`, and tagged `arvaken-stop-test=<run>`:
 - the test agent: a Lambda function with a role of its own, whose code is agent.py;
 - what it acts on: a bucket of the kit's own (private, encrypted), and a second role the agent may assume;
-- nothing else. The agent's role has no permission to write logs, and the agent prints nothing, so a run leaves
-  nothing in the account's logs.
+- nothing else. The agent's role has no permission to write logs, and the agent prints nothing: it writes no logs
+  of its own. The account's CloudTrail still records what the kit does, as it records any change.
 
 The roles' permissions reach only the run's own bucket and the run's own second role. The kit touches nothing it did
 not create, except to attach the customer's stop to the agent's role (fire.py).

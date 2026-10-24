@@ -78,7 +78,9 @@ class Google:
             code = "HTTP"
             try:
                 error = json.loads(e.read() or b"{}").get("error", {})
-                code = str(error.get("status") or (error.get("errors") or [{}])[0].get("reason") or "HTTP")
+                # Google's own error, by its status or reason; the test agent's, by the code it gives
+                code = error if isinstance(error, str) else str(
+                    error.get("status") or (error.get("errors") or [{}])[0].get("reason") or "HTTP")
             except (ValueError, AttributeError):
                 pass
             raise GoogleError(e.code, code) from None

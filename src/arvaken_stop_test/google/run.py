@@ -82,9 +82,21 @@ def _invoke(g: Google, r: Run, payload: dict, clock: Clock) -> tuple[dict, float
     return body, sent, clock.now()
 
 
-def assume(g: Google, r: Run, clock: Clock) -> dict:
-    body, _, _ = _invoke(g, r, {"action": "assume"}, clock)
-    return body["session"]
+ASSUME_WAIT = 300.0           # seconds a new grant may take to reach IAM Credentials: the second account's token
+
+
+def assume(g: Google, r: Run, clock: Clock, wait: float = ASSUME_WAIT) -> dict:
+    """The second account's token, taken by the agent. A grant made seconds ago may not yet be seen everywhere (Google
+    says IAM changes take up to minutes), so a refusal is asked again until `wait` seconds have passed."""
+    end = clock.now() + wait
+    while True:
+        try:
+            body, _, _ = _invoke(g, r, {"action": "assume"}, clock)
+            return body["session"]
+        except GoogleError as e:
+            if e.status != 500 or clock.now() >= end:
+                raise
+            clock.sleep(10.0)
 
 
 def _seconds(text: str | None) -> float | None:
@@ -314,6 +326,8 @@ def run(g: Google, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", w
             raise firing.Refused(reason)
         if stop_ref not in (firing.DENY_ALL, firing.DISABLE):
             permissions = firing.denied_permissions(g, stop_ref)       # before anything is made
+            if not firing.covers(permissions):
+                raise firing.Refused(firing.NOT_COVERED)
     if not 1 <= repeats <= 5:
         raise ValueError("a run repeats one to five times")
     if fired_by == "your own trigger" and repeats != 1:

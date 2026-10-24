@@ -1,9 +1,9 @@
 """The test agent: the code of the Lambda function the kit deploys (the design's sections 3 and 4).
 
 The kit invokes it once a second, with the kit's own credentials. Each invocation tries each path once and returns,
-for each, when (by its own clock), whether it succeeded, and if not the error's code. It prints nothing and logs
-nothing, so a run leaves nothing in the account's logs, and a stop that denies the agent everything cannot stop its
-report: the reply goes back to the kit through Lambda, not through anything the agent's role reaches.
+for each, when (by its own clock), whether it succeeded, and if not the error's code. It prints nothing and writes no
+logs of its own (the account's CloudTrail still records what the kit does), and a stop that denies the agent everything
+cannot stop its report: the reply goes back to the kit through Lambda, not through anything the agent's role reaches.
 
 The paths (the design's section 4; D532, K3):
 - own_calls: writes and reads one small object in the kit's bucket, as the agent itself.

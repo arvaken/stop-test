@@ -3,8 +3,8 @@
 The two kinds of stop D518 approved for Google Cloud, each fired on the run's own service account alone:
 
 - **a deny policy on its identity:** a deny policy attached to the project, naming the test agent's account and no
-  other principal. With `--deny-all` it denies what the agent's paths use (Cloud Storage and IAM, every permission of
-  each); with `--stop <your deny policy's name>` the kit reads your declared deny policy and makes a copy of its denied
+  other principal. With `--deny-all` it denies what the agent's paths do as its own account (writing and reading
+  the bucket's objects, and taking another account's token); with `--stop <your deny policy's name>` the kit reads your declared deny policy and makes a copy of its denied
   permissions for the run, naming the test agent alone: your policy itself is never changed. A rule with a condition is
   refused, since a copy without it would stop more than yours does, and one with it is not yours to move.
 - **disabling its service account:** the test agent's own account, disabled, and enabled again between repeats.
@@ -23,7 +23,10 @@ from arvaken_stop_test.google.stack import IAM, LABEL, names, quoted
 
 DENY_KIND, DISABLE_KIND = "deny policy on its identity", "disable its service account"
 DENY_ALL, DISABLE = "arvaken-stop-test-deny-all", "disable its service account"
-DENIED = ["storage.googleapis.com/*.*", "iam.googleapis.com/*.*"]
+# What the agent's paths do as its own account, each permission by name: Google refuses a service's wildcard
+# ("storage.googleapis.com/*.*") on a project ("not valid on this resource type", tried 24 October 2026).
+DENIED = ["storage.googleapis.com/objects.create", "storage.googleapis.com/objects.get",
+          "iam.googleapis.com/serviceAccounts.getAccessToken"]
 # Cloud Audit Logs' method for each kind's call, as each service records it
 METHODS = {DENY_KIND: "google.iam.v2.Policies.CreatePolicy", DISABLE_KIND: "google.iam.admin.v1.DisableServiceAccount"}
 DENY_POLICY = re.compile(r"policies/cloudresourcemanager\.googleapis\.com%2F(projects|folders|organizations)%2F[^/]+"
@@ -63,6 +66,20 @@ def denied_permissions(g: Google, stop_ref: str) -> list[str]:
     if not out:
         raise Refused("your deny policy denies no permission the kit can copy")
     return out
+
+
+# The founder, 24 October 2026: before a run with --stop, the kit checks that the copied deny covers what the test agent
+# does as its own account: writing and reading the run's bucket.
+NOT_COVERED = "Your stop doesn't deny what the test agent does, so this test can't tell you about your stop."
+OWN_CALLS = ("storage.googleapis.com/objects.create", "storage.googleapis.com/objects.get")
+
+
+def covers(permissions: list[str]) -> bool:
+    """Whether the copied permissions deny each of the agent's own calls: by name, or by a wildcard Google's deny
+    policies accept in place of part of a name (each `*` standing for any part)."""
+    def matches(denied: str, needed: str) -> bool:
+        return bool(re.fullmatch(re.escape(denied).replace(r"\*", "[^/]*"), needed))
+    return all(any(matches(p, n) for p in permissions) for n in OWN_CALLS)
 
 
 def the_runs_own_account(g: Google, run: str) -> str:

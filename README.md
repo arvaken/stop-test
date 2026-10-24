@@ -1,14 +1,14 @@
 # Arvaken stop test
 
 The stop test is a kit you run yourself, in your own cloud account, with your own credentials. It deploys a test
-agent of its own, fires the stop you have declared on that test agent alone, and times what actually stops. When it
-finishes, it removes the stop it fired and everything it made.
+agent of its own, fires the stop you have declared on that test agent alone, unless you fire your own, and times what
+actually stops. When it finishes, it removes the stop it fired and everything it made.
 
-Arvaken runs nothing in your account. Nothing about your account leaves it. Two of the kit's tests, of the open internet
-and of a key for a service outside your cloud, have the kit's test agent call Arvaken's test address,
-stop-test.arvaken.com. Neither call carries anything of yours: the second carries only a random key the kit makes for
-the run. The address answers with a fixed reply. What is kept of each call is Arvaken's one description of what
-Cloudflare records, word for word:
+You run it yourself. Arvaken never runs tests in your account. Nothing about your account leaves it. Two of the kit's
+tests, of the open internet and of a key for a service outside your cloud, have the kit's test agent call Arvaken's test
+address, stop-test.arvaken.com. Neither call carries anything of yours: the second carries only a random key the kit
+makes for the run. The address answers with a fixed reply. What is kept of each call is Arvaken's one description of
+what Cloudflare records, word for word:
 
 > Arvaken's test address (stop-test.arvaken.com) and its verification page (verify.arvaken.com) are served by
 > Cloudflare, on arvaken.com's Free plan. Arvaken's code at each writes no request log and stores no request;
@@ -23,7 +23,7 @@ Cloudflare records, word for word:
 
 Submitting results to Arvaken is not open yet.
 
-AWS comes first. Google Cloud and Azure follow.
+AWS and Google Cloud. Azure follows.
 
 ## What it makes in your account
 
@@ -34,8 +34,8 @@ One CloudFormation stack, `arvaken-stop-test-<run>`, whose resources are each na
 - a second role, which only the test agent may assume;
 - an S3 bucket, private and encrypted, which only the two roles may write to.
 
-The test agent's role may not write logs, and the agent prints nothing, so a run leaves nothing in your account's
-logs. The kit touches nothing it did not make, except to attach your stop to the test agent's role when your stop is a
+The test agent writes no logs of its own. Your account's activity log (CloudTrail) records what the kit does, as it
+records any change, and the kit cannot remove those records. The kit touches nothing it did not make, except to attach your stop to the test agent's role when your stop is a
 policy of yours.
 
 During a run, the kit invokes the test agent about once a second, and each time the agent tries each of four paths:
@@ -120,8 +120,9 @@ Name the stop with one of:
 - `--stop <ARN>`: your declared stop, a managed policy, attached to the test agent's role alone. The kit refuses a
   stop that would reach any other identity, such as an organization's service control policy, and says why.
 - `--inline-deny`: a policy the kit writes on the test agent's role, denying every action.
-- `--revoke-sessions`: AWS's own policy that revokes active sessions (`AWSRevokeOlderSessions`), put on the test
-  agent's role and on the role it became, both made for the run.
+- `--revoke-sessions`: the policy AWS's console adds when you revoke a role's active sessions
+  (`AWSRevokeOlderSessions`), put on the test agent's role and on the role it became, both made for the run. It denies
+  sessions issued before the moment it names; a session issued afterwards is unaffected.
 - `--own-trigger`: you fire your own stop (a button, an automation, a runbook) at the test agent, and the kit watches
   for the change. Your own trigger may stop more than the test agent, and the kit warns you of that first.
 
@@ -137,22 +138,86 @@ A run writes three files where you ran it:
 - `stop-test-<run>.json`: the result, in the format `stop-test-result/1`, signed with a key the kit makes for the run;
 - `stop-test-<run>.html`: a page showing what each path did beside what a stop on the role would be expected to do,
   with the errors seen;
-- `stop-test-<run>-details.json`: the details behind the page.
+- `stop-test-<run>-details.json`: the details behind the page. It holds your account's identifiers (the names of
+  what the run made, and anything left), so keep it as you would any record of your account.
 
-The result holds no error codes and nothing of your agents' work. To check that it has not changed since the kit
-wrote it:
+The result holds no error codes and nothing of your agents' work. To check that it has not changed since it was
+signed:
 
 ```
 stop-test verify stop-test-<run>.json
 ```
 
-That is all a signature shows: not who ran the kit, and not that the run was honest.
+That is all a signature shows: not that the kit wrote it, who ran it, or that the run was honest.
 
 The kit cleans up when a run ends, Ctrl-C included. If it could not, as when a shell is lost, remove what the run made
 by the run's name, adding `--stop <ARN>` if the run attached a policy of yours:
 
 ```
 stop-test aws clean --run <run> --region eu-central-1
+```
+
+## On Google Cloud
+
+### What it makes in your project
+
+Each thing is named with the run and labelled `arvaken-stop-test=<run>` where Google lets it be labelled:
+
+- the test agent: a Cloud Run service, `arvaken-stop-test-<run>`, running the kit's agent code in Python's own image
+  (Python 3.12, pinned by its digest), as a service account of its own, `arvaken-st-<run>`; one instance, kept
+  running for the run;
+- a second service account, `arvaken-st-<run>-b`, whose token only the test agent may take;
+- a Cloud Storage bucket, `arvaken-stop-test-<run>`, with uniform access and public access prevented, which only the
+  two accounts may write to.
+
+Each grant is on those things alone, never on your project. The test agent writes no logs of its own. Cloud Run's
+request logs record each call the kit makes to it, and Cloud Audit Logs record what the kit does, as they record any
+change; the kit cannot remove those records. The kit touches nothing it did not make, except to fire a stop on the test
+agent's own account.
+
+During a run, the kit calls the test agent about once a second, and each time the agent tries each of four paths:
+
+| Path | What the test agent does |
+|---|---|
+| Its own calls to Google Cloud | writes and reads a small object in the bucket, as its own account |
+| Work under another identity | writes to the bucket with a token of the second account, taken before the stop |
+| A key for a service outside your cloud | calls stop-test.arvaken.com with the random key the kit made for the run |
+| The open internet | calls stop-test.arvaken.com with nothing |
+
+When the run ends, the kit takes off the stop it fired, deletes what it made, and checks each by its own name: the
+service, the bucket, both accounts and the run's deny policy. Anything still there is named for you to delete.
+
+### Run it
+
+Run it in a project you use for testing. It uses the Google Cloud CLI (`gcloud`), signed in as you; Cloud Shell has
+it. The project needs the Cloud Run, IAM, IAM Service Account Credentials, Cloud Logging and Cloud Storage APIs
+enabled. To fire a deny policy, you need the Deny Admin role (`roles/iam.denyAdmin`), which Google grants on an
+organization only. A project with no organization cannot hold a deny policy: use `--disable-account`.
+
+```
+stop-test google plan --deny-all --project my-test-project --region europe-west3
+stop-test google run --deny-all --project my-test-project --region europe-west3
+```
+
+Name the stop with one of:
+
+- `--stop <name>`: your declared deny policy, by its name
+  (`policies/cloudresourcemanager.googleapis.com%2Fprojects%2F<project>/denypolicies/<id>`). The kit reads it and
+  makes a copy of its denied permissions for the run, naming the test agent's account alone. Your policy is never
+  changed. A rule with a condition is refused, and the kit says why.
+- `--deny-all`: a deny policy the kit makes, naming the test agent's account alone and denying what its paths use
+  (Cloud Storage and IAM).
+- `--disable-account`: the test agent's own service account, disabled, and enabled again between repeats.
+- `--own-trigger`: you fire your own stop at the test agent's account, and the kit watches for the account disabled
+  or a deny policy naming it. Your own trigger may stop more than the test agent, and the kit warns you of that first.
+
+`--window` and `--repeats` work as on AWS. The moment each stop was fired is Cloud Audit Logs' record of the call. A
+run writes the same three files as on AWS.
+
+If a run could not clean up, remove what it made by the run's name:
+
+```
+stop-test google clean --run <run> --project my-test-project --region europe-west3
 ```
 
 ## Licence

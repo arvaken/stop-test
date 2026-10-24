@@ -265,3 +265,17 @@ def test_the_agent_is_pythons_own_image_by_digest_and_its_code_the_standard_libr
     assert imported <= {"json", "os", "time", "urllib", "http"}, imported
     assert LABEL == "arvaken-stop-test"
     assert json.loads(json.dumps({"code": code}))["code"] == code
+
+
+def test_a_declared_deny_that_does_not_deny_the_agents_own_calls_is_refused_before_anything_is_made():
+    """The founder, 24 October 2026: before a run with --stop, the kit checks that the copied deny covers what the test
+    agent does as its own account. A wildcard Google accepts in a name covers what it stands for."""
+    clock = Clock()
+    fake = FakeGoogle(clock, declared_rules=[{"denyRule": {"deniedPrincipals": ["principal://goog/subject/x@acme.test"],
+                                                           "deniedPermissions": ["compute.googleapis.com/instances.create"]}}])
+    with pytest.raises(firing.Refused) as e:
+        a_run(fake, DECLARED)
+    assert str(e.value) == "Your stop doesn't deny what the test agent does, so this test can't tell you about your stop."
+    assert fake.accounts == {} and fake.bucket is None and fake.service is None
+    assert firing.covers(["storage.googleapis.com/objects.*"])
+    assert not firing.covers(["storage.googleapis.com/objects.create"])
