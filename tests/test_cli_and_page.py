@@ -156,3 +156,15 @@ def test_plan_says_when_your_stop_does_not_deny_what_the_test_agent_does(capsys,
     assert ("It will not run: Your stop doesn't deny what the test agent does, so this test can't tell you about your "
             "stop.") in capsys.readouterr().out
 
+
+
+def test_revoking_sessions_is_expected_to_reach_the_role_it_became_and_the_page_says_a_later_session_is_unaffected():
+    from arvaken_stop_test.aws import fire as firing
+    from arvaken_stop_test.aws import run as running
+    clock = Clock()
+    r, doc = a_run(FakeAWS(clock), clock, stop_ref=firing.REVOKE)
+    out = report.page(doc, [d for _, d in running.results(r)])
+    assert report.REVOKE_NOTE in out and report.expected(firing.REVOKE, "another_identity") == "stopped"
+    clock2 = Clock()
+    _, policy_doc = a_run(FakeAWS(clock2), clock2)
+    assert report.REVOKE_NOTE not in report.page(policy_doc)
