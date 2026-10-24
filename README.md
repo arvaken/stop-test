@@ -71,6 +71,21 @@ and install the file you checked:
 uv tool install "./arvaken_stop_test-0.1.1-py3-none-any.whl[aws]"
 ```
 
+### On Windows on Arm
+
+Use an x64 Python. The kit and sigstore need the cryptography package, whose current versions have no build for
+Windows on Arm, so under an Arm Python their install tries to build it from source and fails. Windows 11 runs x64
+Python on Arm.
+
+With uv, add `--python cpython-3.13-windows-x86_64-none` to each `uv tool install` above, for example:
+
+```
+uv tool install --python cpython-3.13-windows-x86_64-none "arvaken-stop-test[aws] @ https://github.com/arvaken/stop-test/releases/download/v0.1.1/arvaken_stop_test-0.1.1-py3-none-any.whl"
+```
+
+With pip, make the virtual environment with Python from python.org's "Windows installer (64-bit)", not its ARM64 one,
+and install sigstore in it too.
+
 ## Run it
 
 Run it in an account you use for testing: it fires a real stop, in whichever account your credentials point to.
