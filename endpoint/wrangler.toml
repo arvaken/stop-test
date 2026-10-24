@@ -5,8 +5,9 @@ main = "worker.js"
 compatibility_date = "2026-10-01"
 workers_dev = false
 
-# The endpoint keeps nothing: no Logpush (a top-level key; under [observability] it would be another field), no tail
-# consumer, and Workers Logs off. worker.test.mjs fails if any of these is turned on.
+# No request log of ours: no Logpush (a top-level key; under [observability] it would be another field), no tail
+# consumer, and Workers Logs off. worker.test.mjs fails if any of these is turned on. Cloudflare still keeps its
+# standard records of each request, whatever this file says: the README's one description says what they are.
 logpush = false
 
 [observability]

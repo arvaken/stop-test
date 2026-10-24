@@ -3,8 +3,9 @@
 //
 // GET /open answers anyone. GET /key answers only a request that carries a run's key, as an outside service answers
 // only a caller holding its key: a bearer key of 32 hexadecimal characters, which the kit makes for each run.
-// Every answer is a fixed reply. The endpoint keeps nothing: it writes no log, stores nothing, and reads nothing of a
-// request but its path and that one header. Its configuration (wrangler.toml) turns Cloudflare's own request logs off.
+// Every answer is a fixed reply. This code keeps nothing: it writes no log, stores nothing, and reads nothing of a
+// request but its path and that one header. Its configuration (wrangler.toml) turns Cloudflare's request logs off.
+// Cloudflare still keeps its standard records of each request, as the README's one description says.
 
 const OK = () => new Response("ok", { status: 200, headers: { "content-type": "text/plain", "cache-control": "no-store" } });
 const NO = (status) => new Response(null, { status, headers: { "cache-control": "no-store" } });
