@@ -44,13 +44,13 @@ You need Python 3.11 or later, and AWS credentials where the AWS command line fi
 [uv](https://docs.astral.sh/uv/):
 
 ```
-uv tool install "arvaken-stop-test[aws] @ https://github.com/arvaken/stop-test/releases/download/v0.1.0/arvaken_stop_test-0.1.0-py3-none-any.whl"
+uv tool install "arvaken-stop-test[aws] @ https://github.com/arvaken/stop-test/releases/download/v0.1.1/arvaken_stop_test-0.1.1-py3-none-any.whl"
 ```
 
 Or with pip, in a virtual environment:
 
 ```
-python -m pip install "arvaken-stop-test[aws] @ https://github.com/arvaken/stop-test/releases/download/v0.1.0/arvaken_stop_test-0.1.0-py3-none-any.whl"
+python -m pip install "arvaken-stop-test[aws] @ https://github.com/arvaken/stop-test/releases/download/v0.1.1/arvaken_stop_test-0.1.1-py3-none-any.whl"
 ```
 
 ### Check what you download
@@ -62,13 +62,13 @@ from the release, then:
 
 ```
 python -m pip install sigstore
-python -m sigstore verify github arvaken_stop_test-0.1.0-py3-none-any.whl --cert-identity https://github.com/arvaken/stop-test/.github/workflows/release.yml@refs/tags/v0.1.0
+python -m sigstore verify github arvaken_stop_test-0.1.1-py3-none-any.whl --cert-identity https://github.com/arvaken/stop-test/.github/workflows/release.yml@refs/tags/v0.1.1
 ```
 
 and install the file you checked:
 
 ```
-uv tool install "./arvaken_stop_test-0.1.0-py3-none-any.whl[aws]"
+uv tool install "./arvaken_stop_test-0.1.1-py3-none-any.whl[aws]"
 ```
 
 ## Run it

@@ -4,4 +4,4 @@ deploys and times what actually stops (Arvaken's design, STOP-TEST-DESIGN.md; D5
 Nothing about your account is sent to Arvaken. A result is a file in your own hands; submitting results to Arvaken is
 not open yet.
 """
-__version__ = "0.1.0"
+__version__ = "0.1.1"
