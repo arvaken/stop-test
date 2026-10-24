@@ -55,7 +55,7 @@ def test_a_run_writes_its_three_files_with_lf_on_every_platform(tmp_path, monkey
     assert cli.main(["aws", "run", "--inline-deny", "--region", "eu-central-1", "--run", "r0123abcd"]) == 0
     said = capsys.readouterr().out
     assert ("Wrote stop-test-r0123abcd.json, its page and its details. Nothing about your account was sent to "
-            "Arvaken, except the address the test agent's two calls came from.") in said
+            "Arvaken.") in said
     # its reference, as Arvaken's page shows it when the result is sent: the SHA-256 of its signature's bytes
     written = json.loads((tmp_path / "stop-test-r0123abcd.json").read_text(encoding="utf-8"))
     import base64

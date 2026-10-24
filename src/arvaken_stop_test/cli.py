@@ -145,8 +145,7 @@ def main(argv: list[str] | None = None) -> int:
     write(out, json.dumps(doc, indent=1, sort_keys=True))
     write(Path(f"stop-test-{run_name}.html"), report.page(doc, [d for _, d in running.results(r)]))
     write(Path(f"stop-test-{run_name}-details.json"), json.dumps(running.details(r, doc), indent=1))
-    print(f"Wrote {out}, its page and its details. Nothing about your account was sent to Arvaken, except the address "
-          "the test agent's two calls came from.")
+    print(f"Wrote {out}, its page and its details. Nothing about your account was sent to Arvaken.")
     print(f"Your result's reference: {result.reference(doc)}. It's the SHA-256 of the result's signature.")
     return 0
 
