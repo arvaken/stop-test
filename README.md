@@ -220,6 +220,23 @@ If a run could not clean up, remove what it made by the run's name:
 stop-test google clean --run <run> --project my-test-project --region europe-west3
 ```
 
+## The permissions it needs
+
+The kit runs with your own credentials. To give it only what a run needs, use the ready-made policy for your cloud in
+[`permissions/`](permissions). The kit's tests hold each to every call the kit makes.
+
+- **AWS:** [`permissions/aws-policy.json`](permissions/aws-policy.json), an IAM policy. Each statement names only what a
+  run makes (its stack, roles, function, bucket and log group, each `arvaken-stop-test-*`), except reading your stop
+  policy, and four reads AWS allows only on every resource: CloudTrail's event history, the tag listing, the log group
+  listing and IAM's policy simulator.
+- **Google Cloud:** [`permissions/google-role.yaml`](permissions/google-role.yaml), a custom role for your test project:
+
+  ```
+  gcloud iam roles create arvakenStopTest --project=my-test-project --file=permissions/google-role.yaml
+  ```
+
+  To fire a deny policy, you also need the Deny Admin role (`roles/iam.denyAdmin`) on your organization.
+
 ## Licence
 
 Apache License 2.0. See [LICENSE](LICENSE).

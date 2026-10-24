@@ -1,0 +1,32 @@
+{
+ "Version": "2012-10-17",
+ "Statement": [
+  {"Sid": "TheRunsStack", "Effect": "Allow",
+   "Action": ["cloudformation:CreateStack", "cloudformation:DescribeStacks", "cloudformation:DeleteStack",
+              "cloudformation:DescribeStackEvents"],
+   "Resource": "arn:aws:cloudformation:*:*:stack/arvaken-stop-test-*/*"},
+  {"Sid": "TheRunsRoles", "Effect": "Allow",
+   "Action": ["iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:TagRole", "iam:UntagRole", "iam:ListRoleTags",
+              "iam:PutRolePolicy", "iam:GetRolePolicy", "iam:DeleteRolePolicy", "iam:ListRolePolicies",
+              "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:ListAttachedRolePolicies"],
+   "Resource": "arn:aws:iam::*:role/arvaken-stop-test-*"},
+  {"Sid": "TheAgentsRoleGivenToItsFunction", "Effect": "Allow", "Action": "iam:PassRole",
+   "Resource": "arn:aws:iam::*:role/arvaken-stop-test-*",
+   "Condition": {"StringEquals": {"iam:PassedToService": "lambda.amazonaws.com"}}},
+  {"Sid": "TheRunsFunction", "Effect": "Allow",
+   "Action": ["lambda:CreateFunction", "lambda:DeleteFunction", "lambda:GetFunction", "lambda:InvokeFunction",
+              "lambda:TagResource", "lambda:ListTags"],
+   "Resource": "arn:aws:lambda:*:*:function:arvaken-stop-test-*"},
+  {"Sid": "TheRunsBucket", "Effect": "Allow",
+   "Action": ["s3:CreateBucket", "s3:DeleteBucket", "s3:ListBucket", "s3:PutBucketTagging",
+              "s3:PutEncryptionConfiguration", "s3:PutBucketPublicAccessBlock", "s3:DeleteObject"],
+   "Resource": ["arn:aws:s3:::arvaken-stop-test-*", "arn:aws:s3:::arvaken-stop-test-*/*"]},
+  {"Sid": "TheFunctionsLogGroupIfAny", "Effect": "Allow", "Action": "logs:DeleteLogGroup",
+   "Resource": "arn:aws:logs:*:*:log-group:/aws/lambda/arvaken-stop-test-*"},
+  {"Sid": "YourStopReadAndChecked", "Effect": "Allow", "Action": ["iam:GetPolicy", "iam:GetPolicyVersion"],
+   "Resource": "arn:aws:iam::*:policy/*"},
+  {"Sid": "ReadsAwsTakesOnEveryResourceOnly", "Effect": "Allow",
+   "Action": ["cloudtrail:LookupEvents", "tag:GetResources", "logs:DescribeLogGroups", "iam:SimulateCustomPolicy"],
+   "Resource": "*"}
+ ]
+}
