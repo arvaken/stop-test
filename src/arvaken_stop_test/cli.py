@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 from arvaken_stop_test import report, result
-from arvaken_stop_test.timing import HOLD, WINDOW
+from arvaken_stop_test.timing import HOLD, WINDOWS
 
 ENDPOINT = "https://stop-test.arvaken.com"        # Arvaken's test endpoint (D532, K3); see endpoint/ in this repository
 
@@ -32,6 +32,11 @@ def _duration(text: str) -> float:
     if text.endswith("s"):
         return float(text[:-1])
     return float(text)
+
+
+def _window_help(cloud: str) -> str:
+    """The window's help, with the cloud's own default (timing.WINDOWS)."""
+    return f"time after firing, e.g. {WINDOWS[cloud] / 60:g}m (default)"
 
 
 def calls_for(window: float, repeats: int) -> int:
@@ -165,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
                        help="the stop is revoking the active sessions of the agent's role and the role it became")
         a.add_argument("--inline-deny", action="store_true",
                        help="the stop is a policy written on the agent's role, denying every action")
-        a.add_argument("--window", type=_duration, default=WINDOW, help="time after firing, e.g. 15m (default)")
+        a.add_argument("--window", type=_duration, default=WINDOWS["aws"], help=_window_help("aws"))
         a.add_argument("--repeats", type=int, default=1, help="1 to 5")
         a.add_argument("--region", required=True)
         a.add_argument("--run", dest="run_name", help="the run's name, if you are resuming one")
@@ -183,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
                        help="the stop is a deny policy on the agent's identity, denying what its paths use")
         a.add_argument("--disable-account", action="store_true", help="the stop is disabling the agent's service account")
         a.add_argument("--own-trigger", action="store_true", help="you fire your own stop; the kit watches")
-        a.add_argument("--window", type=_duration, default=WINDOW, help="time after firing, e.g. 15m (default)")
+        a.add_argument("--window", type=_duration, default=WINDOWS["google_cloud"], help=_window_help("google_cloud"))
         a.add_argument("--repeats", type=int, default=1, help="1 to 5")
         a.add_argument("--project", required=True)
         a.add_argument("--region", required=True)

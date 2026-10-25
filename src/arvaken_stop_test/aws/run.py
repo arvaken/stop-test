@@ -25,7 +25,7 @@ from typing import Any
 from arvaken_stop_test import __version__, result
 from arvaken_stop_test.aws import fire as firing
 from arvaken_stop_test.aws.stack import MEMORY_MB, RUNTIME, TAG, names, template_body
-from arvaken_stop_test.timing import HOLD, PATH_WORDS, WINDOW, Beat, PathResult, judge
+from arvaken_stop_test.timing import HOLD, PATH_WORDS, WINDOWS, Beat, PathResult, judge
 
 AWS_PATHS = ("own_calls", "another_identity", "outside_key", "open_internet")
 WARM_UP = 10                 # heartbeats before the first firing
@@ -451,7 +451,7 @@ def the_result(r: Run, key=None) -> dict:
     return result.sign(doc, key or result.new_key())
 
 
-def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", window: float = WINDOW,
+def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", window: float = WINDOWS["aws"],
         repeats: int = 1, clock: Clock | None = None, run_name: str | None = None,
         trail_wait: float = TRAIL_WAIT, say: Callable[[str], None] = lambda _: None) -> tuple[Run, dict]:
     """A whole run, torn down whatever happens. Returns the run's record and its signed result. `say` is told, as the
