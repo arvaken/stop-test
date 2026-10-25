@@ -54,8 +54,11 @@ def _plan(args, run_name: str) -> str:
     reason = fire.why_not(stop) if not args.own_trigger else None
     if not reason and args.stop:
         from arvaken_stop_test.aws.boto import clients_for
-        if not fire.covers(clients_for(args.region).iam, stop, run_name):
+        c = clients_for(args.region)
+        if not fire.covers(c.iam, stop, run_name):
             reason = fire.NOT_COVERED.rstrip(".")
+        else:
+            reason = (fire.why_no_boundary(c.iam, c.sts) or "").rstrip(".") or None
     lines = [f"Run {run_name} in {args.region}:",
              f"- creates one stack, {n['stack']}: a test agent ({n['function']}), its role and a second role, and a",
              "  bucket of its own, each tagged with the run;",

@@ -74,6 +74,40 @@ def test_the_aws_policy_names_the_runs_own_resources_wherever_aws_lets_it():
             assert all("arvaken-stop-test-" in r for r in resources), s["Sid"]
 
 
+BOUNDARY = json.loads((ROOT / "permissions" / "aws-boundary.json").read_text(encoding="utf-8"))
+ROLE_CHANGES = {"iam:CreateRole", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:AttachRolePolicy",
+                "iam:DetachRolePolicy"}
+
+
+def test_the_aws_policy_makes_or_changes_a_role_only_under_the_kits_boundary():
+    """Whoever holds the policy cannot make a role beyond the boundary: every act that makes a role, or gives one a
+    policy, is allowed only where the role's permissions boundary is arvaken-stop-test-boundary, and none of them
+    elsewhere; and nothing in the policy changes a role's boundary or the boundary policy itself."""
+    for s in AWS_POLICY["Statement"]:
+        actions = set(s["Action"] if isinstance(s["Action"], list) else [s["Action"]])
+        if actions & ROLE_CHANGES:
+            assert actions == ROLE_CHANGES and s["Condition"] == {
+                "StringLike": {"iam:PermissionsBoundary": "arn:aws:iam::*:policy/arvaken-stop-test-boundary"}}
+    assert not allowed() & {"iam:PutRolePermissionsBoundary", "iam:DeleteRolePermissionsBoundary",
+                            "iam:CreatePolicy", "iam:CreatePolicyVersion", "iam:SetDefaultPolicyVersion",
+                            "iam:DeletePolicy", "iam:DeletePolicyVersion"}
+
+
+def test_the_boundary_is_the_kits_and_allows_what_the_two_roles_do_and_no_more():
+    from arvaken_stop_test.aws.stack import boundary_document, template
+    assert BOUNDARY == boundary_document()                  # permissions/ gives the one the kit checks for
+    allows = {(a, s["Resource"]) for s in BOUNDARY["Statement"] for a in
+              (s["Action"] if isinstance(s["Action"], list) else [s["Action"]])}
+    assert allows == {("s3:PutObject", "arn:aws:s3:::arvaken-stop-test-*/*"),
+                      ("s3:GetObject", "arn:aws:s3:::arvaken-stop-test-*/*"),
+                      ("sts:AssumeRole", "arn:aws:iam::*:role/arvaken-stop-test-*")}
+    roles = [r["Properties"] for r in template("r0123abcd", "https://e.test")["Resources"].values()
+             if r["Type"] == "AWS::IAM::Role"]
+    done = {a for props in roles for p in props["Policies"] for s in p["PolicyDocument"]["Statement"]
+            for a in (s["Action"] if isinstance(s["Action"], list) else [s["Action"]])}
+    assert done == {a for a, _ in allows}                   # each the roles' own policies grant, and none more
+
+
 def permission_for(method: str, url: str, identity: bool = False) -> str:
     """The permission Google checks for one of the kit's requests."""
     if identity:

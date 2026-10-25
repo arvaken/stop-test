@@ -49,6 +49,7 @@ class Clients:
     tagging: Any
     region: str
     logs: Any = None
+    sts: Any = None
 
 
 @dataclass
@@ -467,6 +468,9 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", 
     if fired_by == "the kit" and stop_ref not in (firing.REVOKE, firing.INLINE) \
             and not firing.covers(c.iam, stop_ref, the_name):
         raise firing.Refused(firing.NOT_COVERED)    # before anything is made
+    reason = firing.why_no_boundary(c.iam, c.sts)
+    if reason:
+        raise firing.Refused(reason)                # before anything is made
     if not 1 <= repeats <= 5:
         raise ValueError("a run repeats one to five times")
     if fired_by == "your own trigger" and repeats != 1:

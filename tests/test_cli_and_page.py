@@ -11,7 +11,7 @@ from test_aws_run import Clock, FakeAWS, a_run
 def test_plan_says_what_a_run_makes_and_refuses_a_stop_it_will_not_fire(capsys, monkeypatch):
     from arvaken_stop_test.aws import boto
     fake = FakeAWS(Clock())
-    monkeypatch.setattr(boto, "clients_for", lambda region: type("C", (), {"iam": fake})())
+    monkeypatch.setattr(boto, "clients_for", lambda region: type("C", (), {"iam": fake, "sts": fake})())
     assert cli.main(["aws", "plan", "--stop", "arn:aws:iam::111122223333:policy/agent-stop", "--region",
                      "eu-central-1", "--run", "r0123abcd"]) == 0
     out = capsys.readouterr().out
@@ -150,7 +150,7 @@ def test_the_page_gives_time_to_effect_as_a_range_the_successes_after_a_refusal_
 def test_plan_says_when_your_stop_does_not_deny_what_the_test_agent_does(capsys, monkeypatch):
     from arvaken_stop_test.aws import boto
     fake = FakeAWS(Clock(), stop_denies=("ec2:RunInstances",))
-    monkeypatch.setattr(boto, "clients_for", lambda region: type("C", (), {"iam": fake})())
+    monkeypatch.setattr(boto, "clients_for", lambda region: type("C", (), {"iam": fake, "sts": fake})())
     cli.main(["aws", "plan", "--stop", "arn:aws:iam::111122223333:policy/agent-stop", "--region", "eu-central-1",
               "--run", "r0123abcd"])
     assert ("It will not run: Your stop doesn't deny what the test agent does, so this test can't tell you about your "
@@ -168,3 +168,13 @@ def test_revoking_sessions_is_expected_to_reach_the_role_it_became_and_the_page_
     clock2 = Clock()
     _, policy_doc = a_run(FakeAWS(clock2), clock2)
     assert report.REVOKE_NOTE not in report.page(policy_doc)
+
+
+def test_plan_says_when_the_account_has_no_kits_boundary(capsys, monkeypatch):
+    from arvaken_stop_test.aws import boto
+    fake = FakeAWS(Clock(), boundary=None)
+    monkeypatch.setattr(boto, "clients_for", lambda region: type("C", (), {"iam": fake, "sts": fake})())
+    cli.main(["aws", "plan", "--stop", "arn:aws:iam::111122223333:policy/agent-stop", "--region", "eu-central-1",
+              "--run", "r0123abcd"])
+    assert ("It will not run: Your account has no policy arvaken-stop-test-boundary, the permissions boundary the kit "
+            "puts on the roles it makes.") in capsys.readouterr().out

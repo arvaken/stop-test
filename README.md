@@ -21,7 +21,8 @@ what Cloudflare records, word for word:
 > Cloud, Cloud Run's default network, where it is an address from Google's dynamic pool, not one of your project's. For
 > the verification page, it is the address of whoever opens it.
 
-Submitting results to Arvaken is not open yet.
+If you choose, you can send Arvaken a result at https://app.arvaken.com/stop-test/submit, under the kit's terms:
+https://arvaken.com/stop-test/terms.
 
 AWS and Google Cloud. Azure follows.
 
@@ -228,6 +229,18 @@ The kit runs with your own credentials. To give it only what a run needs, use th
   run makes (its stack, roles, function, bucket and log group, each `arvaken-stop-test-*`), except reading your stop
   policy, and four reads AWS allows only on every resource: CloudTrail's event history, the tag listing, the log group
   listing and IAM's policy simulator.
+
+  The two roles a run makes carry a permissions boundary,
+  [`permissions/aws-boundary.json`](permissions/aws-boundary.json), which allows only writing and reading a run's own
+  bucket and assuming a run's own role. The policy lets its holder make a role, or give one a policy, only under that
+  boundary, so it cannot be used to make a role that reaches anything else. Create the boundary once, with an
+  administrator's credentials, under its own name:
+
+  ```
+  aws iam create-policy --policy-name arvaken-stop-test-boundary --policy-document file://permissions/aws-boundary.json
+  ```
+
+  Before a run makes anything, the kit checks that the boundary is there and is the kit's.
 - **Google Cloud:** [`permissions/google-role.yaml`](permissions/google-role.yaml), a custom role for your test project:
 
   ```
