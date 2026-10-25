@@ -59,6 +59,8 @@ class FakeGoogle:
         self.bucket_stays, self.described = bucket_stays, described
         self.service = None
         self.objects: set[str] = set()
+        self.objects_stay = False                      # every object's deletion refused
+        self.unavailable: dict[str, int] = {}          # a path's part, and how many more GETs of it Google answers 503
         self.audit: list[tuple[str, str, float]] = []  # (method, resource, when)
         self.declared_rules = declared_rules or [{"denyRule": {
             "deniedPrincipals": ["principal://goog/subject/someone@acme.test"],
@@ -92,6 +94,10 @@ class FakeGoogle:
             self.bodies.append({"method": method, "url": url, "body": body})
         u = urllib.parse.urlsplit(url)
         path = urllib.parse.unquote(u.path)
+        for part, more in self.unavailable.items():
+            if method == "GET" and part in path and more > 0:
+                self.unavailable[part] = more - 1
+                raise GoogleError(503, "UNAVAILABLE")
         if identity:
             assert url == "https://agent.example/", url
             return self.agent(body)
@@ -131,8 +137,15 @@ class FakeGoogle:
             if path.endswith("/iam"):
                 return {"bindings": []}
             if path.endswith("/o"):
-                return {"items": [{"name": o} for o in sorted(self.objects)]}
+                return {"items": [{"name": o} for o in sorted(self.objects)[:1000]]}      # Google's page: 1000 at most
+            if method == "DELETE" and "/o/" in path:
+                if self.objects_stay:
+                    raise GoogleError(403, "forbidden")
+                self.objects.discard(path.split("/o/", 1)[1])
+                return {}
             if method == "DELETE" and path == f"/storage/v1/b/{self.bucket}":
+                if self.objects:
+                    raise GoogleError(409, "conflict")                                 # a bucket with objects stays
                 if not self.bucket_stays:
                     self.bucket = None
                 return {}
@@ -284,3 +297,36 @@ def test_a_declared_deny_that_does_not_deny_the_agents_own_calls_is_refused_befo
     assert fake.accounts == {} and fake.bucket is None and fake.service is None
     assert firing.covers(["storage.googleapis.com/objects.*"])
     assert not firing.covers(["storage.googleapis.com/objects.create"])
+
+
+def test_the_teardown_empties_a_bucket_of_thousands_page_by_page_and_names_nothing_left():
+    """The agent writes an object on every heartbeat: a five-repeat run left about 12,000 in its bucket (25 October
+    2026), which one deletion at a time took half an hour to clear."""
+    clock = Clock()
+    fake = FakeGoogle(clock)
+    fake.objects = {f"own/{i}" for i in range(2500)}
+    r, _ = a_run(fake, firing.DENY_ALL)
+    assert fake.objects == set() and fake.bucket is None and r.left_behind == []
+    assert len([u for m, u in fake.calls if m == "GET" and urllib.parse.urlsplit(u).path.endswith("/o")]) == 4
+
+
+def test_objects_that_cannot_be_deleted_end_the_teardown_and_the_bucket_is_named_left():
+    clock = Clock()
+    fake = FakeGoogle(clock)
+    fake.objects, fake.objects_stay = {"own/1", "own/2"}, True
+    r, _ = a_run(fake, firing.DENY_ALL)
+    assert r.left_behind == [f"the bucket {N['bucket']}"] and fake.objects == {"own/1", "own/2"}
+
+
+def test_a_check_google_cannot_answer_just_then_is_asked_again_before_anything_is_named():
+    """A five-repeat run named a deny policy left that was gone: Google had answered the check 503 (25 October 2026)."""
+    clock = Clock()
+    fake = FakeGoogle(clock)
+    r, _ = a_run(fake, firing.DISABLE)
+    fake.unavailable["denypolicies"] = running.TRANSIENT_TRIES - 1
+    left, gone = running.check_gone(fake, r, running.Clock(clock.now, clock.sleep))
+    assert left == [] and f"the deny policy {N['deny_policy']}" in gone
+    fake.unavailable["denypolicies"] = running.TRANSIENT_TRIES
+    left, _ = running.check_gone(fake, r, running.Clock(clock.now, clock.sleep))
+    assert left == [f"the deny policy {N['deny_policy']} (could not be checked: 503 UNAVAILABLE)"]
+
