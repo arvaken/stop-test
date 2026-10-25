@@ -22,7 +22,7 @@ from arvaken_stop_test import __version__, result
 from arvaken_stop_test.google import fire as firing
 from arvaken_stop_test.google.api import Google, GoogleError
 from arvaken_stop_test.google.stack import IAM, MEMORY_MB, RUN, RUNTIME, STORAGE, deploy, names, quoted
-from arvaken_stop_test.timing import HOLD, PATH_WORDS, WINDOW, Beat, PathResult, judge
+from arvaken_stop_test.timing import HOLD, PATH_WORDS, WINDOWS, Beat, PathResult, judge
 
 GOOGLE_PATHS = ("own_calls", "another_identity", "outside_key", "open_internet")
 WARM_UP = 10
@@ -332,7 +332,7 @@ def the_result(r: Run, key=None) -> dict:
     return result.sign(doc, key or result.new_key())
 
 
-def run(g: Google, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", window: float = WINDOW,
+def run(g: Google, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", window: float = WINDOWS["google_cloud"],
         repeats: int = 1, clock: Clock | None = None, run_name: str | None = None, log_wait: float = LOG_WAIT,
         say: Callable[[str], None] = lambda _: None) -> tuple[Run, dict]:
     """A whole run, torn down whatever happens. Returns the run's record and its signed result."""

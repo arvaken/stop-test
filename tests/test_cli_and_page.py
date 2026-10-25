@@ -178,3 +178,20 @@ def test_plan_says_when_the_account_has_no_kits_boundary(capsys, monkeypatch):
               "--run", "r0123abcd"])
     assert ("It will not run: Your account has no policy arvaken-stop-test-boundary, the permissions boundary the kit "
             "puts on the roles it makes.") in capsys.readouterr().out
+
+
+def test_each_cloud_times_its_paths_for_its_own_window_by_default(capsys, monkeypatch):
+    """The founder, 25 October 2026: "Set the window per cloud before the Azure module runs." Each cloud the command line
+    offers has a default window of its own (timing.WINDOWS), and its plan and its help say it: changing one cloud's
+    leaves the other's as it was."""
+    from arvaken_stop_test import timing
+    assert set(timing.WINDOWS) == {"aws", "google_cloud"}
+    monkeypatch.setitem(timing.WINDOWS, "aws", 600.0)
+    cli.main(["aws", "plan", "--inline-deny", "--region", "eu-central-1", "--run", "r0123abcd"])
+    cli.main(["google", "plan", "--deny-all", "--project", "my-test-project", "--region", "europe-west3",
+              "--run", "r0123abcd"])
+    said = capsys.readouterr().out
+    assert "- times each path for 600 seconds after firing, 1 time(s);" in said
+    assert "- times each path for 900 seconds after firing, 1 time(s);" in said
+    assert cli._window_help("aws") == "time after firing, e.g. 10m (default)"
+    assert cli._window_help("google_cloud") == "time after firing, e.g. 15m (default)"
