@@ -31,7 +31,10 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
 HOLD = 30.0                 # seconds a run of failures must last to count as stopped
-WINDOW = 15 * 60.0          # the default window after firing, in seconds (K8)
+# Each cloud's default window after firing, in seconds (K8), by the cloud's name in a result: how long each path is
+# timed once the stop is fired. Each cloud has its own, set for it before its module runs: a cloud with none here has no
+# default, and the command line offers no cloud without one (tests/test_cli_and_page.py).
+WINDOWS = {"aws": 15 * 60.0, "google_cloud": 15 * 60.0}
 
 # The stop map's four paths, and the optional model call (the design's section 4), in their order.
 PATHS = ("own_calls", "another_identity", "outside_key", "open_internet", "model")
@@ -106,7 +109,7 @@ def _runs(beats: Sequence[Beat]) -> list[tuple[float, float, bool]]:
     return runs
 
 
-def judge(beats: Iterable[Beat], fired_at: float | None, window: float = WINDOW, hold: float = HOLD,
+def judge(beats: Iterable[Beat], fired_at: float | None, window: float, hold: float = HOLD,
           tried: bool = True, setup_errors: dict[str, int] | None = None, fired_precision: float = 0.0) -> PathResult:
     """What the test found on one path, from its heartbeats and the moment the stop was fired."""
     if not tried:
