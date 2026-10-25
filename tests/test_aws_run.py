@@ -54,7 +54,7 @@ class FakeAWS:
 
     def __init__(self, clock: Clock, *, delay=8.0, trail_delay=120.0, skew=0.05, left=(), role_tagged=True,
                  endpoint_error=None, log_group=False, bucket_stays=False, cold_after=None, invoke_error=None,
-                 stop_denies=("s3:PutObject", "s3:GetObject")):
+                 stop_denies=("s3:PutObject", "s3:GetObject"), boundary="the kit's"):
         self.clock, self.delay, self.trail_delay, self.skew = clock, delay, trail_delay, skew
         self.left, self.role_tagged, self.endpoint_error = list(left), role_tagged, endpoint_error
         self.stack = None
@@ -75,6 +75,9 @@ class FakeAWS:
         # what the declared managed policy denies, as IAM's policy simulator decides it (the kit's check before a run)
         self.stop_denies = tuple(stop_denies)
         self.stopped_from: float | None = None
+        # the account's policy arvaken-stop-test-boundary: the kit's own, another document, or none
+        self.boundary = boundary
+        self.made_roles: list[dict] = []
         self.concurrency: int | None = None
 
     # cloudformation
@@ -97,11 +100,22 @@ class FakeAWS:
     def delete_stack(self, StackName):
         self.stack["status"] = "DELETED"
 
+    # sts
+    def get_caller_identity(self):
+        return {"Account": "123456789012", "Arn": "arn:aws:sts::123456789012:assumed-role/runner/you"}
+
     # iam
     def get_policy(self, PolicyArn):
+        if PolicyArn.endswith(":policy/arvaken-stop-test-boundary") and self.boundary is None:
+            raise ClientError("NoSuchEntity")
         return {"Policy": {"Arn": PolicyArn, "DefaultVersionId": "v1"}}
 
     def get_policy_version(self, PolicyArn, VersionId):
+        if PolicyArn.endswith(":policy/arvaken-stop-test-boundary"):
+            from arvaken_stop_test.aws.stack import boundary_document
+            document = boundary_document() if self.boundary == "the kit's" else {"Version": "2012-10-17", "Statement": [
+                {"Effect": "Allow", "Action": "*", "Resource": "*"}]}
+            return {"PolicyVersion": {"VersionId": VersionId, "Document": document}}
         return {"PolicyVersion": {"VersionId": VersionId, "Document": {"Version": "2012-10-17", "Statement": [
             {"Effect": "Deny", "Action": list(self.stop_denies), "Resource": "*"}]}}}
 
@@ -236,7 +250,7 @@ class FakeAWS:
 
 def clients(aws: FakeAWS) -> running.Clients:
     return running.Clients(cloudformation=aws, iam=aws, lambda_=aws, s3=aws, cloudtrail=aws, tagging=aws,
-                           region="eu-central-1", logs=aws)
+                           region="eu-central-1", logs=aws, sts=aws)
 
 
 def a_run(aws: FakeAWS, clock: Clock, **over):
@@ -276,6 +290,29 @@ def test_a_stop_that_would_reach_beyond_the_test_agent_is_refused_before_anythin
             running.run(clients(aws), ref, endpoint=ENDPOINT, window=60.0,
                         clock=running.Clock(clock.now, clock.sleep), run_name="r0123abcd")
         assert aws.stack is None and aws.invocations == 0
+
+
+def test_without_the_kits_boundary_in_the_account_nothing_is_made():
+    """Both roles are made under the permissions boundary arvaken-stop-test-boundary, which the account holds once:
+    a run refuses before anything is made where it is missing, or is not the kit's, whatever stop is fired."""
+    for boundary, says in ((None, "has no policy arvaken-stop-test-boundary"),
+                           ("another", "is not the kit's permissions boundary")):
+        for stop in (STOP, firing.INLINE, firing.REVOKE):
+            clock = Clock()
+            aws = FakeAWS(clock, boundary=boundary)
+            with pytest.raises(firing.Refused, match=says):
+                running.run(clients(aws), stop, endpoint=ENDPOINT, window=60.0,
+                            clock=running.Clock(clock.now, clock.sleep), run_name="r0123abcd")
+            assert aws.stack is None and aws.invocations == 0
+
+
+def test_both_roles_are_made_under_the_kits_boundary():
+    roles = {k: r["Properties"] for k, r in template("r0123abcd", ENDPOINT)["Resources"].items()
+             if r["Type"] == "AWS::IAM::Role"}
+    assert sorted(roles) == ["AgentRole", "SecondRole"]
+    for props in roles.values():
+        assert props["PermissionsBoundary"] == {
+            "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/arvaken-stop-test-boundary"}
 
 
 def test_a_role_not_the_runs_own_is_never_fired_on_and_the_run_is_still_torn_down():

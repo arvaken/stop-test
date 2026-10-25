@@ -8,6 +8,11 @@ Every resource is named with the run's prefix, `arvaken-stop-test-<run>`, and ta
 
 The roles' permissions reach only the run's own bucket and the run's own second role. The kit touches nothing it did
 not create, except to attach the customer's stop to the agent's role (fire.py).
+
+Both roles carry the permissions boundary `arvaken-stop-test-boundary` (boundary.json), a policy your account holds
+once, which allows no more than the roles' own policies need: objects in a run's bucket, and assuming a run's role. The
+kit's policy (permissions/aws-policy.json) lets its holder make or change a role only with that boundary on it, so it
+cannot make a role that reaches anything else.
 """
 from __future__ import annotations
 
@@ -19,6 +24,7 @@ from typing import Any
 
 PREFIX = "arvaken-stop-test"
 TAG = "arvaken-stop-test"
+BOUNDARY = f"{PREFIX}-boundary"
 RUNTIME, MEMORY_MB, TIMEOUT_S = "python3.12", 128, 15
 INLINE_LIMIT = 4096          # CloudFormation's limit on a function's inline code, in characters
 
@@ -31,6 +37,11 @@ def new_run() -> str:
 def names(run: str) -> dict[str, str]:
     base = f"{PREFIX}-{run}"
     return {"stack": base, "function": f"{base}-agent", "agent_role": f"{base}-agent", "second_role": f"{base}-second"}
+
+
+def boundary_document() -> dict[str, Any]:
+    """The permissions boundary on both roles, as permissions/aws-boundary.json gives it for your account to hold."""
+    return json.loads(resources.files("arvaken_stop_test.aws").joinpath("boundary.json").read_text(encoding="utf-8"))
 
 
 def agent_code() -> str:
@@ -49,6 +60,7 @@ def template(run: str, endpoint: str, outside_key: str | None = None) -> dict[st
     n = names(run)
     tags = [{"Key": TAG, "Value": run}]
     second_arn = {"Fn::Sub": f"arn:${{AWS::Partition}}:iam::${{AWS::AccountId}}:role/{n['second_role']}"}
+    boundary = {"Fn::Sub": f"arn:${{AWS::Partition}}:iam::${{AWS::AccountId}}:policy/{BOUNDARY}"}
     bucket_objects = lambda prefix: {"Fn::Sub": f"${{Bucket.Arn}}/{prefix}/*"}  # noqa: E731
     return {
         "AWSTemplateFormatVersion": "2010-09-09",
@@ -61,7 +73,7 @@ def template(run: str, endpoint: str, outside_key: str | None = None) -> dict[st
                     {"ServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}]},
                 "Tags": tags}},
             "AgentRole": {"Type": "AWS::IAM::Role", "Properties": {
-                "RoleName": n["agent_role"],
+                "RoleName": n["agent_role"], "PermissionsBoundary": boundary,
                 "AssumeRolePolicyDocument": {"Version": "2012-10-17", "Statement": [
                     {"Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"}, "Action": "sts:AssumeRole"}]},
                 "Policies": [{"PolicyName": "own-calls", "PolicyDocument": {"Version": "2012-10-17", "Statement": [
@@ -69,7 +81,7 @@ def template(run: str, endpoint: str, outside_key: str | None = None) -> dict[st
                     {"Effect": "Allow", "Action": "sts:AssumeRole", "Resource": second_arn}]}}],
                 "Tags": tags}},
             "SecondRole": {"Type": "AWS::IAM::Role", "Properties": {
-                "RoleName": n["second_role"],
+                "RoleName": n["second_role"], "PermissionsBoundary": boundary,
                 "AssumeRolePolicyDocument": {"Version": "2012-10-17", "Statement": [
                     {"Effect": "Allow", "Principal": {"AWS": {"Fn::GetAtt": ["AgentRole", "Arn"]}},
                      "Action": "sts:AssumeRole"}]},

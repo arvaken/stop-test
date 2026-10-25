@@ -27,7 +27,7 @@ from typing import Any
 
 from datetime import datetime, timezone
 
-from arvaken_stop_test.aws.stack import TAG, names
+from arvaken_stop_test.aws.stack import BOUNDARY, TAG, boundary_document, names
 
 MANAGED_POLICY = re.compile(r"arn:aws(-[a-z]+)*:iam::(\d{12}|aws):policy/[\w+=,.@/-]{1,512}")
 OWN_TRIGGER_WARNING = ("Your own trigger may stop more than the test agent. It runs as you made it, and the kit cannot "
@@ -73,6 +73,30 @@ def why_not(stop_ref: str) -> str | None:
 NOT_COVERED = "Your stop doesn't deny what the test agent does, so this test can't tell you about your stop."
 OWN_CALLS = ("s3:PutObject", "s3:GetObject")
 ALLOW_ALL = '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}'
+
+
+NO_BOUNDARY = (f"Your account has no policy {BOUNDARY}, the permissions boundary the kit puts on the roles it makes. "
+               "Create it once from permissions/aws-boundary.json, as the README's \"The permissions it needs\" says.")
+NOT_THE_BOUNDARY = (f"Your account's policy {BOUNDARY} is not the kit's permissions boundary: its default version "
+                    "differs from permissions/aws-boundary.json.")
+
+
+def why_no_boundary(iam: Any, sts: Any) -> str | None:
+    """Why a run cannot make its roles under the kit's permissions boundary, or None: the policy must be in your
+    account, and its default version must be the kit's, statement for statement."""
+    import json
+    caller = sts.get_caller_identity()
+    arn = f"arn:{caller['Arn'].split(':')[1]}:iam::{caller['Account']}:policy/{BOUNDARY}"
+    try:
+        version = iam.get_policy(PolicyArn=arn)["Policy"]["DefaultVersionId"]
+    except Exception as e:
+        if str(getattr(e, "response", {}).get("Error", {}).get("Code")) == "NoSuchEntity":
+            return NO_BOUNDARY
+        raise
+    document = iam.get_policy_version(PolicyArn=arn, VersionId=version)["PolicyVersion"]["Document"]
+    document = json.loads(document) if isinstance(document, str) else document
+    statements = lambda d: sorted(json.dumps(s, sort_keys=True) for s in d["Statement"])  # noqa: E731
+    return None if statements(document) == statements(boundary_document()) else NOT_THE_BOUNDARY
 
 
 def covers(iam: Any, stop_ref: str, run: str) -> bool:
