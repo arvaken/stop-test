@@ -10,8 +10,8 @@ after it, when one was first refused, and the outcome; and the signature, with t
 4.2 names what identifies and is sealed when submitted: here, the stop's and the test agent's identifiers and the names
 of anything left. `check` refuses any other field, so the format cannot grow past the terms without both changing.
 
-**What the signature proves:** that the file has not changed since the kit wrote it. Not who ran the kit, and not that
-the run was honest (the terms' 3.3).
+**What the signature proves:** that the file has not changed since it was signed. Not that the kit wrote it, who ran
+it, or that the run was honest (the terms' 3.3; the founder's README wording, 24 October 2026).
 """
 from __future__ import annotations
 

@@ -1,0 +1,33 @@
+# A custom role for the stop test on Google Cloud, made in your test project:
+#   gcloud iam roles create arvakenStopTest --project=PROJECT --file=google-role.yaml
+# and granted to whoever runs the kit there. A deny policy also needs the Deny Admin role (roles/iam.denyAdmin) on your
+# organization, which Google grants nowhere else; --disable-account needs nothing more.
+title: Arvaken stop test
+description: What a run of the Arvaken stop test makes, fires, reads and deletes in this project.
+stage: GA
+includedPermissions:
+# the test agent's two service accounts: made, read, given to Cloud Run, granted to each other, disabled, deleted
+- iam.serviceAccounts.create
+- iam.serviceAccounts.list
+- iam.serviceAccounts.get
+- iam.serviceAccounts.delete
+- iam.serviceAccounts.disable
+- iam.serviceAccounts.enable
+- iam.serviceAccounts.getIamPolicy
+- iam.serviceAccounts.setIamPolicy
+- iam.serviceAccounts.actAs
+# the run's bucket: made, granted to the two accounts, emptied and deleted
+- storage.buckets.create
+- storage.buckets.get
+- storage.buckets.delete
+- storage.buckets.getIamPolicy
+- storage.buckets.setIamPolicy
+- storage.objects.list
+- storage.objects.delete
+# the test agent's service: made, read, called once a second, deleted
+- run.services.create
+- run.services.get
+- run.services.delete
+- run.routes.invoke
+# the moment each stop was fired, from Cloud Audit Logs' Admin Activity log
+- logging.logEntries.list

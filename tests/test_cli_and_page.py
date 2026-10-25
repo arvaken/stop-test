@@ -8,7 +8,10 @@ from arvaken_stop_test import cli, report, result
 from test_aws_run import Clock, FakeAWS, a_run
 
 
-def test_plan_says_what_a_run_makes_and_refuses_a_stop_it_will_not_fire(capsys):
+def test_plan_says_what_a_run_makes_and_refuses_a_stop_it_will_not_fire(capsys, monkeypatch):
+    from arvaken_stop_test.aws import boto
+    fake = FakeAWS(Clock())
+    monkeypatch.setattr(boto, "clients_for", lambda region: type("C", (), {"iam": fake})())
     assert cli.main(["aws", "plan", "--stop", "arn:aws:iam::111122223333:policy/agent-stop", "--region",
                      "eu-central-1", "--run", "r0123abcd"]) == 0
     out = capsys.readouterr().out
@@ -34,7 +37,8 @@ def test_verify_says_what_a_signature_shows_and_refuses_a_changed_file(tmp_path,
     good = tmp_path / "good.json"
     good.write_text(json.dumps(doc), encoding="utf-8")
     assert cli.main(["verify", str(good)]) == 0
-    assert "unchanged since the kit wrote it" in capsys.readouterr().out
+    said = capsys.readouterr().out
+    assert "unchanged since it was signed" in said and "not that the kit wrote it, who ran it, or that the run was honest" in said
     doc["repeats"][0]["own_calls"]["outcome"] = "not stopped"
     bad = tmp_path / "bad.json"
     bad.write_text(json.dumps(doc), encoding="utf-8")
@@ -141,3 +145,26 @@ def test_the_page_gives_time_to_effect_as_a_range_the_successes_after_a_refusal_
     assert "keeps working until" in page and "when its session expires" in page
     assert "CloudTrail&#x27;s record of the call, to the whole second" in page    # the page escapes what it writes
     assert "took effect" not in json.dumps(doc) and "keeps_working" not in json.dumps(doc)
+
+
+def test_plan_says_when_your_stop_does_not_deny_what_the_test_agent_does(capsys, monkeypatch):
+    from arvaken_stop_test.aws import boto
+    fake = FakeAWS(Clock(), stop_denies=("ec2:RunInstances",))
+    monkeypatch.setattr(boto, "clients_for", lambda region: type("C", (), {"iam": fake})())
+    cli.main(["aws", "plan", "--stop", "arn:aws:iam::111122223333:policy/agent-stop", "--region", "eu-central-1",
+              "--run", "r0123abcd"])
+    assert ("It will not run: Your stop doesn't deny what the test agent does, so this test can't tell you about your "
+            "stop.") in capsys.readouterr().out
+
+
+
+def test_revoking_sessions_is_expected_to_reach_the_role_it_became_and_the_page_says_a_later_session_is_unaffected():
+    from arvaken_stop_test.aws import fire as firing
+    from arvaken_stop_test.aws import run as running
+    clock = Clock()
+    r, doc = a_run(FakeAWS(clock), clock, stop_ref=firing.REVOKE)
+    out = report.page(doc, [d for _, d in running.results(r)])
+    assert report.REVOKE_NOTE in out and report.expected(firing.REVOKE, "another_identity") == "stopped"
+    clock2 = Clock()
+    _, policy_doc = a_run(FakeAWS(clock2), clock2)
+    assert report.REVOKE_NOTE not in report.page(policy_doc)

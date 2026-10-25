@@ -463,11 +463,15 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", 
         reason = firing.why_not(stop_ref)
         if reason:
             raise firing.Refused(reason)            # before anything is made
+    the_name = run_name or new_run()
+    if fired_by == "the kit" and stop_ref not in (firing.REVOKE, firing.INLINE) \
+            and not firing.covers(c.iam, stop_ref, the_name):
+        raise firing.Refused(firing.NOT_COVERED)    # before anything is made
     if not 1 <= repeats <= 5:
         raise ValueError("a run repeats one to five times")
     if fired_by == "your own trigger" and repeats != 1:
         raise ValueError("with your own trigger a run fires once: only you can take your own stop off between repeats")
-    r = Run(run=run_name or new_run(), stop_ref=stop_ref, fired_by=fired_by, window=window, region=c.region)
+    r = Run(run=the_name, stop_ref=stop_ref, fired_by=fired_by, window=window, region=c.region)
     r.began_at = clock.now()
     try:
         deploy(c, r, endpoint, clock)
