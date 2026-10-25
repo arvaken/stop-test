@@ -1,6 +1,6 @@
 [project]
 name = "arvaken-stop-test"
-version = "0.2.0"
+version = "0.2.1"
 description = "A kit you run in your own cloud account: it fires your declared stop on a test agent it deploys, and times what actually stops."
 readme = "README.md"
 license = "Apache-2.0"
@@ -37,9 +37,6 @@ testpaths = ["tests"]
 pythonpath = ["tests"]
 
 [tool.uv]
-# The lock only: the newest cryptography has no Windows-on-ARM wheel, and one maintainer builds there. Users are not
-# held to it: the dependency above stays open.
-constraint-dependencies = ["cryptography<=46.0.3"]
 # The build backend and its own dependencies, exactly, so `uv build` makes the same bytes every time: a release's
 # SHA-256 can be known, and checked, before it is published. Each version was at least two weeks old when pinned.
 build-constraint-dependencies = ["hatchling==1.32.4", "packaging==26.3", "pathspec==1.1.1", "pluggy==1.6.0",
