@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 
@@ -27,6 +28,8 @@ from arvaken_stop_test.timing import HOLD, PATH_WORDS, WINDOWS, Beat, PathResult
 GOOGLE_PATHS = ("own_calls", "another_identity", "outside_key", "open_internet")
 WARM_UP = 10
 RECOVERY = 300.0
+DELETERS = 32                  # objects deleted at once at teardown: a five-repeat run leaves thousands in its bucket
+TRANSIENT_TRIES = 4            # a check Google answers 429 or 5xx is made this many times in all before it is said
 LOG_WAIT = 600.0               # seconds to wait, after the last window, for Cloud Audit Logs to record each firing
 LOGGING = "https://logging.googleapis.com/v2/entries:list"
 # Cloud Run's own refusals to reach the test agent: while it refuses, the agent makes no call on any path, so each path
@@ -207,9 +210,11 @@ def firing_moments(g: Google, r: Run, clock: Clock, wait: float = LOG_WAIT) -> N
         rep.fired_at, rep.fired_precision = rep.fired_before + r.offset, rep.fired_after - rep.fired_before
 
 
-def _quiet(call: Callable[[], object]) -> None:
+def _quiet(call: Callable[[], object]) -> bool:
+    """Whether the call was answered; a refusal is left to the check that follows (check_gone)."""
     try:
         call()
+        return True
     except GoogleError:
         pass
 
@@ -219,19 +224,29 @@ def tear_down(g: Google, r: Run, clock: Clock) -> None:
     n = names(r.run, r.project)
     _quiet(lambda: firing.remove(g, r.run, firing.DENY_ALL))      # the run's deny policy, whichever kind fired
     _quiet(lambda: g.call("DELETE", f"{RUN}/projects/{r.project}/locations/{r.region}/services/{n['service']}"))
+    # The agent writes an object on every heartbeat, so a run leaves thousands: deleted many at once, page by page,
+    # until a page has none or none of a page could be deleted (then the bucket stays, and check_gone names it)
     try:
-        while True:
-            items = g.call("GET", f"{STORAGE}/b/{n['bucket']}/o").get("items") or []
-            if not items:
-                break
-            for item in items:
-                _quiet(lambda name=item["name"]: g.call("DELETE", f"{STORAGE}/b/{n['bucket']}/o/{quoted(name)}"))
+        with ThreadPoolExecutor(max_workers=DELETERS) as pool:
+            while True:
+                items = g.call("GET", f"{STORAGE}/b/{n['bucket']}/o?fields=items(name),nextPageToken&maxResults=1000"
+                               ).get("items") or []
+                def delete(name: str) -> bool:
+                    return _quiet(lambda: g.call("DELETE", f"{STORAGE}/b/{n['bucket']}/o/{quoted(name)}"))
+                deleted = list(pool.map(delete, [i["name"] for i in items]))
+                if not any(deleted):
+                    break
     except GoogleError:
         pass
     _quiet(lambda: g.call("DELETE", f"{STORAGE}/b/{n['bucket']}"))
     for which in ("agent_account", "second_account"):
         _quiet(lambda w=which: g.call("DELETE", f"{IAM}/projects/-/serviceAccounts/{n[w]}"))
     r.left_behind, r.checked_gone = check_gone(g, r, clock)
+
+
+def _transient(found: bool | str) -> bool:
+    """A check Google could not answer just then (429, or 5xx), which is asked again before it is said."""
+    return isinstance(found, str) and (found.startswith("429 ") or found[:1] == "5")
 
 
 def _gone(call: Callable[[], object]) -> bool | str:
@@ -275,9 +290,10 @@ def check_gone(g: Google, r: Run, clock: Clock, wait: float = 120.0) -> tuple[li
     left, gone = [], []
     for what, call in things:
         found, end = _gone(call), clock.now() + (wait if what.startswith(("the service", "the account")) else 0)
-        while found is False and clock.now() < end:
+        tries = 1
+        while (found is False and clock.now() < end) or (_transient(found) and tries < TRANSIENT_TRIES):
             clock.sleep(10.0)
-            found = _gone(call)
+            found, tries = _gone(call), tries + 1
         if found is True:
             gone.append(what)
         else:
