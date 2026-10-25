@@ -16,7 +16,10 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
-TOKEN_LIFE = 50 * 60.0        # a gcloud token lasts an hour; asked again well before
+# gcloud gives back the token it holds, which may be most of an hour old, and makes a new one only once that has
+# expired: so a token is asked for again every few minutes, and at once when Google refuses one (Google.call). A run
+# lasts longer than a token: one kept from its start, for 50 minutes, ran out 23 minutes in (25 October 2026).
+TOKEN_LIFE = 4 * 60.0
 
 
 class GoogleError(Exception):
@@ -49,6 +52,10 @@ class Tokens:
             self._kept[which] = (token, self._clock() + TOKEN_LIFE)
         return token
 
+    def forget(self, which: str) -> None:
+        """Drop a kept token, so the next call asks gcloud again: for one Google has refused."""
+        self._kept.pop(which, None)
+
     def access(self) -> str:
         return self._get("access", ["auth", "print-access-token"])
 
@@ -67,21 +74,33 @@ class Google:
 
     def call(self, method: str, url: str, body: Any = None, *, identity: bool = False,
              raw: bytes | None = None) -> Any:
-        token = self.tokens.identity() if identity else self.tokens.access()
         data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
-        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-        request = urllib.request.Request(url, data=data, method=method, headers=headers)
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as r:      # noqa: S310 - https, built here
-                text = r.read()
-        except urllib.error.HTTPError as e:
-            code = "HTTP"
+        which = "identity" if identity else "access"
+        for asked in (1, 2):
+            token = self.tokens.identity() if identity else self.tokens.access()
+            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            request = urllib.request.Request(url, data=data, method=method, headers=headers)
             try:
-                error = json.loads(e.read() or b"{}").get("error", {})
-                # Google's own error, by its status or reason; the test agent's, by the code it gives
-                code = error if isinstance(error, str) else str(
-                    error.get("status") or (error.get("errors") or [{}])[0].get("reason") or "HTTP")
-            except (ValueError, AttributeError):
-                pass
-            raise GoogleError(e.code, code) from None
+                with urllib.request.urlopen(request, timeout=self.timeout) as r:  # noqa: S310 - https, built here
+                    text = r.read()
+                break
+            except urllib.error.HTTPError as e:
+                if e.code == 401 and asked == 1:
+                    # the token ran out: gcloud makes a new one once it has, and the call is made once more with it
+                    self.tokens.forget(which)
+                    continue
+                raise _refusal(e) from None
         return json.loads(text) if text else {}
+
+
+def _refusal(e: urllib.error.HTTPError) -> GoogleError:
+    """Google's refusal, by its status and its reason's code, never its message."""
+    code = "HTTP"
+    try:
+        error = json.loads(e.read() or b"{}").get("error", {})
+        # Google's own error, by its status or reason; the test agent's, by the code it gives
+        code = error if isinstance(error, str) else str(
+            error.get("status") or (error.get("errors") or [{}])[0].get("reason") or "HTTP")
+    except (ValueError, AttributeError):
+        pass
+    return GoogleError(e.code, code)
