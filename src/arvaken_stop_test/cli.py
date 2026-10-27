@@ -32,7 +32,7 @@ ATTACHMENTS = dict(zip(("model", "outside-services", "all-outbound"), result.PRO
 CA_LIMIT = 64 * 1024            # a certificate bundle's characters: it travels with each of the agent's invocations
 SUBNET = re.compile(r"subnet-[0-9a-f]{8,17}")
 SECURITY_GROUP = re.compile(r"sg-[0-9a-f]{8,17}")
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 HELP = {
     "via": "your gateway's address, such as https://gateway.example:8443: the test agent's calls go through it, as an "
            "HTTPS proxy, and your stop is your gateway's own switch, which you fire",
@@ -46,48 +46,48 @@ HELP = {
     "clean_subnet": "the subnet, if the run's test agent ran in one: its network interfaces are waited for and checked",
     "google_via": "not on Google Cloud in this version",
 }
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 VIA_IS_THE_STOP = ("--via is your stop, your gateway's own switch: give it without --stop, --revoke-sessions, "
                    "--inline-deny or --own-trigger.")
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 VIA_NEEDS_PRODUCT = ("With --via, name your gateway: --product-attachment (model, outside-services or all-outbound) "
                      "and --product-name, up to 200 characters.")
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 VIA_ONCE = "--via fires once: only you can take your gateway's stop off, so --repeats is 1."
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 GOES_WITH_VIA = "--product-attachment, --product-name, --ca-bundle, --subnet and --security-group go with --via."
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 NOT_AN_ADDRESS = "--via takes your gateway's address, such as https://gateway.example:8443 or http://10.0.0.5:3128."
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 SUBNET_AND_GROUPS = "--subnet takes one subnet's ID (subnet-...), with one or more --security-group (sg-...)."
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 NOT_A_BUNDLE = "--ca-bundle takes a file of PEM certificates (-----BEGIN CERTIFICATE-----), of at most 64 KB."
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 GOOGLE_NO_VIA = ("--via is for AWS in this version of the kit: on Google Cloud, the gateway option waits for a later "
                  "version.")
 # What the plan says of a run through a gateway.
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 PLAN_SUBNET = ("- runs the test agent in your subnet {subnet}, with your security group(s) {groups}: Lambda makes the "
                "test agent's network interfaces there. The kit attaches nothing else of yours, and after the run waits "
                "up to {minutes} minutes for AWS to remove those interfaces, then checks them gone;")
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 PLAN_VIA = ("- sends every call the test agent makes through your gateway at {via}, as an HTTPS proxy: its own calls "
             "to AWS, its work under the second role, its call with a key and its open-internet call. The last two "
             "still go to Arvaken's test address;")
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 PLAN_CA = ("- uses your certificate bundle {file} for the calls through your gateway alone; it is never written into "
            "the result;")
 # Through a gateway the kit fires nothing: its plan's last line, and what it says once it has written the result.
 # Arvaken's test address sees the key's and the open internet's calls come from the gateway's own address, which is the
 # customer's.
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 PLAN_REMOVES = "- then removes everything it made, and names anything left."
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 WROTE_THROUGH_A_GATEWAY = (
     "Wrote {out}, its page and its details. Nothing was sent to Arvaken but the test agent's two calls to Arvaken's "
     "test address, one with the run's key and one with nothing. They reached it from the address your gateway's "
     "traffic leaves from, which is yours.")
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 PLAN_PRODUCT = ("- your stop is your gateway, {name}, attached to {attachment}: you fire it yourself. The kit asks you "
                 "to press Enter, then fire your stop, and times each path from that mark;")
 

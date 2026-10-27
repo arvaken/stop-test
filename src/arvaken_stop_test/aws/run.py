@@ -50,35 +50,35 @@ ENI_WAIT = 1800.0            # seconds to wait, once the function is deleted, fo
 ENI_POLL = 30.0              # and how often to ask
 
 # What a run through a gateway says, as it goes. The first is the founder's own words (D561, section 5).
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 MARK_PROMPT = "Press Enter, then fire your stop."
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 MARKED = "Marked. Each path is timed from your mark, so a time it gives errs toward slower, never faster."
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 SWITCH_OFF = "The timing is done: you can turn your gateway's switch off now. The kit never turns it off itself."
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 NOT_THROUGH_THE_GATEWAY = ("Before the stop, {path} did not work through your gateway ({codes}): it will be reported "
                            "as not measured, never as stopped.")
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 NOTHING_THROUGH_THE_GATEWAY = ("No path worked through your gateway before the stop, so there is nothing to time. "
                                "Don't fire your stop: the kit is removing what it made.")
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 NOT_MEASURED_REASON = "it did not work through your gateway before the stop"
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 FROM_THE_MARK = "your mark, the moment you pressed Enter, on the kit's clock moved onto the agent's"
 # What the teardown says of the function's network interfaces in a subnet of yours.
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 WAITING_FOR_INTERFACES = (
     "AWS removes a Lambda function's network interfaces some time after the function is deleted, often many minutes "
     "later. The kit is waiting up to {minutes} minutes for the test agent's {count} network interface(s) in your "
     "subnet {subnet} to be removed, before it names anything left for you to delete.")
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 WAIT_STOPPED = "You stopped the wait. The network interfaces still there are named as left; AWS may yet remove them."
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 INTERFACE_GONE = "the network interface {id}"
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 INTERFACE_LEFT = "the network interface {id} in your subnet {subnet}"
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 INTERFACES_UNCHECKED = "the test agent's network interfaces in your subnet {subnet} (could not be checked: {code})"
 
 

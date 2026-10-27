@@ -34,7 +34,7 @@ OWN_TRIGGER_WARNING = ("Your own trigger may stop more than the test agent. It r
                        "see what else it reaches. Type the run's name to go on.")
 # Through a gateway (--via; D561): "The kit warns first, in stronger words than K4's, that a gateway's switch may stop
 # every agent behind it, and goes on only when the customer types the run's name."
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 GATEWAY_WARNING = (
     "Warning: your gateway's switch may stop every agent behind it, not only the test agent. Whatever else sends its "
     "calls through your gateway, your own agents and services among them, may be stopped too, for as long as your "
@@ -88,7 +88,7 @@ NO_BOUNDARY = (f"Your account has no policy {BOUNDARY}, the permissions boundary
                "Create it once from permissions/aws-boundary.json, as the README's \"The permissions it needs\" says.")
 NOT_THE_BOUNDARY = (f"Your account's policy {BOUNDARY} is not the kit's permissions boundary: its default version "
                     "differs from permissions/aws-boundary.json.")
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 BOUNDARY_WITHOUT_NETWORK = (
     f"Your account's policy {BOUNDARY} is the kit's earlier boundary, which does not let the test agent make its "
     "network interfaces in your subnet. With an administrator's credentials, make permissions/aws-boundary.json its "

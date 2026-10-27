@@ -83,7 +83,7 @@ IDENTIFYING = (*IDENTIFYING_V1, "stop.product.name", "run.via")
 SHAPES = {FORMAT_V1: SHAPE_V1, FORMAT: SHAPE}
 
 # What `check` says of a version-2 result it refuses, beside what it says of any result.
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 REFUSALS = {
     "product": "the stop's product is a kind and attachment the format names, with a name of 1 to 200 characters",
     "product_control": ("a stop is a product's control exactly where it names a product, and is fired by your own "

@@ -47,20 +47,20 @@ EXPECTED_HEADING = "A stop on its role would be expected"
 # Through a gateway (--via; D561), every call of the test agent's is sent through it, so its switch would be expected to
 # stop each path; a path that did not work through it before the stop is "not measured".
 PRODUCT_KIND = "a product's control"
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 GATEWAY_HEADING = "A stop of your gateway would be expected"
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 GATEWAY_NOTE = ("Your stop: {name}, a gateway attached to {attachment}. Every call the test agent made went through "
                 "your gateway at {via}.")
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 MARK_NOTE = ("You fired your stop yourself, after your mark. Each time here is from your mark, the moment you pressed "
              "Enter, so it errs toward slower, never faster. A path that did not work through your gateway before the "
              "stop is not measured, never stopped.")
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 NETWORK_NOTE = "The test agent ran in your subnet {subnet}, with your security group(s) {groups}."
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 INTERFACES_NOTE = "Its network interfaces there: {interfaces}. Checked gone: {gone}. Still there: {left}."
-# CUSTOMER TEXT: for the founder's approval (D561)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 NO_INTERFACES_NOTE = "The kit found no network interface of the test agent's own in your subnet."
 
 
