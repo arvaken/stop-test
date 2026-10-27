@@ -10,12 +10,12 @@ after it, when one was first refused, and the outcome; and the signature, with t
 4.2 names what identifies and is sealed when submitted: here, the stop's and the test agent's identifiers and the names
 of anything left. `check` refuses any other field, so the format cannot grow past the terms without both changing.
 
-**Version 2 (D561, section 5; the kit's terms v2, D595)** adds exactly what those terms add, for a declared stop that
-is a product's control: the product's kind and how it is attached, kept in clear as kinds of stop are; and the
-product's name and the gateway's address, which identify and are sealed when submitted. Nothing else: where the timing
-starts follows from the stop (a product's control is always timed from the customer's mark, so a time errs toward
-slower, never faster), and a path that did not work through the gateway before the stop is its outcome, "not measured"
-(never "stopped"), which only a product's control gives.
+**Version 2 (D561, section 5; the kit's terms v3, D595, numbered v2 until D615)** adds exactly what those terms add,
+for a declared stop that is a product's control: the product's kind and how it is attached, kept in clear as kinds of
+stop are; and the product's name and the gateway's address, which identify and are sealed when submitted. Nothing
+else: where the timing starts follows from the stop (a product's control is always timed from the customer's mark, so
+a time errs toward slower, never faster), and a path that did not work through the gateway before the stop is its
+outcome, "not measured" (never "stopped"), which only a product's control gives.
 
 **A gateway's address is written as its scheme, host and port alone** (port as given, or none): any user name,
 password, path, query and fragment are dropped before it is written or printed (the founder, D595, and the legal
