@@ -30,7 +30,8 @@
   {"Sid": "YourStopReadAndChecked", "Effect": "Allow", "Action": ["iam:GetPolicy", "iam:GetPolicyVersion"],
    "Resource": "arn:aws:iam::*:policy/*"},
   {"Sid": "ReadsAwsTakesOnEveryResourceOnly", "Effect": "Allow",
-   "Action": ["cloudtrail:LookupEvents", "tag:GetResources", "logs:DescribeLogGroups", "iam:SimulateCustomPolicy"],
+   "Action": ["cloudtrail:LookupEvents", "tag:GetResources", "logs:DescribeLogGroups", "iam:SimulateCustomPolicy",
+              "ec2:DescribeNetworkInterfaces", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups", "ec2:DescribeVpcs"],
    "Resource": "*"}
  ]
 }

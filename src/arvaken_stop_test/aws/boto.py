@@ -23,4 +23,5 @@ def clients_for(region: str) -> Clients:
     make = lambda name: session.client(name, config=config)  # noqa: E731
     return Clients(cloudformation=make("cloudformation"), iam=make("iam"), lambda_=make("lambda"), s3=make("s3"),
                    cloudtrail=session.client("cloudtrail", region_name=trail_region(region), config=config),
-                   tagging=make("resourcegroupstaggingapi"), region=region, logs=make("logs"), sts=make("sts"))
+                   tagging=make("resourcegroupstaggingapi"), region=region, logs=make("logs"), sts=make("sts"),
+                   ec2=make("ec2"))

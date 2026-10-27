@@ -195,3 +195,145 @@ def test_each_cloud_times_its_paths_for_its_own_window_by_default(capsys, monkey
     assert "- times each path for 900 seconds after firing, 1 time(s);" in said
     assert cli._window_help("aws") == "time after firing, e.g. 10m (default)"
     assert cli._window_help("google_cloud") == "time after firing, e.g. 15m (default)"
+
+
+# The gateway option (--via; D561, section 5), on AWS.
+VIA = "https://user:secret@gw.example:8443"
+PEM = "-----BEGIN CERTIFICATE-----\nMIIBgateway\n-----END CERTIFICATE-----\n"
+A_GATEWAY = ["--via", VIA, "--product-attachment", "all-outbound", "--product-name", "Our egress gateway"]
+
+
+def test_plan_through_a_gateway_says_what_it_sends_where_and_never_prints_a_password(capsys, tmp_path):
+    bundle = tmp_path / "gateway-ca.pem"
+    bundle.write_text(PEM, encoding="utf-8")
+    assert cli.main(["aws", "plan", *A_GATEWAY, "--ca-bundle", str(bundle), "--subnet", "subnet-0abc1234",
+                     "--security-group", "sg-0abc1234", "--security-group", "sg-0def5678", "--region", "eu-central-1",
+                     "--run", "r0123abcd"]) == 0
+    out = capsys.readouterr().out
+    assert "secret" not in out and "user:" not in out
+    assert cli.PLAN_SUBNET.format(subnet="subnet-0abc1234", groups="sg-0abc1234, sg-0def5678", minutes=30) in out
+    assert cli.PLAN_VIA.format(via="https://gw.example:8443") in out
+    assert cli.PLAN_CA.format(file="gateway-ca.pem") in out
+    assert cli.PLAN_PRODUCT.format(name="Our egress gateway", attachment="all its outbound traffic") in out
+    assert "It will not run" not in out and out.index(cli.PLAN_SUBNET[:30]) < out.index("- times each path")
+
+
+def test_a_run_through_a_gateway_warns_strongly_asks_the_runs_name_then_your_mark(tmp_path, monkeypatch, capsys):
+    """The design: "It asks: 'Press Enter, then fire your stop.' ... The kit warns first, in stronger words than K4's,
+    that a gateway's switch may stop every agent behind it, and goes on only when the customer types the run's
+    name.\""""
+    from arvaken_stop_test.aws import boto, fire
+    from arvaken_stop_test.aws import run as running
+    from test_aws_run import clients
+    clock = Clock()
+    aws = FakeAWS(clock)
+    prompts, typed = [], iter(["r0123abcd", ""])
+    monkeypatch.setattr("builtins.input", lambda prompt="": prompts.append(prompt) or next(typed))
+
+    def the_customer(t):                    # once they press Enter at the mark, they turn their gateway's switch on
+        if len(prompts) == 2 and aws.switch_at is None:
+            aws.switch_at = t + 5
+    clock.hooks.append(the_customer)
+    real = running.run
+    monkeypatch.setattr(running, "run", lambda c, stop, **kw: real(c, stop, clock=running.Clock(clock.now, clock.sleep),
+                                                                   **kw))
+    monkeypatch.setattr(boto, "clients_for", lambda region: clients(aws))
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["aws", "run", "--via", VIA, "--product-attachment", "model", "--product-name", "Model gateway",
+                     "--window", "60s", "--region", "eu-central-1", "--run", "r0123abcd"]) == 0
+    out = capsys.readouterr().out
+    assert prompts == ["Type r0123abcd to go on: ", "Press Enter, then fire your stop."]
+    assert fire.GATEWAY_WARNING in out and fire.OWN_TRIGGER_WARNING not in out
+    assert "every agent behind it" in fire.GATEWAY_WARNING and fire.GATEWAY_WARNING.endswith(
+        "Type the run's name to go on.")
+    assert out.index(fire.GATEWAY_WARNING) < out.index(running.MARKED)
+    written = json.loads((tmp_path / "stop-test-r0123abcd.json").read_text(encoding="utf-8"))
+    assert result.check(written)["run"]["via"] == "https://gw.example:8443"
+    assert written["stop"]["product"] == {"kind": "gateway", "attachment": "its calls to a model",
+                                          "name": "Model gateway"}
+    assert {v["outcome"] for v in written["repeats"][0].values()} == {"stopped"}
+    assert "secret" not in out and all(b"secret" not in f.read_bytes() for f in tmp_path.iterdir())
+    assert all(p["via"] == VIA for p in aws.payloads)            # the agent signs in to the gateway as given
+
+
+def test_a_run_through_a_gateway_goes_on_only_when_you_type_the_runs_name(monkeypatch, capsys):
+    import pytest
+    from arvaken_stop_test.aws import boto, fire
+    from arvaken_stop_test.aws import run as running
+    monkeypatch.setattr(boto, "clients_for", lambda region: None)
+    monkeypatch.setattr(running, "run", lambda *a, **kw: pytest.fail("the kit made something"))
+    monkeypatch.setattr("builtins.input", lambda prompt="": "yes")
+    assert cli.main(["aws", "run", *A_GATEWAY, "--region", "eu-central-1", "--run", "r0123abcd"]) == 1
+    out = capsys.readouterr().out
+    assert fire.GATEWAY_WARNING in out and out.rstrip().endswith("Nothing was made.")
+
+
+def _refused(args: list[str], capsys) -> str:
+    import pytest
+    with pytest.raises(SystemExit):
+        cli.main(["aws", "plan", "--region", "eu-central-1", *args])
+    return capsys.readouterr().err
+
+
+def test_the_gateway_options_are_checked_before_anything_and_never_print_a_password_back(capsys, tmp_path):
+    product = ["--product-attachment", "model", "--product-name", "G"]
+    for args, said in (
+            ([*A_GATEWAY, "--inline-deny"], cli.VIA_IS_THE_STOP),
+            ([*A_GATEWAY, "--own-trigger"], cli.VIA_IS_THE_STOP),
+            ([*A_GATEWAY, "--stop", "arn:aws:iam::aws:policy/AWSDenyAll"], cli.VIA_IS_THE_STOP),
+            (["--via", VIA, "--product-name", "G"], cli.VIA_NEEDS_PRODUCT),
+            (["--via", VIA, "--product-attachment", "model"], cli.VIA_NEEDS_PRODUCT),
+            (["--via", VIA, "--product-attachment", "model", "--product-name", "x" * 201], cli.VIA_NEEDS_PRODUCT),
+            (["--via", "user:secret@gw.example:8443", *product], cli.NOT_AN_ADDRESS),
+            (["--via", "ftp://user:secret@gw.example", *product], cli.NOT_AN_ADDRESS),
+            (["--via", "https://user:secret@gw.example:99999", *product], cli.NOT_AN_ADDRESS),
+            (["--via", "https://user:secret@[gw.example", *product], cli.NOT_AN_ADDRESS),
+            ([*A_GATEWAY, "--repeats", "2"], cli.VIA_ONCE),
+            ([*A_GATEWAY, "--subnet", "subnet-0abc1234"], cli.SUBNET_AND_GROUPS),
+            ([*A_GATEWAY, "--security-group", "sg-0abc1234"], cli.SUBNET_AND_GROUPS),
+            ([*A_GATEWAY, "--subnet", "my-subnet", "--security-group", "sg-0abc1234"], cli.SUBNET_AND_GROUPS),
+            ([*A_GATEWAY, "--subnet", "subnet-0abc1234", "--security-group", "default"], cli.SUBNET_AND_GROUPS),
+            (["--inline-deny", "--product-name", "G"], cli.GOES_WITH_VIA),
+            (["--inline-deny", "--subnet", "subnet-0abc1234", "--security-group", "sg-0abc1234"], cli.GOES_WITH_VIA),
+            (["--inline-deny", "--ca-bundle", str(tmp_path / "any.pem")], cli.GOES_WITH_VIA)):
+        err = _refused(args, capsys)
+        assert said in err and "secret" not in err, (args, err)
+
+
+def test_a_bundle_that_is_not_one_of_certificates_is_refused(capsys, tmp_path):
+    bundle = tmp_path / "bundle.pem"
+    for content in ("not a certificate", PEM + "A" * cli.CA_LIMIT):
+        bundle.write_text(content, encoding="utf-8")
+        assert cli.NOT_A_BUNDLE in _refused([*A_GATEWAY, "--ca-bundle", str(bundle)], capsys)
+    assert cli.NOT_A_BUNDLE in _refused([*A_GATEWAY, "--ca-bundle", str(tmp_path / "missing.pem")], capsys)
+
+
+def test_on_google_cloud_via_is_refused_and_says_why(capsys):
+    import pytest
+    with pytest.raises(SystemExit):
+        cli.main(["google", "plan", "--via", VIA, "--deny-all", "--project", "my-test-project",
+                  "--region", "europe-west3"])
+    err = capsys.readouterr().err
+    assert cli.GOOGLE_NO_VIA in err and "secret" not in err
+
+
+def test_clean_with_your_subnet_waits_for_the_functions_network_interfaces(monkeypatch, capsys):
+    """An interrupted run in a subnet of yours: `clean --subnet` waits for the function's interfaces as a run does."""
+    from arvaken_stop_test.aws import boto
+    from arvaken_stop_test.aws import run as running
+    from test_aws_run import ENDPOINT, clients
+    clock = Clock()
+    aws = FakeAWS(clock)
+    c = clients(aws)
+    r = running.Run(run="r0123abcd", stop_ref="", fired_by="your own trigger", window=60.0, subnet="subnet-0abc1234",
+                    security_groups=["sg-0abc1234"])
+    running.deploy(c, r, ENDPOINT, running.Clock(clock.now, clock.sleep), before={})
+    assert "eni-0aaa1111" in aws.enis                            # interrupted here
+    real = running.Clock
+    monkeypatch.setattr(running, "Clock", lambda: real(clock.now, clock.sleep))
+    monkeypatch.setattr(boto, "clients_for", lambda region: c)
+    assert cli.main(["aws", "clean", "--run", "r0123abcd", "--region", "eu-central-1", "--subnet",
+                     "subnet-0abc1234"]) == 0
+    out = capsys.readouterr().out
+    assert running.WAITING_FOR_INTERFACES.format(minutes=30, count=1, subnet="subnet-0abc1234") in out
+    assert out.rstrip().endswith("Nothing the kit made is left.") and "eni-0aaa1111" not in aws.enis

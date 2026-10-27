@@ -8,7 +8,14 @@ anything the stack could not delete keeps its tag. Each case's expectations are 
 What is gone is answered as AWS answers it, by each service's own error code (NoSuchEntity, ResourceNotFoundException,
 404, and CloudFormation's ValidationError "does not exist"). Revoking a role's sessions (AWSRevokeOlderSessions) denies
 each session of that role issued before its moment, after the same propagation delay; the agent's own session was
-issued before the run, and the second role's when the kit asked the agent to assume it."""
+issued before the run, and the second role's when the kit asked the agent to assume it.
+
+Through a gateway (--via; D561): an invocation that names the gateway has each path's call made through it; a path the
+gateway refuses fails by ProxyConnectionError, and so does every path once the customer's own switch is on, `gw_delay`
+seconds after they turn it on (3 here). The session for the other identity is taken through it too: where the gateway
+refuses it, the agent answers with Lambda's error payload, and no session. In a subnet: Lambda makes one network
+interface for the function, in the subnet with its security groups, described by the function's name; AWS removes it
+`eni_after` seconds after the function is deleted (10 minutes here), or never."""
 from __future__ import annotations
 
 import io
@@ -54,7 +61,9 @@ class FakeAWS:
 
     def __init__(self, clock: Clock, *, delay=8.0, trail_delay=120.0, skew=0.05, left=(), role_tagged=True,
                  endpoint_error=None, log_group=False, bucket_stays=False, cold_after=None, invoke_error=None,
-                 stop_denies=("s3:PutObject", "s3:GetObject"), boundary="the kit's"):
+                 stop_denies=("s3:PutObject", "s3:GetObject"), boundary="the kit's", gateway_refuses=(),
+                 gateway_breaks=None, gw_delay=3.0, eni_after=600.0, eni_described=True, subnet_has=(),
+                 stack_stays=False):
         self.clock, self.delay, self.trail_delay, self.skew = clock, delay, trail_delay, skew
         self.left, self.role_tagged, self.endpoint_error = list(left), role_tagged, endpoint_error
         self.stack = None
@@ -79,11 +88,29 @@ class FakeAWS:
         self.boundary = boundary
         self.made_roles: list[dict] = []
         self.concurrency: int | None = None
+        # the customer's gateway: paths it refuses throughout; paths it refuses from the nth invocation; when their own
+        # switch was turned on; and every invocation's payload, as the kit sent it
+        self.gateway_refuses, self.gateway_breaks = set(gateway_refuses), dict(gateway_breaks or {})
+        self.gw_delay, self.switch_at = gw_delay, None
+        self.payloads: list[dict] = []
+        # a subnet of the customer's: its network interfaces, by ID; when the function was deleted; the EC2 calls made
+        self.eni_after, self.eni_described = eni_after, eni_described
+        self.enis: dict[str, dict] = {i["NetworkInterfaceId"]: dict(i) for i in subnet_has}
+        self.function_deleted_at: float | None = None
+        self.ec2_calls: list[str] = []
+        self.stack_stays = stack_stays
 
     # cloudformation
     def create_stack(self, StackName, TemplateBody, Capabilities, Tags):
         self.stack = {"name": StackName, "template": json.loads(TemplateBody), "status": "CREATE_COMPLETE",
-                      "run": Tags[0]["Value"]}
+                      "run": Tags[0]["Value"], "body": TemplateBody}
+        network = self.stack["template"]["Resources"]["Agent"]["Properties"].get("VpcConfig")
+        if network:                              # Lambda makes the function's interface in the subnet, as its role
+            function = names(self.stack["run"])["function"]
+            self.enis["eni-0aaa1111"] = {
+                "NetworkInterfaceId": "eni-0aaa1111", "SubnetId": network["SubnetIds"][0],
+                "Description": f"AWS Lambda VPC ENI-{function}-0f1e2d3c" if self.eni_described else "",
+                "Groups": [{"GroupId": g} for g in network["SecurityGroupIds"]], "InterfaceType": "lambda"}
 
     def gone(self) -> bool:
         return not self.stack or self.stack["status"] == "DELETED"
@@ -98,7 +125,21 @@ class FakeAWS:
             {"OutputKey": "AgentRole", "OutputValue": f"arn:aws:iam::111122223333:role/{n['agent_role']}"}]}]}
 
     def delete_stack(self, StackName):
+        if self.stack_stays:
+            return
         self.stack["status"] = "DELETED"
+        self.function_deleted_at = self.clock.now()
+
+    # ec2, read only
+    def describe_network_interfaces(self, Filters, NextToken=None):
+        self.ec2_calls.append("describe_network_interfaces")
+        if self.function_deleted_at is not None and self.eni_after is not None and \
+                self.clock.now() >= self.function_deleted_at + self.eni_after:
+            self.enis.pop("eni-0aaa1111", None)          # AWS removes the function's interface, some time after
+        (subnet,) = [f["Values"][0] for f in Filters if f["Name"] == "subnet-id"]
+        found = [i for _, i in sorted(self.enis.items()) if i["SubnetId"] == subnet]
+        at = int(NextToken or 0)                          # one a page, so the kit must read every page
+        return {"NetworkInterfaces": found[at:at + 1], **({"NextToken": str(at + 1)} if at + 1 < len(found) else {})}
 
     # sts
     def get_caller_identity(self):
@@ -113,8 +154,9 @@ class FakeAWS:
     def get_policy_version(self, PolicyArn, VersionId):
         if PolicyArn.endswith(":policy/arvaken-stop-test-boundary"):
             from arvaken_stop_test.aws.stack import boundary_document
-            document = boundary_document() if self.boundary == "the kit's" else {"Version": "2012-10-17", "Statement": [
-                {"Effect": "Allow", "Action": "*", "Resource": "*"}]}
+            document = boundary_document() if self.boundary == "the kit's" else \
+                boundary_document(network=False) if self.boundary == "the kit's to 0.2.1" else \
+                {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]}
             return {"PolicyVersion": {"VersionId": VersionId, "Document": document}}
         return {"PolicyVersion": {"VersionId": VersionId, "Document": {"Version": "2012-10-17", "Statement": [
             {"Effect": "Deny", "Action": list(self.stop_denies), "Resource": "*"}]}}}
@@ -189,21 +231,37 @@ class FakeAWS:
             self.clock.t += 0.1
             raise refusal
         event = json.loads(Payload)
+        self.payloads.append(event)
         agent_now = self.clock.now() + self.skew
+
+        def through(p: str) -> bool:
+            """Whether the gateway the invocation names carries this path's call now; True without one."""
+            if "via" not in event:
+                return True
+            return not (p in self.gateway_refuses or self.invocations >= self.gateway_breaks.get(p, 10 ** 9) or
+                        (self.switch_at is not None and self.clock.now() >= self.switch_at + self.gw_delay))
+
+        def beat(p: str, ok: bool, error: str | None) -> dict:
+            if not through(p):
+                return {"at": agent_now, "ok": False, "error": "ProxyConnectionError"}
+            return {"at": agent_now, "ok": ok, **({"error": error} if not ok and error else {})}
         if event.get("action") == "assume":
             if self.stopped():
                 raise RuntimeError("AccessDenied on sts:AssumeRole")
+            if not through("another_identity"):          # the agent's error, as Lambda returns it: no session
+                body = {"errorMessage": "Failed to connect to proxy URL", "errorType": "ProxyConnectionError"}
+                self.clock.t += 0.1
+                return {"Payload": io.BytesIO(json.dumps(body).encode()), "FunctionError": "Unhandled"}
             self.session_issued = agent_now
             body = {"at": agent_now, "session": {"key": "k", "secret": "s", "token": "t", "expires": agent_now + 3600}}
         else:
-            own = not self.stopped()
             body = {"at": agent_now, "beats": {
-                "own_calls": {"at": agent_now, "ok": own, **({} if own else {"error": "AccessDenied"})},
-                "another_identity": {"at": agent_now, "ok": bool(event.get("session")) and not (
-                    self.session_issued is not None and self.revoked_for("-second", self.session_issued))},
-                **{p: ({"at": agent_now, "ok": False, "error": self.endpoint_error} if self.endpoint_error else
-                       {"at": agent_now, "ok": True}) for p in ("outside_key", "open_internet")}}}
-            if own:
+                "own_calls": beat("own_calls", not self.stopped(), "AccessDenied"),
+                "another_identity": beat("another_identity", bool(event.get("session")) and not (
+                    self.session_issued is not None and self.revoked_for("-second", self.session_issued)), None),
+                **{p: (beat(p, False, self.endpoint_error) if self.endpoint_error else beat(p, True, None))
+                   for p in ("outside_key", "open_internet")}}}
+            if body["beats"]["own_calls"]["ok"]:
                 self.objects.add(f"own/{event['n']}")
         self.clock.t += 0.1
         return {"Payload": io.BytesIO(json.dumps(body).encode())}
@@ -250,7 +308,7 @@ class FakeAWS:
 
 def clients(aws: FakeAWS) -> running.Clients:
     return running.Clients(cloudformation=aws, iam=aws, lambda_=aws, s3=aws, cloudtrail=aws, tagging=aws,
-                           region="eu-central-1", logs=aws, sts=aws)
+                           region="eu-central-1", logs=aws, sts=aws, ec2=aws)
 
 
 def a_run(aws: FakeAWS, clock: Clock, **over):

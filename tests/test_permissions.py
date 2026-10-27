@@ -26,7 +26,7 @@ GOOGLE_ROLE = [line.strip()[2:] for line in (ROOT / "permissions" / "google-role
 DENY_ADMIN = {"iam.denypolicies.create", "iam.denypolicies.get", "iam.denypolicies.list", "iam.denypolicies.delete"}
 
 PREFIX = {"cloudformation": "cloudformation", "iam": "iam", "lambda_": "lambda", "s3": "s3", "cloudtrail": "cloudtrail",
-          "tagging": "tag", "logs": "logs"}
+          "tagging": "tag", "logs": "logs", "ec2": "ec2"}
 # a boto3 method whose IAM action is not its own name
 ACTION_OF = {("s3", "head_bucket"): "s3:ListBucket", ("s3", "list_objects_v2"): "s3:ListBucket",
              ("s3", "delete_objects"): "s3:DeleteObject", ("lambda_", "invoke"): "lambda:InvokeFunction"}
@@ -35,6 +35,9 @@ TEMPLATE = ["s3:CreateBucket", "s3:DeleteBucket", "s3:PutBucketTagging", "s3:Put
             "s3:PutBucketPublicAccessBlock", "iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:TagRole",
             "iam:PutRolePolicy", "iam:GetRolePolicy", "iam:DeleteRolePolicy", "iam:PassRole", "lambda:CreateFunction",
             "lambda:DeleteFunction", "lambda:GetFunction", "lambda:TagResource"]
+# and for a function in a subnet of yours (--subnet; D561): Lambda checks, as the caller, the subnet and its security
+# groups, and the network they are in (AWS's Lambda guide, its users' permissions to configure a function's VPC)
+TEMPLATE_IN_A_SUBNET = ["ec2:DescribeSecurityGroups", "ec2:DescribeSubnets", "ec2:DescribeVpcs"]
 
 
 def allowed() -> set[str]:
@@ -51,7 +54,8 @@ def aws_calls() -> set[str]:
         if path.name == "agent.py":                     # the test agent's own calls are its role's, not yours
             continue
         text = path.read_text(encoding="utf-8")
-        for client, method in re.findall(r"\b(cloudformation|iam|lambda_|s3|cloudtrail|tagging|logs)\.([a-z0-9_]+)\(", text):
+        for client, method in re.findall(
+                r"\b(cloudformation|iam|lambda_|s3|cloudtrail|tagging|logs|ec2)\.([a-z0-9_]+)\(", text):
             camel = "".join(w.capitalize() for w in method.split("_"))
             found.add(ACTION_OF.get((client, method), f"{PREFIX[client]}:{camel}"))
     return found
@@ -59,8 +63,12 @@ def aws_calls() -> set[str]:
 
 def test_every_aws_call_the_kit_makes_and_every_action_cloudformation_takes_for_it_is_in_the_policy():
     calls = aws_calls()
-    assert {"lambda:InvokeFunction", "iam:AttachRolePolicy", "iam:SimulateCustomPolicy"} <= calls, "the source was read"
-    assert calls | set(TEMPLATE) <= allowed(), sorted((calls | set(TEMPLATE)) - allowed())
+    assert {"lambda:InvokeFunction", "iam:AttachRolePolicy", "iam:SimulateCustomPolicy",
+            "ec2:DescribeNetworkInterfaces"} <= calls, "the source was read"
+    needed = calls | set(TEMPLATE) | set(TEMPLATE_IN_A_SUBNET)
+    assert needed <= allowed(), sorted(needed - allowed())
+    # of EC2, the kit itself only reads: it changes nothing of a subnet of yours
+    assert {a for a in allowed() if a.startswith("ec2:")} == {"ec2:DescribeNetworkInterfaces", *TEMPLATE_IN_A_SUBNET}
 
 
 def test_the_aws_policy_names_the_runs_own_resources_wherever_aws_lets_it():
@@ -93,19 +101,52 @@ def test_the_aws_policy_makes_or_changes_a_role_only_under_the_kits_boundary():
                             "iam:DeletePolicy", "iam:DeletePolicyVersion"}
 
 
+def _granted(t: dict) -> dict[str, set[str]]:
+    """Each role's own policies' actions, by the role's resource."""
+    return {k: {a for p in r["Properties"]["Policies"] for s in p["PolicyDocument"]["Statement"]
+                for a in (s["Action"] if isinstance(s["Action"], list) else [s["Action"]])}
+            for k, r in t["Resources"].items() if r["Type"] == "AWS::IAM::Role"}
+
+
 def test_the_boundary_is_the_kits_and_allows_what_the_two_roles_do_and_no_more():
-    from arvaken_stop_test.aws.stack import boundary_document, template
+    """With a subnet of yours (--subnet; D561), the agent's role alone may also make its function's network interfaces,
+    with AWSLambdaVPCAccessExecutionRole's EC2 actions and none of its logs actions; the boundary allows them for that
+    alone. Without a subnet, the roles are as before, and so is the boundary as the kit took it to 0.2.1."""
+    from arvaken_stop_test.aws.stack import NETWORK_ACTIONS, boundary_document, template
     assert BOUNDARY == boundary_document()                  # permissions/ gives the one the kit checks for
     allows = {(a, s["Resource"]) for s in BOUNDARY["Statement"] for a in
               (s["Action"] if isinstance(s["Action"], list) else [s["Action"]])}
-    assert allows == {("s3:PutObject", "arn:aws:s3:::arvaken-stop-test-*/*"),
-                      ("s3:GetObject", "arn:aws:s3:::arvaken-stop-test-*/*"),
-                      ("sts:AssumeRole", "arn:aws:iam::*:role/arvaken-stop-test-*")}
-    roles = [r["Properties"] for r in template("r0123abcd", "https://e.test")["Resources"].values()
-             if r["Type"] == "AWS::IAM::Role"]
-    done = {a for props in roles for p in props["Policies"] for s in p["PolicyDocument"]["Statement"]
-            for a in (s["Action"] if isinstance(s["Action"], list) else [s["Action"]])}
-    assert done == {a for a, _ in allows}                   # each the roles' own policies grant, and none more
+    before = {("s3:PutObject", "arn:aws:s3:::arvaken-stop-test-*/*"),
+              ("s3:GetObject", "arn:aws:s3:::arvaken-stop-test-*/*"),
+              ("sts:AssumeRole", "arn:aws:iam::*:role/arvaken-stop-test-*")}
+    network = {(a, "*") for a in NETWORK_ACTIONS}
+    assert allows == before | network
+    assert set(NETWORK_ACTIONS) == {"ec2:CreateNetworkInterface", "ec2:DescribeNetworkInterfaces",
+                                    "ec2:DescribeSubnets", "ec2:DeleteNetworkInterface",
+                                    "ec2:AssignPrivateIpAddresses", "ec2:UnassignPrivateIpAddresses"}
+    earlier = {(a, s["Resource"]) for s in boundary_document(network=False)["Statement"] for a in
+               (s["Action"] if isinstance(s["Action"], list) else [s["Action"]])}
+    assert earlier == before                                # the boundary as it was, which a run without a subnet takes
+    plain = _granted(template("r0123abcd", "https://e.test"))
+    assert set().union(*plain.values()) == {a for a, _ in before}     # each the roles' own policies grant, none more
+    in_a_subnet = _granted(template("r0123abcd", "https://e.test", subnet="subnet-0abc1234",
+                                    security_groups=["sg-0abc1234"]))
+    assert in_a_subnet["AgentRole"] == plain["AgentRole"] | set(NETWORK_ACTIONS)
+    assert in_a_subnet["SecondRole"] == plain["SecondRole"]             # the second role is never given them
+    assert set().union(*in_a_subnet.values()) == {a for a, _ in allows}
+
+
+def test_a_subnet_of_yours_is_named_in_the_functions_network_settings_and_nothing_else_of_yours_is():
+    from arvaken_stop_test.aws.stack import template
+    t = template("r0123abcd", "https://e.test", subnet="subnet-0abc1234",
+                 security_groups=["sg-0abc1234", "sg-0def5678"])
+    assert t["Resources"]["Agent"]["Properties"]["VpcConfig"] == {"SubnetIds": ["subnet-0abc1234"],
+                                                                  "SecurityGroupIds": ["sg-0abc1234", "sg-0def5678"]}
+    text = json.dumps({k: v for k, v in t["Resources"].items() if k != "Agent"})
+    assert "subnet-" not in text and "sg-" not in text      # named only where the function is put in it
+    assert set(t["Resources"]) == {"Bucket", "AgentRole", "SecondRole", "Agent"}
+    assert "VpcConfig" not in json.dumps(template("r0123abcd", "https://e.test"))
+    assert "logs:" not in json.dumps(t)                     # still no permission to write logs
 
 
 def permission_for(method: str, url: str, identity: bool = False) -> str:

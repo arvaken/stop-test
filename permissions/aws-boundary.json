@@ -15,6 +15,19 @@
    "Effect": "Allow",
    "Action": "sts:AssumeRole",
    "Resource": "arn:aws:iam::*:role/arvaken-stop-test-*"
+  },
+  {
+   "Sid": "TheTestAgentsNetworkInterfacesInASubnetYouName",
+   "Effect": "Allow",
+   "Action": [
+    "ec2:CreateNetworkInterface",
+    "ec2:DescribeNetworkInterfaces",
+    "ec2:DescribeSubnets",
+    "ec2:DeleteNetworkInterface",
+    "ec2:AssignPrivateIpAddresses",
+    "ec2:UnassignPrivateIpAddresses"
+   ],
+   "Resource": "*"
   }
  ]
 }
