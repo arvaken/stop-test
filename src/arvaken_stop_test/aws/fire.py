@@ -94,13 +94,22 @@ BOUNDARY_WITHOUT_NETWORK = (
     "network interfaces in your subnet. With an administrator's credentials, make permissions/aws-boundary.json its "
     "default version: aws iam create-policy-version --policy-arn <its ARN> --policy-document "
     "file://permissions/aws-boundary.json --set-as-default")
+# CUSTOMER TEXT (D562, F4): not yet approved
+BOUNDARY_WITHOUT_MODEL = (
+    f"Your account's policy {BOUNDARY} is the kit's earlier boundary, which does not let the test agent call a model. "
+    "With an administrator's credentials, make permissions/aws-boundary.json its default version: aws iam "
+    "create-policy-version --policy-arn <its ARN> --policy-document file://permissions/aws-boundary.json "
+    "--set-as-default")
 
 
-def why_no_boundary(iam: Any, sts: Any, network: bool = False) -> str | None:
+def why_no_boundary(iam: Any, sts: Any, network: bool = False, model: bool = False) -> str | None:
     """Why a run cannot make its roles under the kit's permissions boundary, or None: the policy must be in your
     account, and its default version must be the kit's, statement for statement. A run without a subnet also takes the
     boundary as it was before its statement for a subnet's network interfaces (to 0.2.1), which allows less; a run in a
-    subnet needs that statement (stack.py)."""
+    subnet needs that statement (stack.py). Likewise a run without a model takes the boundary as it was before its
+    statement for a call to a model, with or without the one for a subnet; a run with a model needs it. Where the
+    boundary is the one to 0.2.1 and a run needs both, the kit says what a subnet needs: making the kit's boundary the
+    default version gives both."""
     import json
     caller = sts.get_caller_identity()
     arn = f"arn:{caller['Arn'].split(':')[1]}:iam::{caller['Account']}:policy/{BOUNDARY}"
@@ -113,10 +122,13 @@ def why_no_boundary(iam: Any, sts: Any, network: bool = False) -> str | None:
     document = iam.get_policy_version(PolicyArn=arn, VersionId=version)["PolicyVersion"]["Document"]
     document = json.loads(document) if isinstance(document, str) else document
     statements = lambda d: sorted(json.dumps(s, sort_keys=True) for s in d["Statement"])  # noqa: E731
-    if statements(document) == statements(boundary_document()):
+    found = statements(document)
+    if found == statements(boundary_document()):
         return None
-    if statements(document) == statements(boundary_document(network=False)):
-        return BOUNDARY_WITHOUT_NETWORK if network else None
+    if found == statements(boundary_document(model=False)):
+        return BOUNDARY_WITHOUT_MODEL if model else None
+    if found == statements(boundary_document(network=False)):
+        return BOUNDARY_WITHOUT_NETWORK if network else BOUNDARY_WITHOUT_MODEL if model else None
     return NOT_THE_BOUNDARY
 
 

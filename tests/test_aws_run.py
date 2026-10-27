@@ -15,7 +15,11 @@ gateway refuses fails by ProxyConnectionError, and so does every path once the c
 seconds after they turn it on (3 here). The session for the other identity is taken through it too: where the gateway
 refuses it, the agent answers with Lambda's error payload, and no session. In a subnet: Lambda makes one network
 interface for the function, in the subnet with its security groups, described by the function's name; AWS removes it
-`eni_after` seconds after the function is deleted (10 minutes here), or never."""
+`eni_after` seconds after the function is deleted (10 minutes here), or never.
+
+With a model (--model): where the stack's function names one (MODEL), each heartbeat also has the model's call, made as
+the agent's own role, so it is refused (AccessDeniedException) once its own calls are; `model_error` is a code the call
+fails with throughout, as a wrong model ID's or one not enabled in the account."""
 from __future__ import annotations
 
 import io
@@ -63,7 +67,7 @@ class FakeAWS:
                  endpoint_error=None, log_group=False, bucket_stays=False, cold_after=None, invoke_error=None,
                  stop_denies=("s3:PutObject", "s3:GetObject"), boundary="the kit's", gateway_refuses=(),
                  gateway_breaks=None, gw_delay=3.0, eni_after=600.0, eni_described=True, subnet_has=(),
-                 stack_stays=False):
+                 stack_stays=False, model_error=None):
         self.clock, self.delay, self.trail_delay, self.skew = clock, delay, trail_delay, skew
         self.left, self.role_tagged, self.endpoint_error = list(left), role_tagged, endpoint_error
         self.stack = None
@@ -99,6 +103,7 @@ class FakeAWS:
         self.function_deleted_at: float | None = None
         self.ec2_calls: list[str] = []
         self.stack_stays = stack_stays
+        self.model_error = model_error
 
     # cloudformation
     def create_stack(self, StackName, TemplateBody, Capabilities, Tags):
@@ -156,6 +161,7 @@ class FakeAWS:
             from arvaken_stop_test.aws.stack import boundary_document
             document = boundary_document() if self.boundary == "the kit's" else \
                 boundary_document(network=False) if self.boundary == "the kit's to 0.2.1" else \
+                boundary_document(model=False) if self.boundary == "the kit's before the model" else \
                 {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]}
             return {"PolicyVersion": {"VersionId": VersionId, "Document": document}}
         return {"PolicyVersion": {"VersionId": VersionId, "Document": {"Version": "2012-10-17", "Statement": [
@@ -261,6 +267,9 @@ class FakeAWS:
                     self.session_issued is not None and self.revoked_for("-second", self.session_issued)), None),
                 **{p: (beat(p, False, self.endpoint_error) if self.endpoint_error else beat(p, True, None))
                    for p in ("outside_key", "open_internet")}}}
+            if self.stack["template"]["Resources"]["Agent"]["Properties"]["Environment"]["Variables"].get("MODEL"):
+                body["beats"]["model"] = beat("model", not self.stopped() and not self.model_error,
+                                              self.model_error or "AccessDeniedException")
             if body["beats"]["own_calls"]["ok"]:
                 self.objects.add(f"own/{event['n']}")
         self.clock.t += 0.1

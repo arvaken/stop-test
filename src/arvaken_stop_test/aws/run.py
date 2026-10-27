@@ -26,6 +26,17 @@ any that appeared in it, with exactly the run's security groups, while the stack
 after the function is deleted, so the teardown waits for them, up to ENI_WAIT, saying why, before it names any as
 left: an interface still there during that wait is waited for, not left. Ctrl-C ends the wait early; the interfaces
 still there are then named as left.
+
+**A call to a model (`--model`; the design's section 4, its optional fifth row).** A run given a model has a fifth
+path, "model" (Run.paths): the agent's one call to it with each heartbeat, as its own role (agent.py). It is timed,
+judged, written to the result and shown on the page and in the details as its own calls are, from the same firing
+moment, and between repeats the kit waits for it to work again as well. Before the stop it must have worked: where it
+did not in the warm-up (a model ID that is wrong, or a model not enabled in the account, answers AccessDeniedException
+or ValidationException), the kit says so, times nothing, removes what it made and raises NotStarted, which carries the
+run's record with anything left; it does not time the other paths without it. Through a gateway where no path worked,
+the gateway is said instead, as before. The timing rule reads every failure alike, whatever its code: a throttle
+(ThrottlingException) after the stop counts as a failure as a refusal does (timing.py). A run without a model has the
+four paths, exactly as before.
 """
 from __future__ import annotations
 
@@ -39,10 +50,11 @@ from typing import Any
 
 from arvaken_stop_test import __version__, result
 from arvaken_stop_test.aws import fire as firing
-from arvaken_stop_test.aws.stack import MEMORY_MB, RUNTIME, TAG, names, template_body
+from arvaken_stop_test.aws.stack import MEMORY_MB, RUNTIME, TAG, is_model_id, names, template_body
 from arvaken_stop_test.timing import HOLD, NOT_MEASURED, NOT_RUN, PATH_WORDS, WINDOWS, Beat, PathResult, judge
 
 AWS_PATHS = ("own_calls", "another_identity", "outside_key", "open_internet")
+MODEL = "model"              # the optional fifth path, for a run given a model (timing.PATHS)
 WARM_UP = 10                 # heartbeats before the first firing
 RECOVERY = 300.0             # seconds to wait, between repeats, for the agent's own calls to work again
 TRAIL_WAIT = 900.0           # seconds to wait, after the last window, for CloudTrail to record each firing
@@ -80,6 +92,18 @@ INTERFACE_GONE = "the network interface {id}"
 INTERFACE_LEFT = "the network interface {id} in your subnet {subnet}"
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 INTERFACES_UNCHECKED = "the test agent's network interfaces in your subnet {subnet} (could not be checked: {code})"
+# What a run with a model says where the model's call did not work before the stop.
+# CUSTOMER TEXT (D562, F4): not yet approved
+MODEL_DID_NOT_WORK = ("Before the stop, a call to the model {model} did not work ({codes}), so nothing was timed. "
+                      "Check that your account can call it in {region}.")
+
+
+class NotStarted(firing.Refused):
+    """The run was torn down before anything was timed. `run` is its record, with anything it left."""
+
+    def __init__(self, message: str, run: Run):
+        super().__init__(message)
+        self.run = run
 
 
 @dataclass
@@ -145,6 +169,12 @@ class Run:
     interfaces: list[str] = field(default_factory=list)
     interfaces_gone: list[str] = field(default_factory=list)
     interfaces_left: list[str] = field(default_factory=list)
+    model: str = ""                     # a model's ID or an inference profile's, for the fifth path; else none
+
+    @property
+    def paths(self) -> tuple[str, ...]:
+        """The run's paths: the four, and the model's call where the run was given a model."""
+        return (*AWS_PATHS, MODEL) if self.model else AWS_PATHS
 
     @property
     def stop_kind(self) -> str:
@@ -178,7 +208,7 @@ def deploy(c: Clients, r: Run, endpoint: str, clock: Clock, before: dict[str, di
     n = names(r.run)
     c.cloudformation.create_stack(StackName=n["stack"],
                                   TemplateBody=template_body(r.run, endpoint, subnet=r.subnet,
-                                                             security_groups=r.security_groups),
+                                                             security_groups=r.security_groups, model=r.model),
                                   Capabilities=["CAPABILITY_NAMED_IAM"], Tags=[{"Key": TAG, "Value": r.run}])
     found = _wait_for_stack(c.cloudformation, n["stack"], clock, "CREATE_COMPLETE")
     r.outputs = {o["OutputKey"]: o["OutputValue"] for o in (found or {}).get("Outputs", [])}
@@ -264,7 +294,7 @@ def heartbeat(c: Clients, r: Run, n: int, session: dict,
             raise
         received = clock.now()
         at = (sent + received) / 2 + r.offset
-        return {p: Beat(at, False, REFUSED + code) for p in AWS_PATHS}, sent, received, None
+        return {p: Beat(at, False, REFUSED + code) for p in r.paths}, sent, received, None
     beats = {p: Beat(float(b["at"]), bool(b["ok"]), b.get("error")) for p, b in (body.get("beats") or {}).items()}
     r.calls += len(beats)
     return beats, sent, received, float(body["at"])
@@ -340,14 +370,16 @@ def time_one(c: Clients, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
 
 
 def recover(c: Clients, r: Run, clock: Clock) -> None:
-    """Between repeats: remove the stop, then wait until the agent's own calls work again."""
+    """Between repeats: remove the stop, then wait until the agent's own calls work again, and with a model its call to
+    the model, also made as its own role."""
     firing.remove(c.iam, r.run, r.stop_ref)
     session = assume_or_none(c, r, clock)
     end = clock.now() + RECOVERY
     good = 0
+    own = [p for p in ("own_calls", MODEL) if p in r.paths]
     while clock.now() < end and good < 5:
         beats, _, _, _ = heartbeat(c, r, 0, session or {}, clock)
-        good = good + 1 if beats.get("own_calls") and beats["own_calls"].ok else 0
+        good = good + 1 if all(beats.get(p) and beats[p].ok for p in own) else 0
         clock.sleep(1.0)
 
 
@@ -572,7 +604,7 @@ def _one(r: Run, rep: Repeat, p: str) -> PathResult:
 
 def results(r: Run) -> list[tuple[float | None, dict[str, PathResult]]]:
     """Each repeat's paths, each judged from its own firing moment."""
-    return [(rep.fired_at, {p: _one(r, rep, p) for p in AWS_PATHS}) for rep in r.repeats]
+    return [(rep.fired_at, {p: _one(r, rep, p) for p in r.paths}) for rep in r.repeats]
 
 
 def _iso(t: float | None) -> str | None:
@@ -605,6 +637,8 @@ def details(r: Run, doc: dict) -> dict:
         out["gateway"] = {"via": result.gateway_address(r.via), "product": r.product}
     if r.subnet:
         out["network"] = network(r)
+    if r.model:     # the model the fifth path called, as given
+        out["model"] = r.model
     return out
 
 
@@ -638,9 +672,11 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", 
         repeats: int = 1, clock: Clock | None = None, run_name: str | None = None,
         trail_wait: float = TRAIL_WAIT, say: Callable[[str], None] = lambda _: None, via: str = "", ca: str = "",
         product: dict[str, str] | None = None, subnet: str = "", security_groups: tuple[str, ...] | list[str] = (),
-        mark: Callable[[], object] | None = None, eni_wait: float = ENI_WAIT) -> tuple[Run, dict]:
+        mark: Callable[[], object] | None = None, eni_wait: float = ENI_WAIT, model: str = "") -> tuple[Run, dict]:
     """A whole run, torn down whatever happens. Returns the run's record and its signed result. `say` is told, as the
-    run goes, of a path that did not work before the stop.
+    run goes, of a path that did not work before the stop. With `model` (a Bedrock model's ID or an inference
+    profile's), the agent also calls it with each heartbeat, as a fifth path; where that call did not work before the
+    stop, the run is torn down and NotStarted raised.
 
     Through a gateway: `via` is its address, `ca` the customer's certificate bundle (its text) for the calls through it
     alone, `product` the declared gateway ({"kind", "attachment", "name"}), and `mark` what waits for the customer's
@@ -661,6 +697,8 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", 
             raise ValueError("through a gateway each path is timed from your mark")
     if (subnet or security_groups) and not (via and subnet and security_groups):
         raise ValueError("a subnet of yours, with its security groups, is where your gateway is reached: with via")
+    if model and not is_model_id(model):
+        raise ValueError("a model is named by a Bedrock model's ID or an inference profile's")
     if fired_by == "the kit":
         reason = firing.why_not(stop_ref)
         if reason:
@@ -669,7 +707,7 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", 
     if fired_by == "the kit" and stop_ref not in (firing.REVOKE, firing.INLINE) \
             and not firing.covers(c.iam, stop_ref, the_name):
         raise firing.Refused(firing.NOT_COVERED)    # before anything is made
-    reason = firing.why_no_boundary(c.iam, c.sts, network=bool(subnet))
+    reason = firing.why_no_boundary(c.iam, c.sts, network=bool(subnet), model=bool(model))
     if reason:
         raise firing.Refused(reason)                # before anything is made
     if not 1 <= repeats <= 5:
@@ -678,13 +716,18 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", 
         raise ValueError("with your own trigger a run fires once: only you can take your own stop off between repeats")
     before = interfaces_in(c, subnet) if subnet else None       # read, before anything is made
     r = Run(run=the_name, stop_ref=stop_ref, fired_by=fired_by, window=window, region=c.region, via=via, ca=ca,
-            product=dict(product) if product else None, subnet=subnet, security_groups=list(security_groups))
+            product=dict(product) if product else None, subnet=subnet, security_groups=list(security_groups),
+            model=model)
     r.began_at = clock.now()
     try:
         deploy(c, r, endpoint, clock, before)
         first = assume_or_none(c, r, clock) if via else assume(c, r, clock)
         warm_up(c, r, first or {}, clock)
-        for p in AWS_PATHS:
+        if model and MODEL not in r.working and (r.working or not via):
+            said = MODEL_DID_NOT_WORK.format(model=model, codes=_codes(r, MODEL), region=c.region)
+            say(said)
+            raise NotStarted(said, r)               # torn down below; nothing was fired or asked for
+        for p in r.paths:
             if p not in r.working:
                 say(NOT_THROUGH_THE_GATEWAY.format(path=PATH_WORDS[p], codes=_codes(r, p)) if via else
                     f"Before the stop, {PATH_WORDS[p]} did not work ({_codes(r, p)}): it will be reported as not run.")

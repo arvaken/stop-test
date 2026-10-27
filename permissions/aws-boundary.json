@@ -28,6 +28,15 @@
     "ec2:UnassignPrivateIpAddresses"
    ],
    "Resource": "*"
+  },
+  {
+   "Sid": "TheTestAgentsCallToAModel",
+   "Effect": "Allow",
+   "Action": "bedrock:InvokeModel",
+   "Resource": [
+    "arn:aws:bedrock:*::foundation-model/*",
+    "arn:aws:bedrock:*:*:inference-profile/*"
+   ]
   }
  ]
 }

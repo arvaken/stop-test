@@ -21,11 +21,23 @@ six EC2 actions Lambda needs for it, those of AWS's managed policy AWSLambdaVPCA
 actions, and the boundary allows them too (its statement NETWORK_SID). Nothing else of the customer's is attached or
 changed: the subnet and the groups are named in the function's network settings, and nothing more. A run without a
 subnet makes the role without them, and still takes the boundary as it was before that statement (fire.py).
+
+**A call to a model (`--model`; the design's section 4, its optional fifth row).** Where the customer names a model, by
+a Bedrock model's ID or a cross-Region inference profile's, the function's environment names it (MODEL) and the agent's
+role alone is allowed `bedrock:InvokeModel` (which the agent's Converse call needs) on exactly what that ID needs
+(model_resources): for a model's ID, that model in the run's region; for a profile's (its ID begins with its
+geography, as `eu.` or `global.`: PROFILE_PREFIXES, from AWS's Bedrock guide on inference profiles), the profile in the
+run's region and the model it names in every region, as AWS requires both for a profile that routes calls to other
+regions. The second role is never given it. The boundary allows it too (its statement MODEL_SID), on any model and any
+inference profile. A run without a model makes the stack exactly as before, and still takes the boundary as it was
+before that statement (fire.py). An ID is checked for its shape (MODEL_ID) before it is written into the template, so
+it can name nothing but a model or a profile.
 """
 from __future__ import annotations
 
 import ast
 import json
+import re
 import secrets
 from collections.abc import Sequence
 from importlib import resources
@@ -41,6 +53,11 @@ INLINE_LIMIT = 4096          # CloudFormation's limit on a function's inline cod
 NETWORK_ACTIONS = ("ec2:CreateNetworkInterface", "ec2:DescribeNetworkInterfaces", "ec2:DescribeSubnets",
                    "ec2:DeleteNetworkInterface", "ec2:AssignPrivateIpAddresses", "ec2:UnassignPrivateIpAddresses")
 NETWORK_SID = "TheTestAgentsNetworkInterfacesInASubnetYouName"
+MODEL_SID = "TheTestAgentsCallToAModel"
+# A Bedrock model's ID (provider.model, with a version after ":") or a cross-Region inference profile's (its geography,
+# then a model's ID), and the geographies such a profile's ID begins with.
+MODEL_ID = re.compile(r"[a-z0-9-]{1,63}(\.[a-z0-9-]{1,63}){1,2}(:[a-z0-9-]{1,63}){0,2}")
+PROFILE_PREFIXES = ("us", "us-gov", "eu", "apac", "au", "jp", "ca", "global")
 
 
 def new_run() -> str:
@@ -53,13 +70,31 @@ def names(run: str) -> dict[str, str]:
     return {"stack": base, "function": f"{base}-agent", "agent_role": f"{base}-agent", "second_role": f"{base}-second"}
 
 
-def boundary_document(network: bool = True) -> dict[str, Any]:
+def boundary_document(network: bool = True, model: bool = True) -> dict[str, Any]:
     """The permissions boundary on both roles, as permissions/aws-boundary.json gives it for your account to hold; with
-    `network` False, as it was before its statement for a subnet's network interfaces (the kit's to 0.2.1)."""
+    `model` False, as it was before its statement for a call to a model; with `network` False, as it was before its
+    statement for a subnet's network interfaces (the kit's to 0.2.1), which came before that one too."""
     doc = json.loads(resources.files("arvaken_stop_test.aws").joinpath("boundary.json").read_text(encoding="utf-8"))
-    if not network:
-        doc["Statement"] = [s for s in doc["Statement"] if s.get("Sid") != NETWORK_SID]
+    dropped = ({MODEL_SID} if not (network and model) else set()) | ({NETWORK_SID} if not network else set())
+    doc["Statement"] = [s for s in doc["Statement"] if s.get("Sid") not in dropped]
     return doc
+
+
+def is_model_id(model: str) -> bool:
+    return bool(MODEL_ID.fullmatch(model))
+
+
+def model_resources(model: str) -> list[dict[str, str]]:
+    """What the agent's role may invoke for this ID: a model in the run's region; or, for a cross-Region inference
+    profile, the profile in the run's region and the model it names in every region (AWS requires both)."""
+    if not is_model_id(model):
+        raise ValueError("a model is named by a Bedrock model's ID or an inference profile's")
+    geography, _, named = model.partition(".")
+    if geography in PROFILE_PREFIXES and "." in named:
+        return [{"Fn::Sub": f"arn:${{AWS::Partition}}:bedrock:${{AWS::Region}}:${{AWS::AccountId}}:inference-profile/"
+                            f"{model}"},
+                {"Fn::Sub": f"arn:${{AWS::Partition}}:bedrock:*::foundation-model/{named}"}]
+    return [{"Fn::Sub": f"arn:${{AWS::Partition}}:bedrock:${{AWS::Region}}::foundation-model/{model}"}]
 
 
 def agent_code() -> str:
@@ -75,9 +110,10 @@ def agent_code() -> str:
 
 
 def template(run: str, endpoint: str, outside_key: str | None = None, subnet: str = "",
-             security_groups: Sequence[str] = ()) -> dict[str, Any]:
+             security_groups: Sequence[str] = (), model: str = "") -> dict[str, Any]:
     """The run's stack. With a subnet, the function is in it, with the security groups named, and its role may make its
-    network interfaces there; else the function is on Lambda's default network, as before."""
+    network interfaces there; else the function is on Lambda's default network, as before. With a model, the function's
+    environment names it, and its role may invoke it (model_resources); else neither, as before."""
     n = names(run)
     tags = [{"Key": TAG, "Value": run}]
     second_arn = {"Fn::Sub": f"arn:${{AWS::Partition}}:iam::${{AWS::AccountId}}:role/{n['second_role']}"}
@@ -89,6 +125,11 @@ def template(run: str, endpoint: str, outside_key: str | None = None, subnet: st
     if subnet:
         own.append({"Effect": "Allow", "Action": list(NETWORK_ACTIONS), "Resource": "*"})
         network = {"VpcConfig": {"SubnetIds": [subnet], "SecurityGroupIds": list(security_groups)}}
+    variables = {"BUCKET": {"Ref": "Bucket"}, "ENDPOINT": endpoint, "OUTSIDE_KEY": outside_key or secrets.token_hex(16),
+                 "SECOND_ROLE": second_arn}
+    if model:
+        own.append({"Effect": "Allow", "Action": "bedrock:InvokeModel", "Resource": model_resources(model)})
+        variables["MODEL"] = model
     return {
         "AWSTemplateFormatVersion": "2010-09-09",
         "Description": f"Arvaken stop test, run {run}: a test agent of the kit's own. Removed when the run ends.",
@@ -118,9 +159,7 @@ def template(run: str, endpoint: str, outside_key: str | None = None, subnet: st
                 "FunctionName": n["function"], "Runtime": RUNTIME, "Handler": "index.handler",
                 "MemorySize": MEMORY_MB, "Timeout": TIMEOUT_S, "Role": {"Fn::GetAtt": ["AgentRole", "Arn"]},
                 "Code": {"ZipFile": agent_code()},
-                "Environment": {"Variables": {"BUCKET": {"Ref": "Bucket"}, "ENDPOINT": endpoint,
-                                              "OUTSIDE_KEY": outside_key or secrets.token_hex(16),
-                                              "SECOND_ROLE": second_arn}},
+                "Environment": {"Variables": variables},
                 **network, "Tags": tags}},
         },
         "Outputs": {
@@ -133,5 +172,5 @@ def template(run: str, endpoint: str, outside_key: str | None = None, subnet: st
 
 
 def template_body(run: str, endpoint: str, outside_key: str | None = None, subnet: str = "",
-                  security_groups: Sequence[str] = ()) -> str:
-    return json.dumps(template(run, endpoint, outside_key, subnet, security_groups), indent=1, sort_keys=True)
+                  security_groups: Sequence[str] = (), model: str = "") -> str:
+    return json.dumps(template(run, endpoint, outside_key, subnet, security_groups, model), indent=1, sort_keys=True)

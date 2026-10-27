@@ -70,6 +70,19 @@ class FakeClient:
         return {"Credentials": {"AccessKeyId": "k", "SecretAccessKey": "s", "SessionToken": "t",
                                 "Expiration": datetime.datetime(2026, 10, 26, tzinfo=datetime.timezone.utc)}}
 
+    conversed: list = []            # each Converse call's request, across clients
+    refuse_with: str | None = None  # a Bedrock error code the call fails with, if any
+
+    def converse(self, **kw):
+        FakeClient.conversed.append(kw)
+        if FakeClient.refuse_with:
+            import botocore.exceptions
+            raise botocore.exceptions.ClientError(
+                {"Error": {"Code": FakeClient.refuse_with, "Message": "the model arn:aws:bedrock:... is secret"}},
+                "Converse")
+        return {"output": {"message": {"role": "assistant", "content": [{"text": "THE MODEL'S OWN WORDS"}]}},
+                "stopReason": "max_tokens", "usage": {"inputTokens": 8, "outputTokens": 1, "totalTokens": 9}}
+
 
 @pytest.fixture
 def an_agent(monkeypatch, tmp_path):
@@ -78,10 +91,69 @@ def an_agent(monkeypatch, tmp_path):
     monkeypatch.setattr(agent.boto3, "client", lambda name, **kw: made.append((name, kw)) or FakeClient())
     monkeypatch.setattr(agent, "_get", lambda url, headers, gw=({}, None): gets.append((url, gw)))
     monkeypatch.setattr(agent, "CA", str(tmp_path / "ca.pem"))
+    monkeypatch.setattr(FakeClient, "conversed", [])
+    monkeypatch.setattr(FakeClient, "refuse_with", None)
+    monkeypatch.delenv("MODEL", raising=False)
     for k, v in {"BUCKET": "b", "ENDPOINT": "https://stop-test.example", "OUTSIDE_KEY": "k" * 32,
                  "SECOND_ROLE": "arn:aws:iam::111122223333:role/arvaken-stop-test-r1-second"}.items():
         monkeypatch.setenv(k, v)
     return made, gets
+
+
+MODEL = "eu.amazon.nova-micro-v1:0"
+SESSION = {"key": "k", "secret": "s", "token": "t"}
+
+
+def test_with_a_model_each_invocation_also_calls_it_once_as_the_agent_and_keeps_nothing_of_its_answer(an_agent,
+                                                                                                         monkeypatch):
+    """The fifth row (--model; the design's section 4): one Converse call, as the agent's own role (no other
+    identity's keys), asking the least a call can; only whether it worked is returned, never what the model said."""
+    made, _ = an_agent
+    monkeypatch.setenv("MODEL", MODEL)
+    out = agent.handler({"n": 3, "session": SESSION}, None)
+    assert list(out["beats"]) == ["own_calls", "another_identity", "outside_key", "open_internet", "model"]
+    assert out["beats"]["model"] == {"at": out["beats"]["model"]["at"], "ok": True}
+    assert FakeClient.conversed == [{"modelId": MODEL, "inferenceConfig": {"maxTokens": 1},
+                                     "messages": [{"role": "user", "content": [{"text": "1"}]}]}]
+    (bedrock,) = [kw for name, kw in made if name == "bedrock-runtime"]
+    assert "aws_access_key_id" not in bedrock and "aws_session_token" not in bedrock      # its own role's
+    assert (bedrock["config"].connect_timeout, bedrock["config"].read_timeout) == (2, 2)
+    assert bedrock["config"].retries == {"max_attempts": 1}
+    assert "WORDS" not in repr(out) and "Tokens" not in repr(out)
+
+
+def test_a_refused_model_call_is_its_code_alone(an_agent, monkeypatch):
+    monkeypatch.setenv("MODEL", MODEL)
+    for code in ("AccessDeniedException", "ValidationException", "ThrottlingException"):
+        FakeClient.refuse_with = code
+        beat = agent.handler({"n": 3, "session": SESSION}, None)["beats"]["model"]
+        assert beat == {"at": beat["at"], "ok": False, "error": code}
+
+
+def test_without_a_model_the_agent_calls_none_and_its_reply_is_as_before(an_agent, monkeypatch):
+    made, _ = an_agent
+    for unset in (lambda: None, lambda: monkeypatch.setenv("MODEL", "")):
+        unset()
+        out = agent.handler({"n": 3, "session": SESSION}, None)
+        assert list(out["beats"]) == ["own_calls", "another_identity", "outside_key", "open_internet"]
+    assert "bedrock-runtime" not in [name for name, _ in made] and FakeClient.conversed == []
+
+
+def test_through_a_gateway_the_model_call_goes_through_it_with_the_bundle(an_agent, monkeypatch):
+    made, _ = an_agent
+    monkeypatch.setenv("MODEL", MODEL)
+    assert agent.handler({"n": 3, "session": SESSION, "via": VIA, "ca": PEM}, None)["beats"]["model"]["ok"]
+    (bedrock,) = [kw for name, kw in made if name == "bedrock-runtime"]
+    assert bedrock["config"].proxies == {"http": VIA, "https": VIA}
+    assert bedrock["config"].proxies_config == {"proxy_ca_bundle": agent.CA} and bedrock["verify"] == agent.CA
+
+
+def test_the_agent_with_its_model_call_still_fits_cloudformations_inline_limit():
+    from arvaken_stop_test.aws.stack import INLINE_LIMIT, agent_code
+    code = agent_code()
+    assert len(code) <= INLINE_LIMIT
+    assert ".converse(" in code and '"maxTokens": 1' in code and 'os.environ.get("MODEL")' in code
+    assert '"""' not in code                        # what explains it is in the module's docstring, not shipped
 
 
 def test_through_a_gateway_every_client_and_call_of_the_agent_goes_through_it_with_the_bundle(an_agent):

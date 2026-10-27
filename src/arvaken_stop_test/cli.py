@@ -12,6 +12,10 @@ and, with `--subnet`, that its network interfaces are made in your subnet; the k
 your own trigger, that your gateway's switch may stop every agent behind it, and goes on only when you type the run's
 name. It then asks you to press Enter, then fire your stop, and times each path from that mark. The gateway's address is
 printed and kept as its scheme, host and port alone: never with a user name, password, path or query (D595).
+
+**A call to a model (`--model`; the design's section 4), on AWS alone in this version.** Off by default, as each call
+costs money: given a Bedrock model's ID or an inference profile's, the test agent also calls that model with each
+invocation, and its plan says so. The ID is checked for its shape before anything is asked or made.
 """
 from __future__ import annotations
 
@@ -65,6 +69,17 @@ NOT_A_BUNDLE = "--ca-bundle takes a file of PEM certificates (-----BEGIN CERTIFI
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 GOOGLE_NO_VIA = ("--via is for AWS in this version of the kit: on Google Cloud, the gateway option waits for a later "
                  "version.")
+# The model option (D562, F4): its help, what is said where its ID is not one, on Google Cloud, and in the plan.
+# CUSTOMER TEXT (D562, F4): not yet approved
+MODEL_HELP = ("also time a call to a model: its Bedrock model ID or inference profile ID, such as "
+              "eu.amazon.nova-micro-v1:0. Each call is billed to your account")
+# CUSTOMER TEXT (D562, F4): not yet approved
+NOT_A_MODEL = "--model takes a Bedrock model ID or inference profile ID, such as eu.amazon.nova-micro-v1:0."
+# CUSTOMER TEXT (D562, F4): not yet approved
+GOOGLE_NO_MODEL = "--model is for AWS in this version of the kit."
+# CUSTOMER TEXT (D562, F4): not yet approved
+PLAN_MODEL = ("- with each invocation, also calls the model {model} once, as the test agent's own role, asking for one "
+              "token: AWS bills each call to your account;")
 # What the plan says of a run through a gateway.
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 PLAN_SUBNET = ("- runs the test agent in your subnet {subnet}, with your security group(s) {groups}: Lambda makes the "
@@ -137,7 +152,7 @@ def _plan(args, run_name: str) -> str:
         if not fire.covers(c.iam, stop, run_name):
             reason = fire.NOT_COVERED.rstrip(".")
         else:
-            reason = (fire.why_no_boundary(c.iam, c.sts) or "").rstrip(".") or None
+            reason = (fire.why_no_boundary(c.iam, c.sts, model=bool(args.model)) or "").rstrip(".") or None
     gateway = []
     if args.via and args.subnet:
         gateway.append(PLAN_SUBNET.format(subnet=args.subnet, groups=", ".join(args.security_group),
@@ -160,6 +175,7 @@ def _plan(args, run_name: str) -> str:
               f"- attaches your stop, {args.stop}, to the test agent's role alone;"),
              f"- times each path for {int(args.window)} seconds after firing, {args.repeats} time(s);",
              f"- invokes the test agent about {calls_for(args.window, args.repeats)} times;",
+             *([PLAN_MODEL.format(model=args.model)] if args.model else []),
              PLAN_REMOVES if args.via else
              "- then removes the stop it fired and everything it made, and names anything left."]
     if reason:
@@ -244,6 +260,8 @@ def _google(args, p) -> int:
     if args.action in ("plan", "run"):
         if args.via:
             p.error(GOOGLE_NO_VIA)
+        if args.model:
+            p.error(GOOGLE_NO_MODEL)
         if sum((bool(args.stop), args.own_trigger, args.deny_all, args.disable_account)) != 1:
             p.error("give one of --stop, --deny-all, --disable-account or --own-trigger")
     run_name = args.run_name or new_run()
@@ -305,6 +323,7 @@ def main(argv: list[str] | None = None) -> int:
         a.add_argument("--ca-bundle", type=Path, metavar="FILE", help=HELP["ca_bundle"])
         a.add_argument("--subnet", default="", help=HELP["subnet"])
         a.add_argument("--security-group", action="append", default=[], help=HELP["security_group"])
+        a.add_argument("--model", default="", metavar="MODEL_ID", help=MODEL_HELP)
     clean = aws_sub.add_parser("clean", help="remove what an interrupted run left")
     clean.add_argument("--run", dest="run_name", required=True)
     clean.add_argument("--region", required=True)
@@ -326,6 +345,7 @@ def main(argv: list[str] | None = None) -> int:
         a.add_argument("--run", dest="run_name", help="the run's name, if you are resuming one")
         a.add_argument("--endpoint", default=ENDPOINT, help=argparse.SUPPRESS)
         a.add_argument("--via", default="", metavar="ADDRESS", help=HELP["google_via"])
+        a.add_argument("--model", default="", metavar="MODEL_ID", help=HELP["google_via"])
     gclean = google_sub.add_parser("clean", help="remove what an interrupted run left")
     gclean.add_argument("--run", dest="run_name", required=True)
     gclean.add_argument("--project", required=True)
@@ -352,6 +372,9 @@ def main(argv: list[str] | None = None) -> int:
         ca = _gateway(args, p)
         if not args.via and sum((bool(args.stop), args.own_trigger, args.revoke_sessions, args.inline_deny)) != 1:
             p.error("give one of --stop, --revoke-sessions, --inline-deny or --own-trigger")
+        from arvaken_stop_test.aws.stack import is_model_id
+        if args.model and not is_model_id(args.model):
+            p.error(NOT_A_MODEL)
     run_name = args.run_name or new_run()
     if args.action == "plan":
         print(_plan(args, run_name))
@@ -390,11 +413,17 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     product = ({"kind": result.GATEWAY, "attachment": ATTACHMENTS[args.product_attachment], "name": args.product_name}
                if args.via else None)
-    r, doc = running.run(c, stop, endpoint=args.endpoint,
-                         fired_by="your own trigger" if yours else "the kit", window=args.window,
-                         repeats=args.repeats, run_name=run_name, say=print, via=args.via, ca=ca, product=product,
-                         subnet=args.subnet, security_groups=tuple(args.security_group),
-                         mark=(lambda: input(running.MARK_PROMPT)) if args.via else None)
+    try:
+        r, doc = running.run(c, stop, endpoint=args.endpoint,
+                             fired_by="your own trigger" if yours else "the kit", window=args.window,
+                             repeats=args.repeats, run_name=run_name, say=print, via=args.via, ca=ca, product=product,
+                             subnet=args.subnet, security_groups=tuple(args.security_group),
+                             mark=(lambda: input(running.MARK_PROMPT)) if args.via else None,
+                             model=args.model)
+    except running.NotStarted as e:     # why was said as it happened; then what the teardown left, as `clean` says it
+        print("Nothing the kit made is left." if not e.run.left_behind else
+              "Left for you to delete:\n" + "\n".join(e.run.left_behind))
+        return 1
     out = Path(f"stop-test-{run_name}.json")
     write(out, json.dumps(doc, indent=1, sort_keys=True))
     write(Path(f"stop-test-{run_name}.html"), report.page(doc, [d for _, d in running.results(r)],

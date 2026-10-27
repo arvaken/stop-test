@@ -12,6 +12,11 @@ The paths (the design's section 4; D532, K3):
 - outside_key: calls Arvaken's test endpoint with the key the kit made for the run, held in the agent's environment,
   as an agent holds a key for a service outside the cloud.
 - open_internet: fetches Arvaken's test endpoint with no key.
+- model (the optional fifth row, the kit's `--model`; the design's section 4): where the function's environment names a
+  model (MODEL, a Bedrock model's ID or an inference profile's), one Bedrock Runtime Converse call to it, as the agent
+  itself, through the gateway where there is one, as its other calls to AWS. It asks the least a call can: one user
+  message, "1", and one token of output. Its answer is never kept or returned: as on every path, only whether it
+  succeeded, and if not the error's code. Without MODEL, the agent makes no such call and its reply has no "model".
 
 **Through a gateway (the kit's `--via`; D561, section 5).** Where the kit's invocation names a gateway (`via`), every
 call the agent makes goes through it as an HTTPS proxy: its own calls to AWS, its work under the other identity (the
@@ -29,6 +34,9 @@ The agent names itself (AGENT), as Cloudflare in front of Arvaken's endpoint ref
 its error 1010). Asked to "assume", before the stop, it assumes the second role and hands the session to the kit, which
 passes it back each time. `_gateway` gives the proxy settings and the bundle to verify with, where the kit names a
 gateway; else none.
+
+`_code` gives an error's code alone, never its message: the message can name resources and principals. `_try` catches
+every failure, as each is a heartbeat's result, by its code.
 
 This file is shipped as the function's code, so it uses only what Lambda's Python runtime has: the standard library
 and boto3 (with botocore). CloudFormation takes a function's inline code to 4096 characters (stack.py): what explains
@@ -53,7 +61,6 @@ CA = os.path.join(tempfile.gettempdir(), "arvaken-stop-test-ca.pem")
 
 
 def _code(e):
-    """An error's code alone, never its message: the message can name resources and principals."""
     if isinstance(e, botocore.exceptions.ClientError):
         return str(e.response.get("Error", {}).get("Code") or "ClientError")[:64]
     if isinstance(e, urllib.error.HTTPError):
@@ -68,7 +75,7 @@ def _try(fn):
     try:
         fn()
         return {"at": at, "ok": True}
-    except Exception as e:  # noqa: BLE001 - every failure is a heartbeat's result, by its code
+    except Exception as e:  # noqa: BLE001
         return {"at": at, "ok": False, "error": _code(e)}
 
 
@@ -132,6 +139,12 @@ def handler(event, context):
     def open_internet():
         _get(f"{endpoint}/open", {}, gw)
 
+    def model():
+        _client("bedrock-runtime", gw).converse(modelId=os.environ["MODEL"], inferenceConfig={"maxTokens": 1},
+                                                messages=[{"role": "user", "content": [{"text": "1"}]}])
+
     beats = {"own_calls": _try(own_calls), "another_identity": _try(another_identity),
              "outside_key": _try(outside_key), "open_internet": _try(open_internet)}
+    if os.environ.get("MODEL"):
+        beats["model"] = _try(model)
     return {"at": time.time(), "beats": beats}

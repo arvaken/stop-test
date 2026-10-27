@@ -108,32 +108,56 @@ def _granted(t: dict) -> dict[str, set[str]]:
             for k, r in t["Resources"].items() if r["Type"] == "AWS::IAM::Role"}
 
 
+def _allows(document: dict) -> set[tuple[str, str]]:
+    """Each (action, resource) a policy document allows."""
+    as_list = lambda x: x if isinstance(x, list) else [x]  # noqa: E731
+    return {(a, r) for s in document["Statement"] for a in as_list(s["Action"]) for r in as_list(s["Resource"])}
+
+
 def test_the_boundary_is_the_kits_and_allows_what_the_two_roles_do_and_no_more():
     """With a subnet of yours (--subnet; D561), the agent's role alone may also make its function's network interfaces,
     with AWSLambdaVPCAccessExecutionRole's EC2 actions and none of its logs actions; the boundary allows them for that
-    alone. Without a subnet, the roles are as before, and so is the boundary as the kit took it to 0.2.1."""
-    from arvaken_stop_test.aws.stack import NETWORK_ACTIONS, boundary_document, template
+    alone. With a model (--model; the design's section 4), the agent's role alone may invoke it; the boundary allows
+    bedrock:InvokeModel on any model and any inference profile, and nothing else of Bedrock. Without either, the roles
+    are as before, and a run takes the boundary as it was before each statement: to 0.2.1, and before the model's."""
+    from arvaken_stop_test.aws.stack import MODEL_SID, NETWORK_ACTIONS, boundary_document, template
     assert BOUNDARY == boundary_document()                  # permissions/ gives the one the kit checks for
-    allows = {(a, s["Resource"]) for s in BOUNDARY["Statement"] for a in
-              (s["Action"] if isinstance(s["Action"], list) else [s["Action"]])}
+    allows = _allows(BOUNDARY)
     before = {("s3:PutObject", "arn:aws:s3:::arvaken-stop-test-*/*"),
               ("s3:GetObject", "arn:aws:s3:::arvaken-stop-test-*/*"),
               ("sts:AssumeRole", "arn:aws:iam::*:role/arvaken-stop-test-*")}
     network = {(a, "*") for a in NETWORK_ACTIONS}
-    assert allows == before | network
+    model = {("bedrock:InvokeModel", "arn:aws:bedrock:*::foundation-model/*"),
+             ("bedrock:InvokeModel", "arn:aws:bedrock:*:*:inference-profile/*")}
+    assert allows == before | network | model
+    assert [s for s in BOUNDARY["Statement"] if s["Sid"] == MODEL_SID] == [{
+        "Sid": "TheTestAgentsCallToAModel", "Effect": "Allow", "Action": "bedrock:InvokeModel",
+        "Resource": ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:*:*:inference-profile/*"]}]
     assert set(NETWORK_ACTIONS) == {"ec2:CreateNetworkInterface", "ec2:DescribeNetworkInterfaces",
                                     "ec2:DescribeSubnets", "ec2:DeleteNetworkInterface",
                                     "ec2:AssignPrivateIpAddresses", "ec2:UnassignPrivateIpAddresses"}
-    earlier = {(a, s["Resource"]) for s in boundary_document(network=False)["Statement"] for a in
-               (s["Action"] if isinstance(s["Action"], list) else [s["Action"]])}
-    assert earlier == before                                # the boundary as it was, which a run without a subnet takes
+    assert _allows(boundary_document(network=False)) == before   # as it was to 0.2.1, which a run without either takes
+    assert _allows(boundary_document(model=False)) == before | network      # and as it was before the model's
     plain = _granted(template("r0123abcd", "https://e.test"))
     assert set().union(*plain.values()) == {a for a, _ in before}     # each the roles' own policies grant, none more
     in_a_subnet = _granted(template("r0123abcd", "https://e.test", subnet="subnet-0abc1234",
                                     security_groups=["sg-0abc1234"]))
     assert in_a_subnet["AgentRole"] == plain["AgentRole"] | set(NETWORK_ACTIONS)
     assert in_a_subnet["SecondRole"] == plain["SecondRole"]             # the second role is never given them
-    assert set().union(*in_a_subnet.values()) == {a for a, _ in allows}
+    with_a_model = _granted(template("r0123abcd", "https://e.test", subnet="subnet-0abc1234",
+                                     security_groups=["sg-0abc1234"], model="eu.amazon.nova-micro-v1:0"))
+    assert with_a_model["AgentRole"] == in_a_subnet["AgentRole"] | {"bedrock:InvokeModel"}
+    assert with_a_model["SecondRole"] == plain["SecondRole"]            # nor the model
+    assert set().union(*with_a_model.values()) == {a for a, _ in allows}
+
+
+def test_the_kits_own_policy_needs_nothing_for_a_model():
+    """The test agent calls the model as its own role, under the boundary; the kit itself never calls Bedrock, and
+    giving the agent's role a policy that allows it is iam:PutRolePolicy, already allowed under the boundary."""
+    assert not {a for a in allowed() if a.startswith("bedrock:")}
+    package = ROOT / "src" / "arvaken_stop_test"
+    sources = {p.relative_to(package).as_posix(): p.read_text(encoding="utf-8") for p in package.rglob("*.py")}
+    assert [name for name, text in sources.items() if '"bedrock-runtime"' in text] == ["aws/agent.py"]
 
 
 def test_a_subnet_of_yours_is_named_in_the_functions_network_settings_and_nothing_else_of_yours_is():
