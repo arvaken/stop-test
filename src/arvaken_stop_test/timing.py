@@ -14,6 +14,8 @@ For each path, after the stop is fired:
   success. Said as such, never as stopped.
 - **not stopped within <window>**: neither of the above.
 - **not run**: the path was not tried (it could not be set up), or no heartbeat came after the stop was fired.
+- **not measured**: through a gateway (the kit's `--via`; D561), a path that failed before the stop. It is never
+  "stopped": the gateway did not carry it before the stop, so nothing after it can say the stop stopped it.
 
 An outcome is worded by its window (D532: "an outcome is worded by its window ('not stopped within 15 minutes')").
 
@@ -47,6 +49,7 @@ PATH_WORDS = {
 }
 
 STOPPED, FLAPPED, NOT_STOPPED, NOT_RUN = "stopped", "stopped, then succeeded again", "not stopped", "not run"
+NOT_MEASURED = "not measured"       # through a gateway, a path that failed before the stop (D561)
 
 
 @dataclass(frozen=True)
@@ -59,7 +62,7 @@ class Beat:
 
 @dataclass(frozen=True)
 class PathResult:
-    outcome: str                    # STOPPED, FLAPPED, NOT_STOPPED or NOT_RUN
+    outcome: str                    # STOPPED, FLAPPED, NOT_STOPPED, NOT_RUN or NOT_MEASURED
     window: float
     last_success_after: float | None = None
     first_failure_after: float | None = None
@@ -73,6 +76,7 @@ class PathResult:
     keeps_working_until: float | None = None    # a session that was not stopped: when it expires, by AWS's clock
     fired_source: str | None = None             # where the firing moment came from, and its precision
     fired_at: float | None = None               # the path's own firing moment, where it differs from its repeat's
+    failed_before_stop: bool = False            # the path did not work before the stop, so it was not tried after it
 
     def words(self) -> str:
         return worded(self.outcome, self.window)
@@ -89,7 +93,7 @@ def worded(outcome: str, window: float) -> str:
     """The outcome in its words, by its window."""
     w = window_words(window)
     return {STOPPED: f"stopped within {w}", FLAPPED: f"stopped within {w}, then succeeded again",
-            NOT_STOPPED: f"not stopped within {w}", NOT_RUN: "not run"}[outcome]
+            NOT_STOPPED: f"not stopped within {w}", NOT_RUN: "not run", NOT_MEASURED: "not measured"}[outcome]
 
 
 def _runs(beats: Sequence[Beat]) -> list[tuple[float, float, bool]]:
@@ -110,10 +114,13 @@ def _runs(beats: Sequence[Beat]) -> list[tuple[float, float, bool]]:
 
 
 def judge(beats: Iterable[Beat], fired_at: float | None, window: float, hold: float = HOLD,
-          tried: bool = True, setup_errors: dict[str, int] | None = None, fired_precision: float = 0.0) -> PathResult:
-    """What the test found on one path, from its heartbeats and the moment the stop was fired."""
+          tried: bool = True, setup_errors: dict[str, int] | None = None, fired_precision: float = 0.0,
+          untried: str = NOT_RUN) -> PathResult:
+    """What the test found on one path, from its heartbeats and the moment the stop was fired. A path that did not work
+    before the stop reads `untried`: "not run", or through a gateway "not measured" (D561); never "stopped"."""
     if not tried:
-        return PathResult(NOT_RUN, window, errors=dict(setup_errors or {}), reason="the path could not be set up")
+        return PathResult(untried, window, errors=dict(setup_errors or {}), reason="the path could not be set up",
+                          failed_before_stop=True)
     if fired_at is None:
         return PathResult(NOT_RUN, window, reason="the stop was not fired")
     end = fired_at + window + hold

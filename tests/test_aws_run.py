@@ -432,7 +432,8 @@ def test_revoking_sessions_reaches_the_session_the_agent_took_for_the_role_it_be
     clock = Clock()
     aws = FakeAWS(clock)
     r, doc = a_run(aws, clock, stop_ref=firing.REVOKE, repeats=2)
-    assert doc["stop"] == {"kind": "revoke active sessions", "fired_by": "the kit", "ref": "revoke active sessions"}
+    assert doc["stop"] == {"kind": "revoke active sessions", "fired_by": "the kit", "ref": "revoke active sessions",
+                           "product": None}
     assert [{p: v["outcome"] for p, v in rep.items()} for rep in doc["repeats"]] == [{
         "own_calls": "stopped", "another_identity": "stopped", "outside_key": "not stopped",
         "open_internet": "not stopped"}] * 2
@@ -451,7 +452,8 @@ def test_a_policy_written_on_the_agents_role_is_a_kind_of_its_own_and_stops_its_
     clock = Clock()
     aws = FakeAWS(clock)
     r, doc = a_run(aws, clock, stop_ref=firing.INLINE, repeats=2)
-    assert doc["stop"] == {"kind": "policy written on the role", "fired_by": "the kit", "ref": firing.INLINE}
+    assert doc["stop"] == {"kind": "policy written on the role", "fired_by": "the kit", "ref": firing.INLINE,
+                           "product": None}
     assert [rep["own_calls"]["outcome"] for rep in doc["repeats"]] == ["stopped", "stopped"]
     assert [rep["another_identity"]["outcome"] for rep in doc["repeats"]] == ["not stopped", "not stopped"]
     assert len(aws.put_calls) == 2 and not aws.inline and not aws.attach_calls

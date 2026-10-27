@@ -1,0 +1,64 @@
+{
+ "agent": {
+  "kind": "aws-lambda-function",
+  "memory_mb": 128,
+  "private_network": false,
+  "ref": "arn:aws:lambda:eu-central-1:111122223333:function:arvaken-stop-test-r0123abcd-agent",
+  "role_ref": "arn:aws:iam::111122223333:role/arvaken-stop-test-r0123abcd-agent",
+  "runtime": "python3.12"
+ },
+ "cloud": "aws",
+ "format": "stop-test-result/1",
+ "kit": {
+  "version": "0.2.1"
+ },
+ "region": "eu-central-1",
+ "repeats": [
+  {
+   "another_identity": {
+    "fired_at": "2025-10-23T11:46:52.000Z",
+    "first_refused_after": null,
+    "last_success_after": "2025-10-23T11:48:21.349Z",
+    "outcome": "not stopped"
+   },
+   "open_internet": {
+    "fired_at": "2025-10-23T11:46:52.000Z",
+    "first_refused_after": null,
+    "last_success_after": null,
+    "outcome": "not run"
+   },
+   "outside_key": {
+    "fired_at": "2025-10-23T11:46:52.000Z",
+    "first_refused_after": null,
+    "last_success_after": null,
+    "outcome": "not run"
+   },
+   "own_calls": {
+    "fired_at": "2025-10-23T11:46:52.000Z",
+    "first_refused_after": "2025-10-23T11:47:00.949Z",
+    "last_success_after": "2025-10-23T11:46:59.749Z",
+    "outcome": "stopped"
+   }
+  }
+ ],
+ "run": {
+  "began_at": "2025-10-23T11:46:40.000Z",
+  "calls": 344,
+  "clock_gap_ms": 50,
+  "ended_at": "2025-10-23T11:48:53.599Z",
+  "left_anything": false,
+  "left_behind": [],
+  "repeats": 1,
+  "window_seconds": 60
+ },
+ "signature": {
+  "alg": "ed25519",
+  "public_key": "Y/xQyGc/jdDgtaaMakKIPwUF3rKnfVtYg8l06j8eK4c=",
+  "value": "1HfJ2SvQbqjns0fGVgdrMGRI+IpNn5V9hk1uKnNMa+vMB/Ye6TRDZoJyt45oCNnOvVIpwmu2X5JQ018AMN9+Dw=="
+ },
+ "stop": {
+  "fired_by": "the kit",
+  "kind": "policy on a role",
+  "ref": "arn:aws:iam::111122223333:policy/agent-stop"
+ }
+}
