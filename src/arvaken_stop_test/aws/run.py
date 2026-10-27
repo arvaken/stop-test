@@ -16,7 +16,7 @@ not, so none is expected), and the stop the kit fired. The run's tag is asked as
 in the cloud, so the customer fires it themselves, from a mark: the kit asks them to press Enter, then fire their stop,
 and each path is timed from that Enter, so a time errs toward slower, never faster. Each invocation carries the
 gateway's address and the customer's certificate bundle for the agent's calls through it (agent.py); neither is written
-into the stack, the result or the details, and the result keeps the address without any user name or password
+into the stack, the result or the details as given, and the result keeps the address as its scheme, host and port alone
 (result.py; D595). Before the stop, each path must work through the gateway: one whose last try in the warm-up did not
 reads "not measured", never "stopped". Where none works, there is nothing to time, and the kit asks for no mark.
 
@@ -601,8 +601,8 @@ def details(r: Run, doc: dict) -> dict:
     out = {"format": "stop-test-details/1", "run": r.run, "result_signature": doc["signature"],
            "stop_kind": r.stop_kind, "window_seconds": r.window, "left_behind": r.left_behind,
            "checked_gone": r.checked_gone, "repeats": repeats, "lambda_refused": refused}
-    if r.via:       # the gateway as the result keeps it: without any user name or password, and with no bundle
-        out["gateway"] = {"via": result.without_credentials(r.via), "product": r.product}
+    if r.via:       # the gateway as the result keeps it: its scheme, host and port alone, and with no bundle
+        out["gateway"] = {"via": result.gateway_address(r.via), "product": r.product}
     if r.subnet:
         out["network"] = network(r)
     return out

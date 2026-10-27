@@ -76,7 +76,6 @@ class PathResult:
     keeps_working_until: float | None = None    # a session that was not stopped: when it expires, by AWS's clock
     fired_source: str | None = None             # where the firing moment came from, and its precision
     fired_at: float | None = None               # the path's own firing moment, where it differs from its repeat's
-    failed_before_stop: bool = False            # the path did not work before the stop, so it was not tried after it
 
     def words(self) -> str:
         return worded(self.outcome, self.window)
@@ -119,8 +118,7 @@ def judge(beats: Iterable[Beat], fired_at: float | None, window: float, hold: fl
     """What the test found on one path, from its heartbeats and the moment the stop was fired. A path that did not work
     before the stop reads `untried`: "not run", or through a gateway "not measured" (D561); never "stopped"."""
     if not tried:
-        return PathResult(untried, window, errors=dict(setup_errors or {}), reason="the path could not be set up",
-                          failed_before_stop=True)
+        return PathResult(untried, window, errors=dict(setup_errors or {}), reason="the path could not be set up")
     if fired_at is None:
         return PathResult(NOT_RUN, window, reason="the stop was not fired")
     end = fired_at + window + hold

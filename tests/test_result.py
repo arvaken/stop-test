@@ -34,11 +34,9 @@ def test_a_signed_result_checks_and_says_what_was_found():
     assert r.check(json.loads(json.dumps(doc))) == doc                 # as it travels
     own = doc["repeats"][0]["own_calls"]
     assert own == {"fired_at": "2025-10-23T11:46:40.000Z", "last_success_after": "2025-10-23T11:46:45.000Z",
-                   "first_refused_after": "2025-10-23T11:46:46.000Z", "outcome": "stopped",
-                   "failed_before_stop": False}
+                   "first_refused_after": "2025-10-23T11:46:46.000Z", "outcome": "stopped"}
     assert doc["format"] == "stop-test-result/2"
     assert (doc["stop"]["product"], doc["run"]["via"]) == (None, None)
-    assert doc["run"]["timing_from"] == "the kit's firing call"
     assert doc["repeats"][0]["open_internet"]["outcome"] == "not stopped"
 
 
@@ -89,14 +87,11 @@ TERMS_READABLE = {
                                                                             "signature.value"},
 }
 CONTAINERS = {"format", "kit", "run", "stop", "agent", "repeats", "signature"}
-# Version 2 (D561, section 5): what it adds, each as the phrase the terms' 4.4 does not yet hold, for the legal track's
-# reading (the design's section 8) before a release; and 4.2's new identifying parts, the product's name and the
-# gateway's address. Each must be named here, or the test below fails.
+# Version 2: exactly what the kit's terms v2 (D595) add, and nothing more: the product's kind and how it is attached,
+# readable; its name and the gateway's address, identifying. A field with no phrase here fails below.
 V2_READABLE = {
     "for a product's control, the kind of product and how it is attached": {"stop.product.kind",
                                                                              "stop.product.attachment"},
-    "where each path's timing starts": {"run.timing_from"},
-    "for each path, whether it failed before the stop": {"repeat.path.failed_before_stop"},
 }
 V2_IDENTIFYING = {"stop.product.name", "run.via"}
 
@@ -117,16 +112,26 @@ def test_every_field_is_a_phrase_of_the_terms_or_an_identifying_part_and_nothing
     assert not readable & set(r.IDENTIFYING)
 
 
-# A gateway's address, with any user name and password taken out (D595): what is before the last "@" of its authority.
+def test_version_2_holds_exactly_version_1_and_the_product_and_the_gateways_address():
+    assert r.SHAPE == {**r.SHAPE_V1, "run": (*r.SHAPE_V1["run"], "via"), "stop": (*r.SHAPE_V1["stop"], "product"),
+                       "stop.product": ("kind", "attachment", "name")}
+    assert r.SHAPE["repeat.path"] == ("fired_at", "last_success_after", "first_refused_after", "outcome")
+
+
+# A gateway's address as the kit keeps it (D595; the legal track's suggestion): its scheme, host and port alone, the
+# port as given; any user name, password, path, query and fragment dropped.
 @pytest.mark.parametrize(("given", "kept"), [
+    ("https://user:pass@gw.example:8443/p?token=x#f", "https://gw.example:8443"),
     ("https://user:pass@gw.example:8443", "https://gw.example:8443"),
     ("http://only-a-user@10.0.0.5:3128", "http://10.0.0.5:3128"),
     ("https://user:p@ss:w@rd@gw.example", "https://gw.example"),        # an "@" left in a password, unencoded
-    ("https://us%40er:p%3Ass@[2001:db8::1]:8443/", "https://[2001:db8::1]:8443/"),
+    ("https://us%40er:p%3Ass@[2001:db8::1]:8443/", "https://[2001:db8::1]:8443"),
+    ("http://gw.example/?key=x", "http://gw.example"),                  # no port given: none kept
     ("https://gw.example:8443", "https://gw.example:8443"),
 ])
-def test_a_gateways_address_is_kept_without_a_user_name_or_password(given, kept):
-    assert r.without_credentials(given) == kept and not r.has_credentials(kept)
+def test_a_gateways_address_is_kept_as_its_scheme_host_and_port_alone(given, kept):
+    assert r.gateway_address(given) == kept and r.is_gateway_address(kept)
+    assert r.is_gateway_address(given) is (given == kept)
 
 
 GATEWAY = {"kind": "gateway", "attachment": "all its outbound traffic", "name": "Egress <gateway> & co."}
@@ -139,20 +144,19 @@ def a_gateway_result(**over) -> dict:
     paths = {"own_calls": judge(stopped, FIRED, window=60),
              "outside_key": judge([], FIRED, window=60, tried=False, untried="not measured")}
     fields = dict(stop_kind="a product's control", fired_by="your own trigger", stop_ref="", product=GATEWAY,
-                  via="https://user:pass@gw.example:8443", repeats=[(FIRED, paths)])
+                  via="https://user:pass@gw.example:8443/p?token=x#f", repeats=[(FIRED, paths)])
     fields.update(over)
     return a_result(**fields)
 
 
-def test_a_result_through_a_gateway_keeps_its_product_and_its_address_without_credentials():
+def test_a_result_through_a_gateway_keeps_its_product_and_its_address_as_scheme_host_and_port():
     doc = r.sign(a_gateway_result(), r.new_key())
     assert r.check(json.loads(json.dumps(doc))) == doc and doc["format"] == "stop-test-result/2"
     assert doc["stop"] == {"kind": "a product's control", "fired_by": "your own trigger", "ref": "", "product": GATEWAY}
-    assert doc["run"]["via"] == "https://gw.example:8443" and "pass" not in json.dumps(doc)
-    assert doc["run"]["timing_from"] == "your mark"
+    assert doc["run"]["via"] == "https://gw.example:8443"
+    assert all(s not in json.dumps(doc) for s in ("pass", "token", "/p?", "#f"))
     assert doc["repeats"][0]["outside_key"] == {"fired_at": "2025-10-23T11:46:40.000Z", "last_success_after": None,
-                                                "first_refused_after": None, "outcome": "not measured",
-                                                "failed_before_stop": True}
+                                                "first_refused_after": None, "outcome": "not measured"}
     assert doc["repeats"][0]["own_calls"]["outcome"] == "stopped"
 
 
@@ -165,6 +169,12 @@ def _resigned(doc: dict, change) -> dict:
 
 @pytest.mark.parametrize("change", [
     lambda d: d["run"].__setitem__("via", "https://user:pass@gw.example:8443"),          # credentials in the address
+    lambda d: d["run"].__setitem__("via", "https://gw.example:8443/p"),                   # a path
+    lambda d: d["run"].__setitem__("via", "https://gw.example:8443?token=x"),             # a query
+    lambda d: d["run"].__setitem__("via", "https://gw.example:8443#f"),                   # a fragment
+    lambda d: d["run"].__setitem__("via", "socks5://gw.example:1080"),
+    lambda d: d["run"].__setitem__("via", "https://:8443"),                               # no host
+    lambda d: d["run"].__setitem__("via", 8443),
     lambda d: d["stop"]["product"].__setitem__("kind", "firewall"),
     lambda d: d["stop"]["product"].__setitem__("attachment", "its calls to a model, mostly"),
     lambda d: d["stop"]["product"].__setitem__("attachment", "inside its code"),          # another kind's attachment
@@ -174,14 +184,13 @@ def _resigned(doc: dict, change) -> dict:
     lambda d: d["stop"].__setitem__("product", None),                                      # a product's control, none
     lambda d: d["stop"].__setitem__("kind", "policy on a role"),                           # a product, another kind
     lambda d: d["stop"].__setitem__("fired_by", "the kit"),
-    lambda d: d["run"].__setitem__("timing_from", "the kit's firing call"),
     lambda d: d["stop"]["product"].__setitem__("kind", "in-agent SDK") or
     d["stop"]["product"].__setitem__("attachment", "inside its code"),                     # an address, but no gateway
-    lambda d: d["repeats"][0]["outside_key"].__setitem__("outcome", "stopped"),            # failed before, "stopped"
-    lambda d: d["repeats"][0]["outside_key"].__setitem__("outcome", "not run"),
-    lambda d: d["repeats"][0]["own_calls"].__setitem__("outcome", "not measured"),         # worked, "not measured"
-    lambda d: d["repeats"][0]["own_calls"].__setitem__("failed_before_stop", "no"),
     lambda d: d["run"].__delitem__("via"),
+    # the two fields version 2 no longer has (the kit's terms v2 list neither): refused wherever they are
+    lambda d: d["run"].__setitem__("timing_from", "your mark"),
+    lambda d: d["repeats"][0]["outside_key"].__setitem__("failed_before_stop", True),
+    lambda d: d["repeats"][0]["own_calls"].__setitem__("failed_before_stop", False),
 ])
 def test_a_version_2_result_that_breaks_its_rules_is_refused_even_signed_again(change):
     doc = r.sign(a_gateway_result(), r.new_key())
@@ -193,14 +202,14 @@ def test_a_result_of_a_cloud_stop_is_version_2_with_no_product_and_a_path_failed
     paths = {"outside_key": judge([], FIRED, window=60, tried=False)}
     doc = r.sign(a_result(repeats=[(FIRED, paths)]), r.new_key())
     assert r.check(doc)["repeats"][0]["outside_key"]["outcome"] == "not run"
-    assert doc["repeats"][0]["outside_key"]["failed_before_stop"] is True
-    for change in (lambda d: d["repeats"][0]["outside_key"].__setitem__("outcome", "not measured"),
+    for change in (lambda d: d["repeats"][0]["outside_key"].__setitem__("outcome", "not measured"),  # a product's
                    lambda d: d["run"].__setitem__("via", "https://gw.example:8443"),
-                   lambda d: d["run"].__setitem__("timing_from", "your mark")):
+                   lambda d: d["run"].__setitem__("timing_from", "the kit's firing call"),
+                   lambda d: d["repeats"][0]["outside_key"].__setitem__("failed_before_stop", True)):
         with pytest.raises(r.NotAResult):
             r.check(_resigned(doc, change))
     own = r.sign(a_result(fired_by="your own trigger", stop_ref=""), r.new_key())
-    assert r.check(own)["run"]["timing_from"] == "the change the kit saw"
+    assert set(r.check(own)["run"]) == set(r.SHAPE["run"])
 
 
 V1 = Path(__file__).parent / "data" / "v1-result-0.2.1.json"
@@ -211,7 +220,7 @@ def test_a_version_1_result_as_the_kit_wrote_it_to_0_2_1_still_checks():
     doc = json.loads(V1.read_text(encoding="utf-8"))
     assert doc["format"] == "stop-test-result/1" and doc["kit"]["version"] == "0.2.1"
     assert r.check(doc) == doc
-    assert set(doc["run"]) == set(r.SHAPE_V1["run"]) and "failed_before_stop" not in json.dumps(doc)
+    assert set(doc["run"]) == set(r.SHAPE_V1["run"]) and "product" not in json.dumps(doc)
 
 
 @pytest.mark.parametrize("change", [

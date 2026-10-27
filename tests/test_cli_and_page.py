@@ -198,7 +198,7 @@ def test_each_cloud_times_its_paths_for_its_own_window_by_default(capsys, monkey
 
 
 # The gateway option (--via; D561, section 5), on AWS.
-VIA = "https://user:secret@gw.example:8443"
+VIA = "https://user:secret@gw.example:8443/p?token=x#f"
 PEM = "-----BEGIN CERTIFICATE-----\nMIIBgateway\n-----END CERTIFICATE-----\n"
 A_GATEWAY = ["--via", VIA, "--product-attachment", "all-outbound", "--product-name", "Our egress gateway"]
 
@@ -210,12 +210,21 @@ def test_plan_through_a_gateway_says_what_it_sends_where_and_never_prints_a_pass
                      "--security-group", "sg-0abc1234", "--security-group", "sg-0def5678", "--region", "eu-central-1",
                      "--run", "r0123abcd"]) == 0
     out = capsys.readouterr().out
-    assert "secret" not in out and "user:" not in out
+    assert all(s not in out for s in ("secret", "user:", "token", "/p?"))
     assert cli.PLAN_SUBNET.format(subnet="subnet-0abc1234", groups="sg-0abc1234, sg-0def5678", minutes=30) in out
     assert cli.PLAN_VIA.format(via="https://gw.example:8443") in out
     assert cli.PLAN_CA.format(file="gateway-ca.pem") in out
     assert cli.PLAN_PRODUCT.format(name="Our egress gateway", attachment="all its outbound traffic") in out
     assert "It will not run" not in out and out.index(cli.PLAN_SUBNET[:30]) < out.index("- times each path")
+    # the kit fires nothing through a gateway, so its last line says only that it removes what it made
+    assert out.rstrip().endswith(cli.PLAN_REMOVES) and "removes the stop it fired" not in out
+
+
+def test_a_plan_of_a_stop_the_kit_fires_still_says_it_removes_that_stop(capsys):
+    cli.main(["aws", "plan", "--inline-deny", "--region", "eu-central-1", "--run", "r0123abcd"])
+    out = capsys.readouterr().out
+    assert out.rstrip().endswith("- then removes the stop it fired and everything it made, and names anything left.")
+    assert cli.PLAN_REMOVES not in out
 
 
 def test_a_run_through_a_gateway_warns_strongly_asks_the_runs_name_then_your_mark(tmp_path, monkeypatch, capsys):
@@ -252,8 +261,12 @@ def test_a_run_through_a_gateway_warns_strongly_asks_the_runs_name_then_your_mar
     assert written["stop"]["product"] == {"kind": "gateway", "attachment": "its calls to a model",
                                           "name": "Model gateway"}
     assert {v["outcome"] for v in written["repeats"][0].values()} == {"stopped"}
-    assert "secret" not in out and all(b"secret" not in f.read_bytes() for f in tmp_path.iterdir())
+    assert all(s not in out for s in ("secret", "token"))
+    assert all(b"secret" not in f.read_bytes() and b"token" not in f.read_bytes() for f in tmp_path.iterdir())
     assert all(p["via"] == VIA for p in aws.payloads)            # the agent signs in to the gateway as given
+    # what was sent to Arvaken, through a gateway: the two calls, from the gateway's address, which is the customer's
+    assert cli.WROTE_THROUGH_A_GATEWAY.format(out="stop-test-r0123abcd.json") in out
+    assert "Nothing about your account was sent to Arvaken" not in out
 
 
 def test_a_run_through_a_gateway_goes_on_only_when_you_type_the_runs_name(monkeypatch, capsys):

@@ -11,7 +11,7 @@ your gateway, named by how it is attached and by its name. The plan says that th
 and, with `--subnet`, that its network interfaces are made in your subnet; the kit warns, in stronger words than for
 your own trigger, that your gateway's switch may stop every agent behind it, and goes on only when you type the run's
 name. It then asks you to press Enter, then fire your stop, and times each path from that mark. The gateway's address is
-never printed back with a user name or password in it, and the result keeps it without them (D595).
+printed and kept as its scheme, host and port alone: never with a user name, password, path or query (D595).
 """
 from __future__ import annotations
 
@@ -77,6 +77,16 @@ PLAN_VIA = ("- sends every call the test agent makes through your gateway at {vi
 # CUSTOMER TEXT: for the founder's approval (D561)
 PLAN_CA = ("- uses your certificate bundle {file} for the calls through your gateway alone; it is never written into "
            "the result;")
+# Through a gateway the kit fires nothing: its plan's last line, and what it says once it has written the result.
+# Arvaken's test address sees the key's and the open internet's calls come from the gateway's own address, which is the
+# customer's.
+# CUSTOMER TEXT: for the founder's approval (D561)
+PLAN_REMOVES = "- then removes everything it made, and names anything left."
+# CUSTOMER TEXT: for the founder's approval (D561)
+WROTE_THROUGH_A_GATEWAY = (
+    "Wrote {out}, its page and its details. Nothing was sent to Arvaken but the test agent's two calls to Arvaken's "
+    "test address, one with the run's key and one with nothing. They reached it from the address your gateway's "
+    "traffic leaves from, which is yours.")
 # CUSTOMER TEXT: for the founder's approval (D561)
 PLAN_PRODUCT = ("- your stop is your gateway, {name}, attached to {attachment}: you fire it yourself. The kit asks you "
                 "to press Enter, then fire your stop, and times each path from that mark;")
@@ -132,8 +142,8 @@ def _plan(args, run_name: str) -> str:
     if args.via and args.subnet:
         gateway.append(PLAN_SUBNET.format(subnet=args.subnet, groups=", ".join(args.security_group),
                                           minutes=int(ENI_WAIT // 60)))
-    if args.via:            # the address as the result keeps it: never with a user name or password
-        gateway.append(PLAN_VIA.format(via=result.without_credentials(args.via)))
+    if args.via:            # the address as the result keeps it: its scheme, host and port alone
+        gateway.append(PLAN_VIA.format(via=result.gateway_address(args.via)))
     if args.via and args.ca_bundle:
         gateway.append(PLAN_CA.format(file=args.ca_bundle.name))
     lines = [f"Run {run_name} in {args.region}:",
@@ -150,6 +160,7 @@ def _plan(args, run_name: str) -> str:
               f"- attaches your stop, {args.stop}, to the test agent's role alone;"),
              f"- times each path for {int(args.window)} seconds after firing, {args.repeats} time(s);",
              f"- invokes the test agent about {calls_for(args.window, args.repeats)} times;",
+             PLAN_REMOVES if args.via else
              "- then removes the stop it fired and everything it made, and names anything left."]
     if reason:
         lines.append(f"It will not run: {reason}.")
@@ -389,7 +400,8 @@ def main(argv: list[str] | None = None) -> int:
     write(Path(f"stop-test-{run_name}.html"), report.page(doc, [d for _, d in running.results(r)],
                                                           network=running.network(r) if r.subnet else None))
     write(Path(f"stop-test-{run_name}-details.json"), json.dumps(running.details(r, doc), indent=1))
-    print(f"Wrote {out}, its page and its details. Nothing about your account was sent to Arvaken.")
+    print(WROTE_THROUGH_A_GATEWAY.format(out=out) if args.via else
+          f"Wrote {out}, its page and its details. Nothing about your account was sent to Arvaken.")
     print(f"Your result's reference: {result.reference(doc)}. It's the SHA-256 of the result's signature.")
     return 0
 

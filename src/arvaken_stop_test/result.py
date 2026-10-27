@@ -10,16 +10,17 @@ after it, when one was first refused, and the outcome; and the signature, with t
 4.2 names what identifies and is sealed when submitted: here, the stop's and the test agent's identifiers and the names
 of anything left. `check` refuses any other field, so the format cannot grow past the terms without both changing.
 
-**Version 2 (D561, section 5)** adds, for a declared stop that is a product's control: the product's kind and how it is
-attached, kept in clear as kinds of stop are; and the product's name and the gateway's address, which identify and are
-sealed when submitted. It says where each path's timing starts (`run.timing_from`: through a gateway, the customer's
-mark, so a time errs toward slower, never faster), and for each path whether it failed before the stop (a path that did
-not work through the gateway before the stop reads "not measured", never "stopped"). The terms' 4.4 and 4.2 name none of
-these yet: they are for the legal track's reading (the design's section 8) before a release.
+**Version 2 (D561, section 5; the kit's terms v2, D595)** adds exactly what those terms add, for a declared stop that
+is a product's control: the product's kind and how it is attached, kept in clear as kinds of stop are; and the
+product's name and the gateway's address, which identify and are sealed when submitted. Nothing else: where the timing
+starts follows from the stop (a product's control is always timed from the customer's mark, so a time errs toward
+slower, never faster), and a path that did not work through the gateway before the stop is its outcome, "not measured"
+(never "stopped"), which only a product's control gives.
 
-**A gateway's address is written without any user name or password** (the founder, D595: "Until 3.4's sentence ships,
-the kit strips any username or password from a gateway's address before it is sealed."), and `check` refuses one that
-has them.
+**A gateway's address is written as its scheme, host and port alone** (port as given, or none): any user name,
+password, path, query and fragment are dropped before it is written or printed (the founder, D595, and the legal
+track's suggestion, adopted: the terms' 3.4, "It carries no password: the kit keeps a gateway's address without any
+user name or password in it."). `check` refuses an address with anything more.
 
 **What the signature proves:** that the file has not changed since it was signed. Not that the kit wrote it, who ran
 it, or that the run was honest (the terms' 3.3; the founder's README wording, 24 October 2026).
@@ -57,15 +58,7 @@ PRODUCTS: dict[str, tuple[str, ...]] = {
     "host software": ("on its host",),
 }
 NAME_LIMIT = 200                # the product's name, in the customer's own words, kept as text (D561, section 1)
-
-# Where each path's timing starts, by how the stop was fired.
-# CUSTOMER TEXT: for the founder's approval (D561)
-FROM_THE_KITS_CALL = "the kit's firing call"
-# CUSTOMER TEXT: for the founder's approval (D561)
-FROM_THE_CHANGE_SEEN = "the change the kit saw"
-# CUSTOMER TEXT: for the founder's approval (D561)
-FROM_YOUR_MARK = "your mark"
-TIMING_FROM = (FROM_THE_KITS_CALL, FROM_THE_CHANGE_SEEN, FROM_YOUR_MARK)
+SCHEMES = ("http", "https")     # a gateway's address: an HTTPS proxy's, reached over either
 
 # Every field, by where it sits, and whether it identifies (sealed when submitted) or stays readable: version 1, as the
 # kit wrote it to 0.2.1, and version 2.
@@ -82,10 +75,9 @@ SHAPE_V1: dict[str, tuple[str, ...]] = {
 IDENTIFYING_V1 = ("stop.ref", "agent.ref", "agent.role_ref", "run.left_behind")
 SHAPE: dict[str, tuple[str, ...]] = {
     **SHAPE_V1,
-    "run": (*SHAPE_V1["run"], "via", "timing_from"),
+    "run": (*SHAPE_V1["run"], "via"),                   # the gateway's address, or null
     "stop": (*SHAPE_V1["stop"], "product"),
     "stop.product": ("kind", "attachment", "name"),     # or null, where the stop is not a product's control
-    "repeat.path": (*SHAPE_V1["repeat.path"], "failed_before_stop"),
 }
 IDENTIFYING = (*IDENTIFYING_V1, "stop.product.name", "run.via")
 SHAPES = {FORMAT_V1: SHAPE_V1, FORMAT: SHAPE}
@@ -96,10 +88,8 @@ REFUSALS = {
     "product": "the stop's product is a kind and attachment the format names, with a name of 1 to 200 characters",
     "product_control": ("a stop is a product's control exactly where it names a product, and is fired by your own "
                         "trigger"),
-    "via": "a gateway's address is given only for a gateway, as text, with no user name or password",
-    "timing_from": "where the timing starts is said, and is the one that goes with how the stop was fired",
-    "before_stop": ("a path that failed before the stop is not run, or through a product not measured, and only such "
-                    "a path is"),
+    "via": "a gateway's address is given only for a gateway, as its scheme, host and port alone",
+    "not_measured": "a path is not measured only through a product's control",
 }
 
 
@@ -115,21 +105,24 @@ def iso(t: float | None) -> str | None:
     return datetime.fromtimestamp(t, tz=timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def without_credentials(address: str) -> str:
-    """A gateway's address with any user name and password taken out (D595): what is before the last "@" of its
-    authority goes, and nothing else changes. `https://user:pass@gw.example:8443` is `https://gw.example:8443`."""
+def gateway_address(address: str) -> str:
+    """A gateway's address as the kit keeps it: its scheme, host and port alone, the port as given, or none (D595).
+    Any user name and password (what is before the last "@" of its authority), path, query and fragment are dropped.
+    `https://user:pass@gw.example:8443/p?token=x#f` is `https://gw.example:8443`."""
     parts = urllib.parse.urlsplit(address)
-    return urllib.parse.urlunsplit(parts._replace(netloc=parts.netloc.rpartition("@")[2]))
+    return f"{parts.scheme}://{parts.netloc.rpartition('@')[2]}"
 
 
-def has_credentials(address: str) -> bool:
-    return "@" in urllib.parse.urlsplit(address).netloc
-
-
-def timing_from(fired_by: str, product: Mapping[str, Any] | None) -> str:
-    """Where each path's timing starts: a product's control is fired by the customer after their mark; else the kit's
-    own call, or the change the kit saw of the customer's own trigger."""
-    return FROM_YOUR_MARK if product else FROM_THE_KITS_CALL if fired_by == "the kit" else FROM_THE_CHANGE_SEEN
+def is_gateway_address(address: Any) -> bool:
+    """Whether this is an address as the kit keeps one: http or https, a host, and nothing beyond its port."""
+    if not isinstance(address, str):
+        return False
+    try:
+        parts = urllib.parse.urlsplit(address)
+        return parts.scheme in SCHEMES and bool(parts.hostname) and gateway_address(address) == address and \
+            (parts.port or 1) > 0
+    except ValueError:
+        return False
 
 
 def path_part(r: PathResult, fired_at: float | None) -> dict[str, Any]:
@@ -137,8 +130,7 @@ def path_part(r: PathResult, fired_at: float | None) -> dict[str, Any]:
     repeat's."""
     return {"fired_at": iso(r.fired_at if r.fired_at is not None else fired_at),
             "last_success_after": iso(r.last_success_after),
-            "first_refused_after": iso(r.first_failure_after), "outcome": r.outcome,
-            "failed_before_stop": bool(r.failed_before_stop)}
+            "first_refused_after": iso(r.first_failure_after), "outcome": r.outcome}
 
 
 def build(*, kit_version: str, cloud: str, region: str, began_at: float, ended_at: float, window: float,
@@ -146,13 +138,13 @@ def build(*, kit_version: str, cloud: str, region: str, began_at: float, ended_a
           agent: Mapping[str, Any], repeats: list[tuple[float | None, Mapping[str, PathResult]]],
           product: Mapping[str, Any] | None = None, via: str | None = None) -> dict[str, Any]:
     """The unsigned result. `repeats` is each repeat's firing moment and each path's result, in the paths' order. A
-    gateway's address is written without any user name or password."""
+    gateway's address is written as its scheme, host and port alone."""
     return {
         "format": FORMAT, "kit": {"version": kit_version}, "cloud": cloud, "region": region,
         "run": {"began_at": iso(began_at), "ended_at": iso(ended_at), "window_seconds": int(window),
                 "repeats": len(repeats), "clock_gap_ms": int(clock_gap_ms), "calls": int(calls),
                 "left_anything": bool(left_behind), "left_behind": sorted(left_behind),
-                "via": without_credentials(via) if via else None, "timing_from": timing_from(fired_by, product)},
+                "via": gateway_address(via) if via else None},
         "stop": {"kind": stop_kind, "fired_by": fired_by, "ref": stop_ref,
                  "product": {k: product[k] for k in SHAPE["stop.product"]} if product else None},
         "agent": {k: agent[k] for k in SHAPE["agent"]},
@@ -193,8 +185,8 @@ def _exactly(d: Any, where: str, shape: Mapping[str, tuple[str, ...]] = SHAPE) -
 
 
 def _check_v2(doc: dict[str, Any]) -> None:
-    """What version 2 adds, each part consistent with the rest: the product, the gateway's address, where the timing
-    starts, and each path that failed before the stop."""
+    """What version 2 adds, each part consistent with the rest: the product, the gateway's address, and the outcome
+    only a product's control gives."""
     stop, run = doc["stop"], doc["run"]
     product = stop["product"]
     if product is not None:
@@ -207,18 +199,11 @@ def _check_v2(doc: dict[str, Any]) -> None:
             (product is not None and stop["fired_by"] != "your own trigger"):
         raise NotAResult(REFUSALS["product_control"])
     via = run["via"]
-    if via is not None and (not isinstance(via, str) or product is None or product["kind"] != GATEWAY
-                            or has_credentials(via)):
+    if via is not None and (product is None or product["kind"] != GATEWAY or not is_gateway_address(via)):
         raise NotAResult(REFUSALS["via"])
-    if run["timing_from"] != timing_from(stop["fired_by"], product):
-        raise NotAResult(REFUSALS["timing_from"])
-    untried = NOT_MEASURED if product is not None else NOT_RUN
-    for repeat in doc["repeats"]:
-        for part in repeat.values():
-            failed = part["failed_before_stop"]
-            if not isinstance(failed, bool) or (failed and part["outcome"] != untried) or \
-                    (part["outcome"] == NOT_MEASURED and not failed):
-                raise NotAResult(REFUSALS["before_stop"])
+    outcomes = {part["outcome"] for repeat in doc["repeats"] for part in repeat.values()}
+    if product is None and NOT_MEASURED in outcomes:
+        raise NotAResult(REFUSALS["not_measured"])
 
 
 def check(doc: Any) -> dict[str, Any]:

@@ -17,7 +17,7 @@ from arvaken_stop_test.aws import run as running
 from arvaken_stop_test.timing import PATH_WORDS
 from test_aws_run import STOP, Clock, FakeAWS, a_run
 
-VIA = "https://user:pass@gw.example:8443"
+VIA = "https://user:pass@gw.example:8443/p?token=x#f"      # as the customer gives it
 PEM = "-----BEGIN CERTIFICATE-----\nMIIBgateway\n-----END CERTIFICATE-----\n"
 GATEWAY = {"kind": "gateway", "attachment": "all its outbound traffic", "name": "Our egress gateway"}
 SUBNET, GROUPS = "subnet-0abc1234", ("sg-0abc1234",)
@@ -48,9 +48,8 @@ def test_through_a_gateway_each_path_is_timed_from_your_mark_and_the_result_says
     r, doc, marks = through(aws, clock, said=said)
     assert result.check(doc) == doc and doc["format"] == "stop-test-result/2"
     assert doc["stop"] == {"kind": "a product's control", "fired_by": "your own trigger", "ref": "", "product": GATEWAY}
-    assert (doc["run"]["via"], doc["run"]["timing_from"]) == ("https://gw.example:8443", "your mark")
-    assert {p: (v["outcome"], v["failed_before_stop"]) for p, v in doc["repeats"][0].items()} == {
-        p: ("stopped", False) for p in running.AWS_PATHS}
+    assert doc["run"]["via"] == "https://gw.example:8443"           # its scheme, host and port alone
+    assert {p: v["outcome"] for p, v in doc["repeats"][0].items()} == {p: "stopped" for p in running.AWS_PATHS}
     # asked once, after the warm-up; the timing starts at the Enter, moved onto the agent's clock
     ((marked, invoked),) = marks
     assert invoked >= running.WARM_UP + 1
@@ -78,10 +77,17 @@ def test_the_gateway_and_the_bundle_go_with_each_invocation_and_are_written_nowh
     assert details["gateway"] == {"via": "https://gw.example:8443", "product": GATEWAY}
     page = report.page(doc, [d for _, d in running.results(r)])
     for written in (json.dumps(doc), json.dumps(details), page, repr(r)):
-        assert "user:pass" not in written and "pass@" not in written and "BEGIN CERTIFICATE" not in written
+        assert all(s not in written for s in ("user:pass", "pass@", "token", "/p?", "BEGIN CERTIFICATE"))
     assert report.GATEWAY_NOTE.format(name=GATEWAY["name"], attachment=GATEWAY["attachment"],
                                       via="https://gw.example:8443") in page
-    assert report.MARK_NOTE in page and report.GATEWAY_HEADING in page
+    assert report.MARK_NOTE in page and report.GATEWAY_HEADING in page        # read from the stop's kind
+
+
+def test_a_cloud_stops_page_says_nothing_of_a_gateway_or_a_mark():
+    clock = Clock()
+    r, doc = a_run(FakeAWS(clock), clock)
+    page = report.page(doc, [d for _, d in running.results(r)])
+    assert report.MARK_NOTE not in page and report.GATEWAY_HEADING not in page and report.EXPECTED_HEADING in page
 
 
 def test_the_products_name_is_shown_as_text_never_as_markup():
@@ -100,9 +106,9 @@ def test_a_path_that_fails_through_the_gateway_before_the_stop_is_not_measured_n
     clock, said = Clock(), []
     aws = FakeAWS(clock, gateway_refuses=("outside_key", "another_identity"), gateway_breaks={"open_internet": 6})
     r, doc, marks = through(aws, clock, said=said)
-    assert {p: (v["outcome"], v["failed_before_stop"]) for p, v in doc["repeats"][0].items()} == {
-        "own_calls": ("stopped", False), "another_identity": ("not measured", True),
-        "outside_key": ("not measured", True), "open_internet": ("not measured", True)}
+    assert {p: v["outcome"] for p, v in doc["repeats"][0].items()} == {
+        "own_calls": "stopped", "another_identity": "not measured", "outside_key": "not measured",
+        "open_internet": "not measured"}
     assert len(marks) == 1 and result.check(doc)
     assert all(not b.ok for b in r.repeats[0].beats["open_internet"])       # failing after the mark, never "stopped"
     assert said == [running.NOT_THROUGH_THE_GATEWAY.format(path=PATH_WORDS[p], codes=codes) for p, codes in (
@@ -118,7 +124,7 @@ def test_where_no_path_works_through_the_gateway_no_mark_is_asked_and_nothing_is
     aws = FakeAWS(clock, gateway_refuses=running.AWS_PATHS)
     r, doc, marks = through(aws, clock, said=said)
     assert marks == [] and said[-1] == running.NOTHING_THROUGH_THE_GATEWAY
-    assert {(v["outcome"], v["failed_before_stop"]) for v in doc["repeats"][0].values()} == {("not measured", True)}
+    assert {v["outcome"] for v in doc["repeats"][0].values()} == {"not measured"}
     assert result.check(doc) and doc["run"]["repeats"] == 1 and aws.stack["status"] == "DELETED"
 
 
