@@ -13,10 +13,29 @@ The paths (the design's section 4; D532, K3):
   as an agent holds a key for a service outside the cloud.
 - open_internet: fetches Arvaken's test endpoint with no key.
 
+**Through a gateway (the kit's `--via`; D561, section 5).** Where the kit's invocation names a gateway (`via`), every
+call the agent makes goes through it as an HTTPS proxy: its own calls to AWS, its work under the other identity (the
+session's own calls, which the agent makes itself; the design's section 3 judges them as its own calls), the session
+taken for it, its call with a key and its open-internet call. The last two still go to Arvaken's test endpoint, never to
+a real third party's service. Where the invocation carries the customer's certificate bundle (`ca`, for a gateway that
+inspects TLS and presents its own certificate), the agent trusts it beside the default ones for those calls alone, and
+for the gateway's own certificate where its address is https. The gateway and the bundle come with each invocation, as
+the session does, and are never in the function's code or environment, so neither is in the stack's template; an
+address with a user name and password is used as given, to sign in to the gateway. The calls to the endpoint through a
+gateway are made with botocore's own HTTP session, which speaks to an https gateway as boto3's clients do; without a
+gateway, with the standard library, as before.
+
+The agent names itself (AGENT), as Cloudflare in front of Arvaken's endpoint refuses Python's default user agent (403,
+its error 1010). Asked to "assume", before the stop, it assumes the second role and hands the session to the kit, which
+passes it back each time. `_gateway` gives the proxy settings and the bundle to verify with, where the kit names a
+gateway; else none.
+
 This file is shipped as the function's code, so it uses only what Lambda's Python runtime has: the standard library
-and boto3.
+and boto3 (with botocore). CloudFormation takes a function's inline code to 4096 characters (stack.py): what explains
+it is here, in the docstring, which is not shipped.
 """
 import os
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -24,11 +43,13 @@ import urllib.request
 import boto3
 import botocore.config
 import botocore.exceptions
+from botocore.awsrequest import AWSRequest
+from botocore.httpsession import URLLib3Session, get_cert_path
 
 CONFIG = botocore.config.Config(connect_timeout=2, read_timeout=2, retries={"max_attempts": 1})
 TIMEOUT = 2.0
-# Named, as Cloudflare in front of Arvaken's endpoint refuses Python's default (403, its error 1010).
-AGENT = "arvaken-stop-test-agent (+https://github.com/arvaken/stop-test)"
+AGENT ="arvaken-stop-test-agent (+https://github.com/arvaken/stop-test)"
+CA = os.path.join(tempfile.gettempdir(), "arvaken-stop-test-ca.pem")
 
 
 def _code(e):
@@ -51,22 +72,46 @@ def _try(fn):
         return {"at": at, "ok": False, "error": _code(e)}
 
 
-def _get(url, headers):
-    request = urllib.request.Request(url, headers={"User-Agent": AGENT, **headers}, method="GET")
+def _gateway(event):
+    via, ca = event.get("via"), None
+    if not via:
+        return {}, None
+    if event.get("ca"):
+        with open(get_cert_path(True)) as f, open(CA, "w") as out:
+            out.write(f.read() + "\n" + event["ca"])
+        ca = CA
+    return {"proxies": {"http": via, "https": via}, "proxies_config": {"proxy_ca_bundle": ca} if ca else None}, ca
+
+
+def _client(name, gw, **kw):
+    proxies, ca = gw
+    return boto3.client(name, config=CONFIG.merge(botocore.config.Config(**proxies)), verify=ca, **kw)
+
+
+def _get(url, headers, gw=({}, None)):
+    proxies, ca = gw
+    headers = {"User-Agent": AGENT, **headers}
+    if proxies:
+        session = URLLib3Session(verify=ca or True, timeout=TIMEOUT, **proxies)
+        answer = session.send(AWSRequest("GET", url, headers=headers).prepare())
+        if answer.status_code >= 400:
+            raise urllib.error.HTTPError(url, answer.status_code, "", None, None)
+        return
+    request = urllib.request.Request(url, headers=headers, method="GET")
     with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
         response.read(64)
 
 
 def handler(event, context):
     bucket, endpoint = os.environ["BUCKET"], os.environ["ENDPOINT"].rstrip("/")
+    gw = _gateway(event)
     if event.get("action") == "assume":
-        # Before the stop: assume the second role, and hand the session to the kit, which passes it back each time.
-        sts = boto3.client("sts", config=CONFIG)
+        sts = _client("sts", gw)
         c = sts.assume_role(RoleArn=os.environ["SECOND_ROLE"], RoleSessionName="arvaken-stop-test",
                             DurationSeconds=3600)["Credentials"]
         return {"at": time.time(), "session": {"key": c["AccessKeyId"], "secret": c["SecretAccessKey"],
                                                "token": c["SessionToken"], "expires": c["Expiration"].timestamp()}}
-    s3 = boto3.client("s3", config=CONFIG)
+    s3 = _client("s3", gw)
     n = str(event.get("n", 0))
 
     def own_calls():
@@ -77,15 +122,15 @@ def handler(event, context):
         session = event.get("session")
         if not session:
             raise RuntimeError("NoSession")
-        other = boto3.client("s3", config=CONFIG, aws_access_key_id=session["key"],
-                             aws_secret_access_key=session["secret"], aws_session_token=session["token"])
+        other = _client("s3", gw, aws_access_key_id=session["key"], aws_secret_access_key=session["secret"],
+                        aws_session_token=session["token"])
         other.put_object(Bucket=bucket, Key=f"another/{n}", Body=b"x")
 
     def outside_key():
-        _get(f"{endpoint}/key", {"Authorization": "Bearer " + os.environ["OUTSIDE_KEY"]})
+        _get(f"{endpoint}/key", {"Authorization": "Bearer " + os.environ["OUTSIDE_KEY"]}, gw)
 
     def open_internet():
-        _get(f"{endpoint}/open", {})
+        _get(f"{endpoint}/open", {}, gw)
 
     beats = {"own_calls": _try(own_calls), "another_identity": _try(another_identity),
              "outside_key": _try(outside_key), "open_internet": _try(open_internet)}
