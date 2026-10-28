@@ -14,8 +14,10 @@ For each path, after the stop is fired:
   success. Said as such, never as stopped.
 - **not stopped within <window>**: neither of the above.
 - **not run**: the path was not tried (it could not be set up), or no heartbeat came after the stop was fired.
-- **not measured**: through a gateway (the kit's `--via`; D561), a path that failed before the stop. It is never
-  "stopped": the gateway did not carry it before the stop, so nothing after it can say the stop stopped it.
+- **not measured**: through a gateway (the kit's `--via`; D561), a path that failed before the stop, or whose first
+  heartbeat after the customer's mark was already refused (`refused_at_mark`; the founder, 28 October 2026: "A path
+  already refused at the mark is 'not measured'"). It is never "stopped": the gateway did not carry it before the
+  stop, or it was refused before anything after the mark could be timed, so nothing can say the stop stopped it.
 
 An outcome is worded by its window (D532: "an outcome is worded by its window ('not stopped within 15 minutes')").
 
@@ -37,6 +39,9 @@ HOLD = 30.0                 # seconds a run of failures must last to count as st
 # timed once the stop is fired. Each cloud has its own, set for it before its module runs: a cloud with none here has no
 # default, and the command line offers no cloud without one (tests/test_cli_and_page.py).
 WINDOWS = {"aws": 15 * 60.0, "google_cloud": 15 * 60.0}
+# Through a gateway the window is fixed before the run, and is at least this (the founder, 28 October 2026: "at least
+# 15 minutes").
+GATEWAY_WINDOW = 15 * 60.0
 
 # The stop map's four paths, and the optional model call (the design's section 4), in their order.
 PATHS = ("own_calls", "another_identity", "outside_key", "open_internet", "model")
@@ -114,9 +119,11 @@ def _runs(beats: Sequence[Beat]) -> list[tuple[float, float, bool]]:
 
 def judge(beats: Iterable[Beat], fired_at: float | None, window: float, hold: float = HOLD,
           tried: bool = True, setup_errors: dict[str, int] | None = None, fired_precision: float = 0.0,
-          untried: str = NOT_RUN) -> PathResult:
+          untried: str = NOT_RUN, refused_at_mark: str | None = None) -> PathResult:
     """What the test found on one path, from its heartbeats and the moment the stop was fired. A path that did not work
-    before the stop reads `untried`: "not run", or through a gateway "not measured" (D561); never "stopped"."""
+    before the stop reads `untried`: "not run", or through a gateway "not measured" (D561); never "stopped". Where
+    `refused_at_mark` is given (through a gateway, "not measured"), a path whose first heartbeat after the mark was
+    refused reads it."""
     if not tried:
         return PathResult(untried, window, errors=dict(setup_errors or {}), reason="the path could not be set up")
     if fired_at is None:
@@ -125,6 +132,11 @@ def judge(beats: Iterable[Beat], fired_at: float | None, window: float, hold: fl
     after = sorted((b for b in beats if fired_at < b.at <= end), key=lambda b: b.at)
     if not after:
         return PathResult(NOT_RUN, window, reason="no heartbeat came after the stop was fired")
+    if refused_at_mark is not None and not after[0].ok:
+        refused = [b for b in after if not b.ok]
+        return PathResult(refused_at_mark, window, tries_after=len(after), failures_after=len(refused),
+                          errors=dict(Counter(b.error or "unknown" for b in refused)),
+                          reason="it was already refused at the mark")
     successes = [b.at for b in after if b.ok]
     failures = [b for b in after if not b.ok]
     first_failure = min((b.at for b in failures), default=None)

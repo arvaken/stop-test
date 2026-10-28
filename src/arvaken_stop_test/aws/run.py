@@ -17,8 +17,13 @@ in the cloud, so the customer fires it themselves, from a mark: the kit asks the
 and each path is timed from that Enter, so a time errs toward slower, never faster. Each invocation carries the
 gateway's address and the customer's certificate bundle for the agent's calls through it (agent.py); neither is written
 into the stack, the result or the details as given, and the result keeps the address as its scheme, host and port alone
-(result.py; D595). Before the stop, each path must work through the gateway: one whose last try in the warm-up did not
-reads "not measured", never "stopped". Where none works, there is nothing to time, and the kit asks for no mark.
+(result.py; D595). Only the calls the declared attachment covers go through the gateway (Run.through,
+result.GATEWAY_ROUTES); the others go directly, as the customer's agents' would, and are timed from the same mark. An
+attachment that covers none of the run's calls is refused before anything is made, and so is a window under
+timing.GATEWAY_WINDOW. Before the stop, each path whose calls go through the gateway must work through it: one whose
+last try in the warm-up did not reads "not measured", never "stopped"; a path going directly that did not reads "not
+run", as in any run. A path whose first heartbeat after the mark was already refused reads "not measured" too. Where no
+path through the gateway works, there is nothing to time, and the kit asks for no mark.
 
 **In a subnet of the customer's (`--subnet`, `--security-group`).** Lambda makes the function's network interfaces
 there, which the kit finds after the stack is made: those in the subnet whose description names the run's function, and
@@ -40,7 +45,8 @@ from typing import Any
 from arvaken_stop_test import __version__, result
 from arvaken_stop_test.aws import fire as firing
 from arvaken_stop_test.aws.stack import MEMORY_MB, RUNTIME, TAG, names, template_body
-from arvaken_stop_test.timing import HOLD, NOT_MEASURED, NOT_RUN, PATH_WORDS, WINDOWS, Beat, PathResult, judge
+from arvaken_stop_test.timing import (GATEWAY_WINDOW, HOLD, NOT_MEASURED, NOT_RUN, PATH_WORDS, WINDOWS, Beat,
+                                      PathResult, judge)
 
 AWS_PATHS = ("own_calls", "another_identity", "outside_key", "open_internet")
 WARM_UP = 10                 # heartbeats before the first firing
@@ -64,6 +70,13 @@ NOTHING_THROUGH_THE_GATEWAY = ("No path worked through your gateway before the s
                                "Don't fire your stop: the kit is removing what it made.")
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 NOT_MEASURED_REASON = "it did not work through your gateway before the stop"
+# CUSTOMER TEXT (the founder's condition b, 28 October 2026): not yet approved
+ALREADY_REFUSED_REASON = "it was already refused at your mark"
+# CUSTOMER TEXT (the founder's conditions a and c, 28 October 2026): not yet approved
+NOT_COVERED_BY_THE_ATTACHMENT = ("Your gateway, as you said it is attached ({attachment}), covers none of the test "
+                                 "agent's calls in this run, so there is nothing of it to time.")
+# CUSTOMER TEXT (the founder's conditions a and c, 28 October 2026): not yet approved
+GATEWAY_WINDOW_TOO_SHORT = "Through your gateway the kit times each path for at least 15 minutes after your mark."
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 FROM_THE_MARK = "your mark, the moment you pressed Enter, on the kit's clock moved onto the agent's"
 # What the teardown says of the function's network interfaces in a subnet of yours.
@@ -151,9 +164,18 @@ class Run:
         return result.PRODUCT_CONTROL if self.product else firing.kind_of(self.stop_ref)
 
     @property
-    def gateway(self) -> dict[str, str]:
-        """What each invocation carries for the agent's calls through the gateway; nothing without one."""
-        return {"via": self.via, **({"ca": self.ca} if self.ca else {})} if self.via else {}
+    def through(self) -> set[str]:
+        """The paths whose calls go through the gateway: those its declared attachment covers; none without one."""
+        if not (self.via and self.product):
+            return set()
+        return set(result.GATEWAY_ROUTES[self.product["attachment"]]) & set(AWS_PATHS)
+
+    @property
+    def gateway(self) -> dict[str, Any]:
+        """What each invocation carries for the agent's calls through the gateway: its address, the bundle, and which
+        paths' calls go through it; nothing without one."""
+        return {"via": self.via, **({"ca": self.ca} if self.ca else {}), "through": sorted(self.through)} \
+            if self.via else {}
 
 
 def _wait_for_stack(cf: Any, stack: str, clock: Clock, want: str, limit: float = 900.0) -> dict | None:
@@ -297,6 +319,14 @@ def _codes(r: Run, p: str) -> str:
     return ", ".join(f"{code} {k}" for code, k in sorted(r.setup_errors.get(p, {}).items())) or "no answer"
 
 
+def _did_not_work(r: Run, p: str) -> str:
+    """What the kit says of a path that did not work before the stop: through the gateway, that it will be not
+    measured; else, as in any run, not run."""
+    if p in r.through:
+        return NOT_THROUGH_THE_GATEWAY.format(path=PATH_WORDS[p], codes=_codes(r, p))
+    return f"Before the stop, {PATH_WORDS[p]} did not work ({_codes(r, p)}): it will be reported as not run."
+
+
 def time_one(c: Clients, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
              mark: Callable[[], object] | None = None, say: Callable[[str], None] = lambda _: None) -> Repeat:
     """One repeat: fire (or wait for the customer's own trigger, or their mark), then a heartbeat a second through the
@@ -308,8 +338,7 @@ def time_one(c: Clients, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
         if "another_identity" in r.working:
             r.working.discard("another_identity")
             r.setup_errors.setdefault("another_identity", {})["NoSession"] = 1
-            say(NOT_THROUGH_THE_GATEWAY.format(path=PATH_WORDS["another_identity"],
-                                               codes=_codes(r, "another_identity")))
+            say(_did_not_work(r, "another_identity"))
         session = {}
     rep.session_expires = session.get("expires")
     n = n0
@@ -562,9 +591,10 @@ def _moment(rep: Repeat, p: str) -> tuple[float | None, float]:
 def _one(r: Run, rep: Repeat, p: str) -> PathResult:
     at, precision = _moment(rep, p)
     found = judge(rep.beats.get(p, []), at, window=r.window, tried=p in r.working, setup_errors=r.setup_errors.get(p),
-                  fired_precision=precision, untried=NOT_MEASURED if r.via else NOT_RUN)
+                  fired_precision=precision, untried=NOT_MEASURED if p in r.through else NOT_RUN,
+                  refused_at_mark=NOT_MEASURED if r.via else None)
     if found.outcome == NOT_MEASURED:
-        found = replace(found, reason=NOT_MEASURED_REASON)
+        found = replace(found, reason=NOT_MEASURED_REASON if p not in r.working else ALREADY_REFUSED_REASON)
     keeps = rep.session_expires if p == "another_identity" and found.outcome == "not stopped" else None
     source = (FROM_THE_MARK if r.via else _source(precision)) if at is not None else None
     return replace(found, fired_source=source, keeps_working_until=keeps, fired_at=at)
@@ -659,6 +689,10 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", 
             raise ValueError("through a gateway the declared stop is a gateway, by its attachment and its name")
         if mark is None:
             raise ValueError("through a gateway each path is timed from your mark")
+        if window < GATEWAY_WINDOW:
+            raise ValueError(GATEWAY_WINDOW_TOO_SHORT)
+        if not set(result.GATEWAY_ROUTES[product["attachment"]]) & set(AWS_PATHS):
+            raise ValueError(NOT_COVERED_BY_THE_ATTACHMENT.format(attachment=product["attachment"]))
     if (subnet or security_groups) and not (via and subnet and security_groups):
         raise ValueError("a subnet of yours, with its security groups, is where your gateway is reached: with via")
     if fired_by == "the kit":
@@ -686,10 +720,9 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", 
         warm_up(c, r, first or {}, clock)
         for p in AWS_PATHS:
             if p not in r.working:
-                say(NOT_THROUGH_THE_GATEWAY.format(path=PATH_WORDS[p], codes=_codes(r, p)) if via else
-                    f"Before the stop, {PATH_WORDS[p]} did not work ({_codes(r, p)}): it will be reported as not run.")
+                say(_did_not_work(r, p))
         n = 0
-        if via and not r.working:
+        if via and not r.working & r.through:
             say(NOTHING_THROUGH_THE_GATEWAY)        # no mark is asked for: every path reads "not measured"
             r.repeats.append(Repeat())
         for i in range(repeats if not r.repeats else 0):

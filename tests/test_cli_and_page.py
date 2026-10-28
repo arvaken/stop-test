@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from arvaken_stop_test import cli, report, result
 from test_aws_run import Clock, FakeAWS, a_run
 
@@ -248,18 +250,20 @@ def test_a_run_through_a_gateway_warns_strongly_asks_the_runs_name_then_your_mar
                                                                    **kw))
     monkeypatch.setattr(boto, "clients_for", lambda region: clients(aws))
     monkeypatch.chdir(tmp_path)
-    assert cli.main(["aws", "run", "--via", VIA, "--product-attachment", "model", "--product-name", "Model gateway",
-                     "--window", "60s", "--region", "eu-central-1", "--run", "r0123abcd"]) == 0
+    assert cli.main(["aws", "run", *A_GATEWAY, "--region", "eu-central-1", "--run", "r0123abcd"]) == 0
     out = capsys.readouterr().out
     assert prompts == ["Type r0123abcd to go on: ", "Press Enter, then fire your stop."]
+    # the founder's condition d: nothing it printed or wrote holds the address's user name, password, path or query
+    for text in (out, *(f.read_text(encoding="utf-8") for f in tmp_path.iterdir() if f.is_file())):
+        assert all(s not in text for s in ("secret", "user:", "token", "/p?")), text[:200]
     assert fire.GATEWAY_WARNING in out and fire.OWN_TRIGGER_WARNING not in out
     assert "every agent behind it" in fire.GATEWAY_WARNING and fire.GATEWAY_WARNING.endswith(
         "Type the run's name to go on.")
     assert out.index(fire.GATEWAY_WARNING) < out.index(running.MARKED)
     written = json.loads((tmp_path / "stop-test-r0123abcd.json").read_text(encoding="utf-8"))
     assert result.check(written)["run"]["via"] == "https://gw.example:8443"
-    assert written["stop"]["product"] == {"kind": "gateway", "attachment": "its calls to a model",
-                                          "name": "Model gateway"}
+    assert written["stop"]["product"] == {"kind": "gateway", "attachment": "all its outbound traffic",
+                                          "name": "Our egress gateway"}
     assert {v["outcome"] for v in written["repeats"][0].values()} == {"stopped"}
     assert all(s not in out for s in ("secret", "token"))
     assert all(b"secret" not in f.read_bytes() and b"token" not in f.read_bytes() for f in tmp_path.iterdir())
@@ -350,3 +354,28 @@ def test_clean_with_your_subnet_waits_for_the_functions_network_interfaces(monke
     out = capsys.readouterr().out
     assert running.WAITING_FOR_INTERFACES.format(minutes=30, count=1, subnet="subnet-0abc1234") in out
     assert out.rstrip().endswith("Nothing the kit made is left.") and "eni-0aaa1111" not in aws.enis
+
+
+def test_through_a_gateway_the_command_line_refuses_a_short_window_and_an_attachment_with_no_call(capsys):
+    """The founder's conditions a and c (28 October 2026): a window of at least 15 minutes, and no attachment none of
+    whose calls the test agent makes."""
+    for over, said in ((["--window", "14m"], cli.VIA_WINDOW),
+                       (["--product-attachment", "model"], cli.ATTACHMENT_WITHOUT_CALLS)):
+        args = ["aws", "plan", *A_GATEWAY, *over, "--region", "eu-central-1", "--run", "r0123abcd"]
+        with pytest.raises(SystemExit):
+            cli.main(args)
+        assert said in capsys.readouterr().err
+    assert cli.main(["aws", "plan", *A_GATEWAY, "--window", "20m", "--region", "eu-central-1",
+                     "--run", "r0123abcd"]) == 0
+    assert "- times each path for 1200 seconds after firing, 1 time(s);" in capsys.readouterr().out
+
+
+def test_the_plan_through_a_gateway_attached_to_outside_services_names_only_those_calls(capsys):
+    args = ["aws", "plan", "--via", VIA, "--product-attachment", "outside-services", "--product-name", "Egress",
+            "--region", "eu-central-1", "--run", "r0123abcd"]
+    assert cli.main(args) == 0
+    out = capsys.readouterr().out
+    assert cli.PLAN_VIA_SOME.format(via="https://gw.example:8443", calls="its call with a key and its open-internet "
+                                    "call, which still go to Arvaken's test address") in out
+    assert cli.PLAN_VIA.format(via="https://gw.example:8443") not in out
+    assert all(s not in out for s in ("secret", "user:", "token", "/p?"))

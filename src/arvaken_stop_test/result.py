@@ -57,6 +57,15 @@ PRODUCTS: dict[str, tuple[str, ...]] = {
     "in-agent SDK": ("inside its code",),
     "host software": ("on its host",),
 }
+# Which of the test agent's paths each of a gateway's attachments sends through it (the founder's condition a, 28
+# October 2026: "Only calls the declared attachment covers go through --via"): a call to a model; the calls to a
+# service outside the cloud, with a key and with none (Arvaken's test address); or every call. The others go directly,
+# as the customer's agents' would. An attachment that covers none of a run's calls is not taken (cli.py, aws/run.py).
+GATEWAY_ROUTES: dict[str, tuple[str, ...]] = {
+    "its calls to a model": ("model",),
+    "its calls to outside services": ("outside_key", "open_internet"),
+    "all its outbound traffic": PATHS,
+}
 NAME_LIMIT = 200                # the product's name, in the customer's own words, kept as text (D561, section 1)
 SCHEMES = ("http", "https")     # a gateway's address: an HTTPS proxy's, reached over either
 

@@ -12,6 +12,7 @@ from typing import Any
 
 from datetime import datetime, timezone
 
+from arvaken_stop_test.result import GATEWAY_ROUTES
 from arvaken_stop_test.timing import PATH_WORDS, PathResult, worded
 
 
@@ -44,14 +45,21 @@ REVOKE_NOTE = ("Revoking sessions denies the sessions issued before the moment i
 
 
 EXPECTED_HEADING = "A stop on its role would be expected"
-# Through a gateway (--via; D561), every call of the test agent's is sent through it, so its switch would be expected to
-# stop each path; a path that did not work through it before the stop is "not measured".
+# Through a gateway (--via; D561), only the calls its declared attachment covers are sent through it (result.
+# GATEWAY_ROUTES; the founder's condition a, 28 October 2026), so its switch would be expected to stop those paths, and
+# not the others, which go directly; a path that did not work through it before the stop, or was already refused at
+# the mark, is "not measured".
 PRODUCT_KIND = "a product's control"
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 GATEWAY_HEADING = "A stop of your gateway would be expected"
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 GATEWAY_NOTE = ("Your stop: {name}, a gateway attached to {attachment}. Every call the test agent made went through "
                 "your gateway at {via}.")
+# CUSTOMER TEXT (the founder's condition a, 28 October 2026): not yet approved
+GATEWAY_NOTE_SOME = ("Your stop: {name}, a gateway attached to {attachment}. The test agent's calls it covers "
+                     "({paths}) went through your gateway at {via}. Its other calls went directly.")
+# CUSTOMER TEXT (the founder's condition b, 28 October 2026): not yet approved
+ALREADY_REFUSED_NOTE = "A path already refused at your mark is not measured either."
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 MARK_NOTE = ("You fired your stop yourself, after your mark. Each time here is from your mark, the moment you pressed "
              "Enter, so it errs toward slower, never faster. A path that did not work through your gateway before the "
@@ -64,9 +72,10 @@ INTERFACES_NOTE = "Its network interfaces there: {interfaces}. Checked gone: {go
 NO_INTERFACES_NOTE = "The kit found no network interface of the test agent's own in your subnet."
 
 
-def expected(kind: str, path: str) -> str:
+def expected(kind: str, path: str, attachment: str | None = None) -> str:
+    """What the declared stop would be expected to do on a path: through a gateway, by how it is attached."""
     if kind == PRODUCT_KIND:
-        return "stopped"
+        return "stopped" if path in GATEWAY_ROUTES.get(attachment or "", ()) else "not stopped"
     return "stopped" if kind == REVOKE_KIND and path == "another_identity" else EXPECTED[path]
 
 
@@ -75,8 +84,14 @@ def _gateway(doc: Mapping[str, Any]) -> str:
     product = doc["stop"].get("product")
     if not product:
         return ""
-    said = GATEWAY_NOTE.format(name=product["name"], attachment=product["attachment"], via=doc["run"].get("via") or "")
-    return f"<p>{html.escape(said)}</p>\n<p>{html.escape(MARK_NOTE)}</p>\n"
+    via = doc["run"].get("via") or ""
+    routes = GATEWAY_ROUTES.get(product["attachment"], ())
+    said = GATEWAY_NOTE.format(name=product["name"], attachment=product["attachment"], via=via) \
+        if product["attachment"] == "all its outbound traffic" else \
+        GATEWAY_NOTE_SOME.format(name=product["name"], attachment=product["attachment"], via=via,
+                                 paths=", ".join(PATH_WORDS[p] for p in routes
+                                                 if any(p in rep for rep in doc["repeats"])))
+    return f"<p>{html.escape(said)}</p>\n<p>{html.escape(MARK_NOTE + ' ' + ALREADY_REFUSED_NOTE)}</p>\n"
 
 
 def _network(network: Mapping[str, Any] | None) -> str:
@@ -117,17 +132,19 @@ def page(doc: Mapping[str, Any], details: list[Mapping[str, PathResult]] | None 
          network: Mapping[str, Any] | None = None) -> str:
     """The page. `network` is what a run in a subnet of yours made there (aws/run.py's network)."""
     window = float(doc["run"]["window_seconds"])
+    attachment = (doc["stop"].get("product") or {}).get("attachment")
     rows = []
     for i, repeat in enumerate(doc["repeats"]):
         for path, part in repeat.items():
-            expected_here, actual = worded(expected(doc["stop"]["kind"], path), window), worded(part["outcome"], window)
+            expected_here = worded(expected(doc["stop"]["kind"], path, attachment), window)
+            actual = worded(part["outcome"], window)
             errors = ""
             if details and i < len(details) and path in details[i]:
                 found = details[i][path]
                 errors = ", ".join(f"{code} {n}" for code, n in sorted(found.errors.items()))
                 if found.reason and part["outcome"] in ("not run", "not measured"):
                     errors = f"{found.reason}: {errors}" if errors else found.reason
-            mark = "" if expected(doc["stop"]["kind"], path) == part["outcome"] else ' class="differs"'
+            mark = "" if expected(doc["stop"]["kind"], path, attachment) == part["outcome"] else ' class="differs"'
             if details and i < len(details) and path in details[i] and _found(details[i][path]):
                 actual = f"{actual} ({_found(details[i][path])})"
             rows.append(f"<tr{mark}><td>{i + 1}</td><td>{html.escape(PATH_WORDS[path])}</td>"
