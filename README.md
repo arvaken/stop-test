@@ -20,11 +20,13 @@ what Cloudflare records, word for word:
 > stop test result you submit, which holds its run's times, could be matched to the address the test agent's calls came
 > from. For the test address, the address recorded is the one the test agent's calls come from. Unless you name a
 > gateway or a subnet, the kit runs the test agent on the cloud's default network, so the address is not your account's
-> own: on AWS, Lambda's default network, where it is an AWS address shared with other AWS customers; on Google Cloud,
-> Cloud Run's default network, where it is an address from Google's dynamic pool, not one of your project's. If you name
-> a gateway (`--via`), the calls go through it, and the address recorded is the one your gateway's calls leave from; if
-> you name a subnet (`--subnet`), it is the one your network's calls leave from. Either may be your own. For the
-> verification page, it is the address of whoever opens it.
+> own: on AWS Lambda, Lambda's default network, where it is an AWS address shared with other AWS customers; on Google
+> Cloud, Cloud Run's default network, where it is an address from Google's dynamic pool, not one of your project's. If
+> you name a gateway (`--via`), the calls go through it, and the address recorded is the one your gateway's calls leave
+> from; if you name a subnet (`--subnet`), it is the one your network's calls leave from. Either may be your own. On
+> Amazon Bedrock AgentCore, where the kit offers neither, it runs the test agent in AgentCore's public network mode, in
+> no network of yours, so the address is not your account's own either; in Arvaken's own runs, it was an AWS address in
+> the agent's region, a different one each run. For the verification page, it is the address of whoever opens it.
 
 If you choose, you can send Arvaken a result at https://app.arvaken.com/stop-test/submit, under the kit's terms:
 https://arvaken.com/stop-test/terms.
