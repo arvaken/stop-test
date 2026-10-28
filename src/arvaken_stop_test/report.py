@@ -43,7 +43,25 @@ REVOKE_NOTE = ("Revoking sessions denies the sessions issued before the moment i
                "unaffected, so what is expected here is of the sessions the test agent held when the stop was fired.")
 
 
+# On AgentCore (AGENTCORE-MEASUREMENT.md, section 3; D618), each kind's expectation, path by path: a policy on the
+# role stops the running session's own calls and leaves new calls answered; a deny of calls refuses new calls and leaves
+# the running session going; with the session ended as well, everything stops.
+AGENTCORE = {
+    "policy on an AgentCore agent's role": {**EXPECTED, "new_calls": "not stopped"},
+    "deny calls to an AgentCore agent": {"own_calls": "not stopped", "another_identity": "not stopped",
+                                         "outside_key": "not stopped", "open_internet": "not stopped",
+                                         "new_calls": "stopped"},
+    "deny calls to an AgentCore agent and end its sessions": {"own_calls": "stopped", "another_identity": "stopped",
+                                                              "outside_key": "stopped", "open_internet": "stopped",
+                                                              "new_calls": "stopped"},
+}
+# CUSTOMER TEXT (D618): not yet approved
+EXPECTED_HEADING = {False: "A stop on its role would be expected", True: "This kind of stop would be expected"}
+
+
 def expected(kind: str, path: str) -> str:
+    if kind in AGENTCORE:
+        return AGENTCORE[kind][path]
     return "stopped" if kind == REVOKE_KIND and path == "another_identity" else EXPECTED[path]
 
 
@@ -100,7 +118,7 @@ tr.differs td{{font-weight:600}}</style></head><body>
 to {html.escape(doc['run']['ended_at'] or '')}. The stop was fired by {html.escape(doc['stop']['fired_by'])}.
 The window was {html.escape(worded('not stopped', window).removeprefix('not stopped within '))}; the kit's clock and the
 test agent's were {doc['run']['clock_gap_ms']} ms apart.</p>
-<table><thead><tr><th>Repeat</th><th>Path</th><th>A stop on its role would be expected</th><th>What the test found</th>
+<table><thead><tr><th>Repeat</th><th>Path</th><th>{EXPECTED_HEADING[doc['stop']['kind'] in AGENTCORE]}</th><th>What the test found</th>
 <th>First refused</th><th>Errors seen (this page only)</th></tr></thead><tbody>
 {''.join(rows)}
 </tbody></table>
