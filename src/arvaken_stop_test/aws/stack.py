@@ -31,18 +31,19 @@ run's region and the model it names in every region, as AWS requires both for a 
 regions. The second role is never given it. A run without a model makes the stack exactly as before. An ID is checked
 for its shape (MODEL_ID) before it is written into the template, so it can name nothing but a model or a profile.
 
-AWS's Lambda guide asks for those network actions on every resource ("allow them on all resources"), so a boundary that
-allows them lets any role made under it make, delete and re-address network interfaces anywhere in the account: not
-what arvaken-stop-test-boundary may do. A run in a subnet's roles therefore carry a boundary of their own,
-`arvaken-stop-test-boundary-via` (boundary_name), which your account holds only where someone made it to run in a
-subnet: arvaken-stop-test-boundary and the statements NETWORK_STATEMENTS. They allow the six actions, and deny them to
-any call from a function's own code: Lambda puts its function's ARN on those calls, and not on the calls it makes
-itself to make a function's network interfaces (its guide, "Using source function ARN to control function access
-behavior"), so the agent's code cannot make them, nor any other function's under that boundary. Likewise a boundary is
-the same for every run, so for a model it allows `bedrock:InvokeModel` on any model and any inference profile
-(MODEL_STATEMENTS): any role made under it may call any model, billed to the account. A run with a model's roles carry
-`arvaken-stop-test-boundary-model`, or in a subnet too `arvaken-stop-test-boundary-via-model`. A run with neither takes
-arvaken-stop-test-boundary, as before.
+AWS's Lambda guide asks for those network actions on every resource ("allow them on all resources")
+[source: aws-lambda-vpc-permissions], so a boundary that allows them lets any role made under it make, delete and
+re-address network interfaces anywhere in the account: not what arvaken-stop-test-boundary may do. A run in a subnet's
+roles therefore carry a boundary of their own, `arvaken-stop-test-boundary-via` (boundary_name), which your account
+holds only where someone made it to run in a subnet: arvaken-stop-test-boundary and the statements NETWORK_STATEMENTS.
+They allow the six actions, and deny them to any call from a function's own code, as an explicit deny in a boundary
+overrides any allow [source: aws-iam-boundary-explicit-deny]: Lambda puts its function's ARN on those calls, and not on
+the calls it makes itself to make a function's network interfaces (its guide, "Using source function ARN to control
+function access behavior") [source: aws-lambda-source-function-arn], so the agent's code cannot make them, nor any other
+function's under that boundary. Likewise a boundary is the same for every run, so for a model it allows
+`bedrock:InvokeModel` on any model and any inference profile (MODEL_STATEMENTS): any role made under it may call any
+model, billed to the account. A run with a model's roles carry `arvaken-stop-test-boundary-model`, or in a subnet too
+`arvaken-stop-test-boundary-via-model`. A run with neither takes arvaken-stop-test-boundary, as before.
 """
 from __future__ import annotations
 
@@ -60,7 +61,7 @@ BOUNDARY = f"{PREFIX}-boundary"
 RUNTIME, MEMORY_MB, TIMEOUT_S = "python3.12", 128, 15
 INLINE_LIMIT = 4096          # CloudFormation's limit on a function's inline code, in characters
 # What Lambda needs of a function's role to make its network interfaces in a subnet: AWSLambdaVPCAccessExecutionRole's
-# EC2 actions. AWS's Lambda guide says DescribeNetworkInterfaces works only on every resource, so each is on "*".
+# EC2 actions, each on "*" as AWS's Lambda guide asks [source: aws-lambda-vpc-permissions].
 NETWORK_ACTIONS = ("ec2:CreateNetworkInterface", "ec2:DescribeNetworkInterfaces", "ec2:DescribeSubnets",
                    "ec2:DeleteNetworkInterface", "ec2:AssignPrivateIpAddresses", "ec2:UnassignPrivateIpAddresses")
 NETWORK_SID = "TheTestAgentsNetworkInterfacesInASubnetYouName"
