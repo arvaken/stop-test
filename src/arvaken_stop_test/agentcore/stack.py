@@ -5,7 +5,8 @@ Every name carries the run, and everything that takes a tag is tagged `arvaken-s
 - the test agent: an AgentCore runtime, `arvaken_stop_test_<run>` (AgentCore's names take letters, digits and
   underscores alone), built from code in S3: PYTHON_3_13, entry point main.py, network mode PUBLIC, protocol HTTP;
 - its role, `arvaken-stop-test-<run>-agent`, which trusts AgentCore alone and only for this run's runtime, by
-  `aws:SourceAccount` and `aws:SourceArn`, as AWS's trust policy for a runtime's role has them;
+  `aws:SourceAccount` and `aws:SourceArn`, as AWS's trust policy for a runtime's role has them
+  [source: aws-agentcore-trust-policy];
 - a second role, `arvaken-stop-test-<run>-second`, which the agent's role alone may assume;
 - a bucket, `arvaken-stop-test-<run>` (private, encrypted), holding the agent's code (CODE_KEY) and the objects its
   paths write.
@@ -13,9 +14,9 @@ Every name carries the run, and everything that takes a tag is tagged `arvaken-s
 The roles are named as the Lambda agent's are (aws/stack.py), so the kit fires and removes a policy on the agent's role
 the same way (aws/fire.py). Both carry the kit's permissions boundary, and their policies are what the boundary already
 allows, objects in a run's bucket and assuming a run's role: AgentCore needs no change to it. The agent's role is given
-nothing to read its code and nothing to write logs: it reaches only what the agent's paths use. AWS's pages on direct
-code deployment differ on whether a runtime's role must read its code; in Arvaken's first trial run, in its own
-install-test account (r52212363, 28 October 2026), the runtime's sessions started with its role given none.
+nothing to read its code and nothing to write logs: it reaches only what the agent's paths use. In Arvaken's trial
+runs, in its own install-test account (r52212363 and r978b7aaa, 28 October 2026), the runtime's sessions started with
+its role given neither.
 
 **The runtime's session limits are the kit's** (`lifecycleConfiguration`): a session idle for IDLE seconds ends, and
 none lives past MAX_LIFETIME, an hour, which is also the longest a streaming response lasts. Each run's details record

@@ -6,12 +6,12 @@ AGENTCORE-MEASUREMENT.md, section 3; D618).
   each, as M2 measured Lambda's (D538). The roles are named as the Lambda agent's, so this is aws/fire.py's firing,
   with its checks: a managed policy's ARN, fired on the run's own role alone, found by its name and its tag.
 - **A deny of calls to the agent** (DENY_KIND): the runtime's resource policy (PutResourcePolicy), denying every
-  principal ("*") all six of the calls that reach a runtime (INVOKE_ACTIONS, as AWS's Service Authorization Reference
-  lists them and Arvaken's job host reads them), with no condition, so the job host's rule reads it as denying every
-  call. Removed by DeleteResourcePolicy.
+  principal ("*") all six of the calls that reach a runtime (INVOKE_ACTIONS, as Arvaken's job host reads them:
+  arvaken/mark, agent_policy.py), with no condition, so the job host's rule reads it as denying every call. Removed by
+  DeleteResourcePolicy.
 - **That deny, and the running session ended** (DENY_AND_END_KIND): the same deny, then StopRuntimeSession on the
   session the kit opened before the stop. AWS: it "instantly terminates the specified session and stops any ongoing
-  streaming responses".
+  streaming responses" [source: aws-agentcore-stop-session-terminates].
 
 The kit fires on the run's own runtime alone: before any resource policy is written, the runtime is checked to be the
 run's by its name and its tag (the_runs_own_runtime), as a role is.

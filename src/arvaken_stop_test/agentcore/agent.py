@@ -2,17 +2,17 @@
 AGENTCORE-MEASUREMENT.md, sections 1 and 2; D618).
 
 AgentCore runs it in a session of its own and hands it each call made to that session, as AWS's HTTP protocol contract
-says: it listens on 0.0.0.0, port 8080, takes calls on POST /invocations and answers health checks on GET /ping. It
-answers two kinds of call:
+says: it listens on 0.0.0.0, port 8080, takes calls on POST /invocations and answers health checks on GET /ping
+[source: aws-agentcore-http-container]. It answers two kinds of call:
 
 - "answer": a new call to the agent. It answers at once, with its own clock and nothing else. What is timed on this path
   is whether AgentCore lets a new call reach the agent at all, so it tries none of its paths.
 - "watch": the running session. It assumes the kit's second role once, before the stop, then tries each of its four
   paths about once a second, as the Lambda agent does (aws/agent.py), and reports each try as one event of the call's
   streaming response (text/event-stream), for as many seconds as the kit asks. AWS keeps a streaming response open up to
-  60 minutes, so one call holds the whole window. Its reports go back through AgentCore, never through anything the
-  agent's role reaches, so a stop that denies the role everything cannot silence them; a stop that ends the session
-  ends the stream.
+  60 minutes [source: aws-agentcore-streaming-limit], so one call holds the whole window. Its reports go back through
+  AgentCore, never through anything the agent's role reaches, so a stop that denies the role everything cannot silence
+  them; a stop that ends the session ends the stream.
 
 The paths (the design's section 1):
 - own_calls: writes and reads one small object in the run's bucket, as the runtime's own role;
@@ -25,7 +25,8 @@ tell afterwards whether a session went on writing once its stream had closed (ru
 
 /ping says "HealthyBusy" while a watch is streaming, so AgentCore keeps the session (AWS: "While the status is
 HealthyBusy, the runtime session is considered active and is kept alive"), and "Healthy" otherwise. It never sends
-time_of_last_update, which AWS says not to advance on every ping.
+time_of_last_update, which AWS says not to set to the current time on every ping [source: aws-agentcore-healthy-busy,
+aws-agentcore-ping-last-update].
 
 It prints nothing and writes no logs of its own: http.server's line for each request is turned off, and the runtime's
 role may not write logs. An error is reported by its code alone, never its message, which can name resources and
@@ -50,7 +51,8 @@ CONFIG = botocore.config.Config(connect_timeout=2, read_timeout=2, retries={"max
 TIMEOUT = 2.0
 AGENT = "arvaken-stop-test-agent (+https://github.com/arvaken/stop-test)"
 EVERY = 1.0                 # seconds between a watch's tries
-LONGEST = 3540.0            # the longest watch: AWS keeps a streaming response up to 60 minutes
+# The longest watch: AWS keeps a streaming response up to 60 minutes [source: aws-agentcore-streaming-limit].
+LONGEST = 3540.0
 PORT = 8080
 
 _busy = 0

@@ -31,8 +31,9 @@ tried only where the last call before the stop was answered.
   recorded (aws/boto.py);
 - the deny: PutResourcePolicy, in event history in the run's own region, as AgentCore's control plane is regional,
   matched by the runtime's ARN in the call's parameters;
-- ending the session: StopRuntimeSession is a data event, which event history does not hold: with `--trail`, from the
-  run's own trail (trail.py); without it, the kit's own clock, moved onto the agent's, and the details say so.
+- ending the session: StopRuntimeSession is a data event, which event history does not hold
+  [source: aws-cloudtrail-event-history]: with `--trail`, from the run's own trail (trail.py); without it, the kit's own
+  clock, moved onto the agent's, and the details say so.
 Each path is timed from the call that acts on it: where the deny is followed by ending the session, new calls are
 timed from the deny and the session's four paths from StopRuntimeSession. Where CloudTrail has no record of a call by
 TRAIL_WAIT, its moment is the kit's own clock.
@@ -749,8 +750,8 @@ def check_gone(c: Clients, r: Run) -> tuple[list[str], list[str]]:
 
 
 def _moment(r: Run, rep: Repeat, p: str) -> tuple[float | None, float, str | None]:
-    """A path's firing moment, its precision and its source: the session's four paths from the call that ended the
-    session, where there was one; else the stop's."""
+    """A path's firing moment, its precision, and where the moment came from: the session's four paths from the call
+    that ended the session, where there was one; else the stop's."""
     if p in SESSION_PATHS and rep.end_after:
         return rep.end_at, rep.end_precision, rep.end_source
     return rep.fired_at, rep.fired_precision, rep.fired_source
@@ -831,6 +832,7 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, window: float = WINDOWS["aw
     if not 1 <= repeats <= 5:
         raise ValueError("a run repeats one to five times")
     if READY_WAIT + LEAD + window + HOLD + SLACK > LONGEST:
+        # source: aws-agentcore-streaming-limit
         raise ValueError(f"a window on AgentCore is at most {int(LONGEST - READY_WAIT - LEAD - HOLD - SLACK)} seconds: "
                          "the running session is watched on one streaming response, which AWS keeps up to 60 minutes")
     the_name = run_name or new_run()

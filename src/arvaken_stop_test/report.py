@@ -46,9 +46,9 @@ REVOKE_NOTE = ("Revoking sessions denies the sessions issued before the moment i
 # On AgentCore (AGENTCORE-MEASUREMENT.md, section 3; D618), each kind's expectation, path by path, only where it
 # follows from what the stop is: a policy on the role reaches the running session's own calls as on Lambda; a deny of
 # calls refuses new calls; ending the session ends its four paths (AWS: StopRuntimeSession "instantly terminates the
-# specified session"). None where AWS's pages say nothing, which is what the run measures (the founder, 28 October 2026:
-# no AWS claim either way): what a deny does to a session already running, and whether new calls are answered while the
-# runtime's role is denied.
+# specified session" [source: aws-agentcore-stop-session-terminates]). None where it does not follow from what the stop
+# is, which is what the run measures (the founder, 28 October 2026: no AWS claim either way): what a deny does to a
+# session already running, and whether new calls are answered while the runtime's role is denied.
 AGENTCORE: dict[str, dict[str, str | None]] = {
     "policy on an AgentCore agent's role": {**EXPECTED, "new_calls": None},
     "deny calls to an AgentCore agent": {"own_calls": None, "another_identity": None, "outside_key": None,

@@ -3,9 +3,10 @@ section 4; the founder's five conditions, D618). Its setup is kept here, as code
 again the same way.
 
 Why it is needed: Arvaken counts a run only where its firing moment comes from the cloud's own audit record (D569).
-StopRuntimeSession is a call to AgentCore's data plane, which CloudTrail records as a data event, and its event history
-holds management events alone. So a run that ends a session makes a trail of its own, records the call there, and
-removes the trail when it is done.
+StopRuntimeSession is a call to AgentCore's data plane, which CloudTrail records as a data event (the trial r978b7aaa,
+28 October 2026: "eventCategory": "Data"), and its event history holds management events alone
+[source: aws-cloudtrail-event-history]. So a run that ends a session makes a trail of its own, records the call there,
+and removes the trail when it is done.
 
 The founder's conditions, each as the kit meets it:
 1. **Data events only, for the test runtime's ARN alone**: one advanced event selector (selectors): the data category,

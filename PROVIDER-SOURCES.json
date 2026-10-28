@@ -1,0 +1,75 @@
+{
+ "schema": "arvaken.provider-sources/1",
+ "why": "The founder's ruling of 28 October 2026, item 6: any sentence, Why? text or rationale that says or implies a cloud provider documents a behaviour carries the page's URL, the exact sentence quoted and the date read. The kit takes the shape of arvaken/mark's check (mark#914). A claim cites its entries by id, [source: id], in the README or in a comment or docstring, never in words a customer is shown. tests/test_provider_claims_name_their_source.py fails the build on a claim with no source.",
+ "fields": {
+  "cloud": "aws, google_cloud or azure",
+  "url": "the page, https, on the provider's own host",
+  "page": "the page's title",
+  "sentence": "the sentence (or list, table row or entry) quoted whole, no ellipsis",
+  "about": "what the sentence is about, in the provider's own terms",
+  "read": "the day it was read, YYYY-MM-DD (UTC)"
+ },
+ "sources": {
+  "aws-agentcore-stop-session-terminates": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-stop-session.html",
+   "page": "Stop a running session - Amazon Bedrock AgentCore",
+   "sentence": "When called, this operation instantly terminates the specified session and stops any ongoing streaming responses.",
+   "about": "StopRuntimeSession",
+   "read": "2026-10-28"
+  },
+  "aws-agentcore-streaming-limit": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/bedrock-agentcore-limits.html",
+   "page": "Quotas for Amazon Bedrock AgentCore - Amazon Bedrock AgentCore",
+   "sentence": "Streaming maximum duration | 60 mins | No | Maximum time for streaming connections (Response streaming, WebSocket connections)",
+   "about": "a runtime's invocation limits: how long one streaming response may last (a table row)",
+   "read": "2026-10-28"
+  },
+  "aws-agentcore-http-container": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-http-protocol-contract.html",
+   "page": "HTTP protocol contract - Amazon Bedrock AgentCore",
+   "sentence": "Your agent must be deployed as a containerized application meeting these specifications: Host : 0.0.0.0 Port : 8080 - Standard port for HTTP-based agent communication Platform : ARM64 container - Required for compatibility with the AgentCore Runtime environment",
+   "about": "the HTTP protocol's container requirements (a list, quoted whole)",
+   "read": "2026-10-28"
+  },
+  "aws-agentcore-healthy-busy": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-http-protocol-contract.html",
+   "page": "HTTP protocol contract - Amazon Bedrock AgentCore",
+   "sentence": "While the status is HealthyBusy, the runtime session is considered active and is kept alive.",
+   "about": "the /ping status HealthyBusy",
+   "read": "2026-10-28"
+  },
+  "aws-agentcore-ping-last-update": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-http-protocol-contract.html",
+   "page": "HTTP protocol contract - Amazon Bedrock AgentCore",
+   "sentence": "Do not set time_of_last_update to the current time on every ping.",
+   "about": "the /ping response's optional time_of_last_update",
+   "read": "2026-10-28"
+  },
+  "aws-agentcore-trust-policy": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-permissions.html",
+   "page": "IAM Permissions for AgentCore Runtime - Amazon Bedrock AgentCore",
+   "sentence": "The AgentCore Runtime execution role must include the following trust policy which allows the AgentCore Runtime to assume the role.",
+   "about": "the trust policy of a runtime's execution role, with its conditions on aws:SourceAccount and aws:SourceArn",
+   "read": "2026-10-28"
+  },
+  "aws-cloudtrail-event-history": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/awscloudtrail/latest/userguide/view-cloudtrail-events.html",
+   "page": "Working with CloudTrail event history - AWS CloudTrail",
+   "sentence": "The event history provides a viewable, searchable, downloadable, and immutable record of the past 90 days of management events in an AWS Region.",
+   "about": "CloudTrail's event history: management events, by Region",
+   "read": "2026-10-28"
+  }
+ },
+ "owed": {
+  "due": "2026-11-04",
+  "why": "Claims on the kit's main branch when the check came: each is sourced by 4 November 2026, after which the build fails if any is left. The list only shrinks.",
+  "claims": []
+ }
+}

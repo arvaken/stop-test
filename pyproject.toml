@@ -30,7 +30,7 @@ packages = ["src/arvaken_stop_test"]
 # The source package holds exactly these, whatever else is in the working tree, so a release's build is the same
 # wherever it is made.
 [tool.hatch.build.targets.sdist]
-only-include = ["src", "tests", "LICENSE", "README.md", "pyproject.toml"]
+only-include = ["src", "tests", "LICENSE", "README.md", "pyproject.toml", "PROVIDER-SOURCES.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
