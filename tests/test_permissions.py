@@ -83,19 +83,25 @@ def test_the_aws_policy_names_the_runs_own_resources_wherever_aws_lets_it():
 
 
 BOUNDARY = json.loads((ROOT / "permissions" / "aws-boundary.json").read_text(encoding="utf-8"))
+BOUNDARY_VIA = json.loads((ROOT / "permissions" / "aws-boundary-via.json").read_text(encoding="utf-8"))
+BOUNDARIES = {(via, model): json.loads((ROOT / "permissions" / f"aws-boundary{'-via' * via}{'-model' * model}.json")
+                                       .read_text(encoding="utf-8"))
+              for via in (False, True) for model in (False, True)}
 ROLE_CHANGES = {"iam:CreateRole", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:AttachRolePolicy",
                 "iam:DetachRolePolicy"}
 
 
 def test_the_aws_policy_makes_or_changes_a_role_only_under_the_kits_boundary():
     """Whoever holds the policy cannot make a role beyond the boundary: every act that makes a role, or gives one a
-    policy, is allowed only where the role's permissions boundary is arvaken-stop-test-boundary, and none of them
-    elsewhere; and nothing in the policy changes a role's boundary or the boundary policy itself."""
+    policy, is allowed only where the role's permissions boundary is arvaken-stop-test-boundary, or a run in a
+    subnet's, with a model's or with both's (-via, -model, -via-model), and none of them elsewhere; and nothing in the
+    policy changes a role's boundary or a boundary policy itself."""
     for s in AWS_POLICY["Statement"]:
         actions = set(s["Action"] if isinstance(s["Action"], list) else [s["Action"]])
         if actions & ROLE_CHANGES:
             assert actions == ROLE_CHANGES and s["Condition"] == {
-                "StringLike": {"iam:PermissionsBoundary": "arn:aws:iam::*:policy/arvaken-stop-test-boundary"}}
+                "StringLike": {"iam:PermissionsBoundary": [f"arn:aws:iam::*:policy/arvaken-stop-test-boundary{s}"
+                                                           for s in ("", "-via", "-model", "-via-model")]}}
     assert not allowed() & {"iam:PutRolePermissionsBoundary", "iam:DeleteRolePermissionsBoundary",
                             "iam:CreatePolicy", "iam:CreatePolicyVersion", "iam:SetDefaultPolicyVersion",
                             "iam:DeletePolicy", "iam:DeletePolicyVersion"}
@@ -108,47 +114,57 @@ def _granted(t: dict) -> dict[str, set[str]]:
             for k, r in t["Resources"].items() if r["Type"] == "AWS::IAM::Role"}
 
 
-def _allows(document: dict) -> set[tuple[str, str]]:
-    """Each (action, resource) a policy document allows."""
+def _effect(doc: dict, effect: str) -> set[tuple[str, str]]:
+    """Each (action, resource) a policy document allows, or denies."""
     as_list = lambda x: x if isinstance(x, list) else [x]  # noqa: E731
-    return {(a, r) for s in document["Statement"] for a in as_list(s["Action"]) for r in as_list(s["Resource"])}
+    return {(a, r) for s in doc["Statement"] if s["Effect"] == effect for a in as_list(s["Action"])
+            for r in as_list(s["Resource"])}
 
 
 def test_the_boundary_is_the_kits_and_allows_what_the_two_roles_do_and_no_more():
     """With a subnet of yours (--subnet; D561), the agent's role alone may also make its function's network interfaces,
-    with AWSLambdaVPCAccessExecutionRole's EC2 actions and none of its logs actions; the boundary allows them for that
-    alone. With a model (--model; the design's section 4), the agent's role alone may invoke it; the boundary allows
-    bedrock:InvokeModel on any model and any inference profile, and nothing else of Bedrock. Without either, the roles
-    are as before, and a run takes the boundary as it was before each statement: to 0.2.1, and before the model's."""
-    from arvaken_stop_test.aws.stack import MODEL_SID, NETWORK_ACTIONS, boundary_document, template
-    assert BOUNDARY == boundary_document()                  # permissions/ gives the one the kit checks for
-    allows = _allows(BOUNDARY)
+    with AWSLambdaVPCAccessExecutionRole's EC2 actions and none of its logs actions. With a model (--model; the
+    design's section 4), the agent's role alone may invoke it. AWS asks for the network actions on every resource, and a
+    boundary is the same for every run, so it allows bedrock:InvokeModel on any model and any inference profile: the
+    kit's own boundary allows neither, as the kit took it to 0.2.1. A run in a subnet's roles carry
+    arvaken-stop-test-boundary-via, which allows the network actions and denies them to a function's own code; a run
+    with a model's, arvaken-stop-test-boundary-model, which allows bedrock:InvokeModel and nothing else of Bedrock; a
+    run with both's, arvaken-stop-test-boundary-via-model, both."""
+    from arvaken_stop_test.aws.stack import MODEL_SID, NETWORK_ACTIONS, boundary_document, boundary_file, template
+    for (via, with_model), doc in BOUNDARIES.items():     # permissions/ gives the ones the kit checks for
+        assert doc == boundary_document(via, with_model)
+        text = (ROOT / boundary_file(via, with_model)).read_text(encoding="utf-8")
+        assert text == json.dumps(json.loads(text), indent=1) + "\n"     # as the account holds them: as the kit dumps
     before = {("s3:PutObject", "arn:aws:s3:::arvaken-stop-test-*/*"),
               ("s3:GetObject", "arn:aws:s3:::arvaken-stop-test-*/*"),
               ("sts:AssumeRole", "arn:aws:iam::*:role/arvaken-stop-test-*")}
     network = {(a, "*") for a in NETWORK_ACTIONS}
     model = {("bedrock:InvokeModel", "arn:aws:bedrock:*::foundation-model/*"),
              ("bedrock:InvokeModel", "arn:aws:bedrock:*:*:inference-profile/*")}
-    assert allows == before | network | model
-    assert [s for s in BOUNDARY["Statement"] if s["Sid"] == MODEL_SID] == [{
+    assert _effect(BOUNDARY, "Allow") == before and not _effect(BOUNDARY, "Deny")     # the kit's, as to 0.2.1
+    for (via, with_model), doc in BOUNDARIES.items():
+        assert _effect(doc, "Allow") == before | (network if via else set()) | (model if with_model else set())
+        assert _effect(doc, "Deny") == (network if via else set())
+    assert [s["Condition"] for s in BOUNDARY_VIA["Statement"] if s["Effect"] == "Deny"] == [
+        {"Null": {"lambda:SourceFunctionArn": "false"}}]  # Lambda's own calls for the interfaces carry no function ARN
+    assert [s for s in BOUNDARIES[(False, True)]["Statement"] if s["Sid"] == MODEL_SID] == [{
         "Sid": "TheTestAgentsCallToAModel", "Effect": "Allow", "Action": "bedrock:InvokeModel",
         "Resource": ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:*:*:inference-profile/*"]}]
     assert set(NETWORK_ACTIONS) == {"ec2:CreateNetworkInterface", "ec2:DescribeNetworkInterfaces",
                                     "ec2:DescribeSubnets", "ec2:DeleteNetworkInterface",
                                     "ec2:AssignPrivateIpAddresses", "ec2:UnassignPrivateIpAddresses"}
-    assert _allows(boundary_document(network=False)) == before   # as it was to 0.2.1, which a run without either takes
-    assert _allows(boundary_document(model=False)) == before | network      # and as it was before the model's
     plain = _granted(template("r0123abcd", "https://e.test"))
     assert set().union(*plain.values()) == {a for a, _ in before}     # each the roles' own policies grant, none more
     in_a_subnet = _granted(template("r0123abcd", "https://e.test", subnet="subnet-0abc1234",
                                     security_groups=["sg-0abc1234"]))
     assert in_a_subnet["AgentRole"] == plain["AgentRole"] | set(NETWORK_ACTIONS)
     assert in_a_subnet["SecondRole"] == plain["SecondRole"]             # the second role is never given them
+    assert set().union(*in_a_subnet.values()) == {a for a, _ in _effect(BOUNDARY_VIA, "Allow")}
     with_a_model = _granted(template("r0123abcd", "https://e.test", subnet="subnet-0abc1234",
                                      security_groups=["sg-0abc1234"], model="eu.amazon.nova-micro-v1:0"))
     assert with_a_model["AgentRole"] == in_a_subnet["AgentRole"] | {"bedrock:InvokeModel"}
     assert with_a_model["SecondRole"] == plain["SecondRole"]            # nor the model
-    assert set().union(*with_a_model.values()) == {a for a, _ in allows}
+    assert set().union(*with_a_model.values()) == {a for a, _ in _effect(BOUNDARIES[(True, True)], "Allow")}
 
 
 def test_the_kits_own_policy_needs_nothing_for_a_model():

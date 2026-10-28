@@ -9,18 +9,18 @@ Every resource is named with the run's prefix, `arvaken-stop-test-<run>`, and ta
 The roles' permissions reach only the run's own bucket and the run's own second role. The kit touches nothing it did
 not create, except to attach the customer's stop to the agent's role (fire.py).
 
-Both roles carry the permissions boundary `arvaken-stop-test-boundary` (boundary.json), a policy your account holds
-once, which allows no more than the roles' own policies need: objects in a run's bucket, and assuming a run's role. The
-kit's policy (permissions/aws-policy.json) lets its holder make or change a role only with that boundary on it, so it
-cannot make a role that reaches anything else.
+Both roles carry the permissions boundary `arvaken-stop-test-boundary` (boundary.json), or in a subnet one of their
+own (below): a policy your account holds once, which allows no more than the roles' own policies need: objects in a
+run's bucket, and assuming a run's role. The kit's policy (permissions/aws-policy.json) lets its holder make or change a
+role only with one of those boundaries on it; under arvaken-stop-test-boundary it cannot make a role that reaches
+anything else.
 
 **In a subnet the customer names (`--subnet`, `--security-group`; D561, section 5).** Where the customer's gateway is
 reached only from their own network, the test agent's function is put in that subnet, with the security groups they
 name. Lambda then makes the function's network interfaces there, as the function's role: that role alone is given the
 six EC2 actions Lambda needs for it, those of AWS's managed policy AWSLambdaVPCAccessExecutionRole without its logs
-actions, and the boundary allows them too (its statement NETWORK_SID). Nothing else of the customer's is attached or
-changed: the subnet and the groups are named in the function's network settings, and nothing more. A run without a
-subnet makes the role without them, and still takes the boundary as it was before that statement (fire.py).
+actions. Nothing else of the customer's is attached or changed: the subnet and the groups are named in the function's
+network settings, and nothing more. A run without a subnet makes the role without them.
 
 **A call to a model (`--model`; the design's section 4, its optional fifth row).** Where the customer names a model, by
 a Bedrock model's ID or a cross-Region inference profile's, the function's environment names it (MODEL) and the agent's
@@ -28,10 +28,21 @@ role alone is allowed `bedrock:InvokeModel` (which the agent's Converse call nee
 (model_resources): for a model's ID, that model in the run's region; for a profile's (its ID begins with its
 geography, as `eu.` or `global.`: PROFILE_PREFIXES, from AWS's Bedrock guide on inference profiles), the profile in the
 run's region and the model it names in every region, as AWS requires both for a profile that routes calls to other
-regions. The second role is never given it. The boundary allows it too (its statement MODEL_SID), on any model and any
-inference profile. A run without a model makes the stack exactly as before, and still takes the boundary as it was
-before that statement (fire.py). An ID is checked for its shape (MODEL_ID) before it is written into the template, so
-it can name nothing but a model or a profile.
+regions. The second role is never given it. A run without a model makes the stack exactly as before. An ID is checked
+for its shape (MODEL_ID) before it is written into the template, so it can name nothing but a model or a profile.
+
+AWS's Lambda guide asks for those network actions on every resource ("allow them on all resources"), so a boundary that
+allows them lets any role made under it make, delete and re-address network interfaces anywhere in the account: not
+what arvaken-stop-test-boundary may do. A run in a subnet's roles therefore carry a boundary of their own,
+`arvaken-stop-test-boundary-via` (boundary_name), which your account holds only where someone made it to run in a
+subnet: arvaken-stop-test-boundary and the statements NETWORK_STATEMENTS. They allow the six actions, and deny them to
+any call from a function's own code: Lambda puts its function's ARN on those calls, and not on the calls it makes
+itself to make a function's network interfaces (its guide, "Using source function ARN to control function access
+behavior"), so the agent's code cannot make them, nor any other function's under that boundary. Likewise a boundary is
+the same for every run, so for a model it allows `bedrock:InvokeModel` on any model and any inference profile
+(MODEL_STATEMENTS): any role made under it may call any model, billed to the account. A run with a model's roles carry
+`arvaken-stop-test-boundary-model`, or in a subnet too `arvaken-stop-test-boundary-via-model`. A run with neither takes
+arvaken-stop-test-boundary, as before.
 """
 from __future__ import annotations
 
@@ -58,6 +69,15 @@ MODEL_SID = "TheTestAgentsCallToAModel"
 # then a model's ID), and the geographies such a profile's ID begins with.
 MODEL_ID = re.compile(r"[a-z0-9-]{1,63}(\.[a-z0-9-]{1,63}){1,2}(:[a-z0-9-]{1,63}){0,2}")
 PROFILE_PREFIXES = ("us", "us-gov", "eu", "apac", "au", "jp", "ca", "global")
+NETWORK_STATEMENTS = (
+    {"Sid": NETWORK_SID, "Effect": "Allow", "Action": list(NETWORK_ACTIONS), "Resource": "*"},
+    {"Sid": "NoneOfThemFromAFunctionsOwnCode", "Effect": "Deny", "Action": list(NETWORK_ACTIONS), "Resource": "*",
+     "Condition": {"Null": {"lambda:SourceFunctionArn": "false"}}},
+)
+MODEL_STATEMENTS = (
+    {"Sid": MODEL_SID, "Effect": "Allow", "Action": "bedrock:InvokeModel",
+     "Resource": ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:*:*:inference-profile/*"]},
+)
 
 
 def new_run() -> str:
@@ -70,13 +90,24 @@ def names(run: str) -> dict[str, str]:
     return {"stack": base, "function": f"{base}-agent", "agent_role": f"{base}-agent", "second_role": f"{base}-second"}
 
 
-def boundary_document(network: bool = True, model: bool = True) -> dict[str, Any]:
-    """The permissions boundary on both roles, as permissions/aws-boundary.json gives it for your account to hold; with
-    `model` False, as it was before its statement for a call to a model; with `network` False, as it was before its
-    statement for a subnet's network interfaces (the kit's to 0.2.1), which came before that one too."""
+def boundary_name(network: bool = False, model: bool = False) -> str:
+    """The permissions boundary a run's roles carry: arvaken-stop-test-boundary, or in a subnet, with a model, or both,
+    one of their own."""
+    return BOUNDARY + ("-via" if network else "") + ("-model" if model else "")
+
+
+def boundary_file(network: bool = False, model: bool = False) -> str:
+    """Where this repository gives that boundary for your account to hold."""
+    return f"permissions/aws-{boundary_name(network, model).removeprefix(PREFIX + '-')}.json"
+
+
+def boundary_document(network: bool = False, model: bool = False) -> dict[str, Any]:
+    """The permissions boundary on both roles, as boundary_file gives it: the kit's (boundary.json, as to 0.2.1); in a
+    subnet, that and NETWORK_STATEMENTS; with a model, that and MODEL_STATEMENTS."""
     doc = json.loads(resources.files("arvaken_stop_test.aws").joinpath("boundary.json").read_text(encoding="utf-8"))
-    dropped = ({MODEL_SID} if not (network and model) else set()) | ({NETWORK_SID} if not network else set())
-    doc["Statement"] = [s for s in doc["Statement"] if s.get("Sid") not in dropped]
+    for wanted, more in ((network, NETWORK_STATEMENTS), (model, MODEL_STATEMENTS)):
+        if wanted:
+            doc["Statement"] += json.loads(json.dumps(more))
     return doc
 
 
@@ -117,7 +148,8 @@ def template(run: str, endpoint: str, outside_key: str | None = None, subnet: st
     n = names(run)
     tags = [{"Key": TAG, "Value": run}]
     second_arn = {"Fn::Sub": f"arn:${{AWS::Partition}}:iam::${{AWS::AccountId}}:role/{n['second_role']}"}
-    boundary = {"Fn::Sub": f"arn:${{AWS::Partition}}:iam::${{AWS::AccountId}}:policy/{BOUNDARY}"}
+    boundary_arn = f"arn:${{AWS::Partition}}:iam::${{AWS::AccountId}}:policy/{boundary_name(bool(subnet), bool(model))}"
+    boundary = {"Fn::Sub": boundary_arn}
     bucket_objects = lambda prefix: {"Fn::Sub": f"${{Bucket.Arn}}/{prefix}/*"}  # noqa: E731
     own = [{"Effect": "Allow", "Action": ["s3:PutObject", "s3:GetObject"], "Resource": bucket_objects("own")},
            {"Effect": "Allow", "Action": "sts:AssumeRole", "Resource": second_arn}]

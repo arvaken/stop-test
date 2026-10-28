@@ -22,7 +22,7 @@ FIVE = ("own_calls", "another_identity", "outside_key", "open_internet", "model"
 
 
 # The stack
-def test_without_a_model_the_template_is_as_before_and_with_one_it_adds_exactly_its_variable_and_one_statement():
+def test_without_a_model_the_template_is_as_before_and_with_one_it_adds_its_variable_one_statement_and_its_boundary():
     plain = template("r0123abcd", ENDPOINT, outside_key="k" * 32)
     code = plain["Resources"]["Agent"]["Properties"]["Code"]["ZipFile"]       # the agent's code, which has the model's
     assert "bedrock" not in json.dumps(plain).replace(json.dumps(code), "")
@@ -34,6 +34,10 @@ def test_without_a_model_the_template_is_as_before_and_with_one_it_adds_exactly_
     assert agent.pop("MODEL") == MODEL
     own = with_one["Resources"]["AgentRole"]["Properties"]["Policies"][0]["PolicyDocument"]["Statement"]
     assert own.pop() == {"Effect": "Allow", "Action": "bedrock:InvokeModel", "Resource": model_resources(MODEL)}
+    for role in ("AgentRole", "SecondRole"):              # both roles under the boundary of a run with a model
+        assert with_one["Resources"][role]["Properties"].pop("PermissionsBoundary") == {
+            "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/arvaken-stop-test-boundary-model"}
+        plain["Resources"][role]["Properties"].pop("PermissionsBoundary")
     assert with_one == plain                       # and nothing else: the second role, the bucket, the function's code
 
 
@@ -162,35 +166,42 @@ def test_through_a_gateway_a_model_call_that_did_not_work_asks_for_no_mark_and_a
     assert {f.fired_source for f in running.results(r)[0][1].values()} == {running.FROM_THE_MARK} and len(marks) == 1
 
 
-def test_a_run_with_a_model_needs_the_boundarys_model_statement_and_one_without_still_takes_the_earlier_ones():
-    for earlier in ("the kit's before the model", "the kit's to 0.2.1"):
+def test_a_run_with_a_model_takes_a_boundary_of_its_own_and_one_without_never_needs_it():
+    """A run with a model's roles carry arvaken-stop-test-boundary-model (in a subnet too, -via-model), and it refuses
+    before anything is made where that is missing or not the kit's; a run without one takes the boundary it took
+    before, in an account that never made the model's."""
+    for held in (None, "another"):
         clock = Clock()
-        aws = FakeAWS(clock, boundary=earlier)
+        aws = FakeAWS(clock, boundary_model=held)
         with pytest.raises(firing.Refused) as e:
             a_run(aws, clock, model=MODEL)
-        assert str(e.value) == firing.BOUNDARY_WITHOUT_MODEL and aws.stack is None and aws.invocations == 0
-        clock = Clock()
-        assert result.check(a_run(FakeAWS(clock, boundary=earlier), clock)[1])
-    assert firing.BOUNDARY_WITHOUT_MODEL == (
-        "Your account's policy arvaken-stop-test-boundary is the kit's earlier boundary, which does not let the test "
-        "agent call a model. With an administrator's credentials, make permissions/aws-boundary.json its default "
-        "version: aws iam create-policy-version --policy-arn <its ARN> --policy-document "
-        "file://permissions/aws-boundary.json --set-as-default")
-
-
-def test_the_boundary_check_says_what_a_run_needs_of_each_earlier_boundary():
+        said = firing.no_boundary(model=True) if held is None else firing.not_the_boundary(model=True)
+        assert str(e.value) == said and aws.stack is None and aws.invocations == 0
     clock = Clock()
-    for boundary, needs, said in (
-            ("the kit's", {"network": True, "model": True}, None),
-            ("the kit's before the model", {"network": True}, None),
-            ("the kit's before the model", {"model": True}, firing.BOUNDARY_WITHOUT_MODEL),
-            ("the kit's to 0.2.1", {}, None),
-            ("the kit's to 0.2.1", {"model": True}, firing.BOUNDARY_WITHOUT_MODEL),
-            ("the kit's to 0.2.1", {"network": True}, firing.BOUNDARY_WITHOUT_NETWORK),
-            ("the kit's to 0.2.1", {"network": True, "model": True}, firing.BOUNDARY_WITHOUT_NETWORK),
-            ("another", {}, firing.NOT_THE_BOUNDARY)):
-        aws = FakeAWS(clock, boundary=boundary)
-        assert firing.why_no_boundary(aws, aws, **needs) == said, (boundary, needs)
+    assert result.check(a_run(FakeAWS(clock, boundary=None, boundary_via_model=None), clock, model=MODEL)[1])
+    clock = Clock()
+    assert result.check(a_run(FakeAWS(clock, boundary_model=None, boundary_via_model=None), clock)[1])
+    assert firing.no_boundary(model=True) == (
+        "Your account has no policy arvaken-stop-test-boundary-model, the permissions boundary the kit puts on the "
+        "roles it makes for a run that calls a model. Create it once from permissions/aws-boundary-model.json, as the "
+        "README's \"The permissions it needs\" says.")
+    assert firing.not_the_boundary(network=True, model=True) == (
+        "Your account's policy arvaken-stop-test-boundary-via-model is not the kit's permissions boundary for a run in "
+        "your subnet that calls a model: its default version differs from permissions/aws-boundary-via-model.json.")
+
+
+def test_the_boundary_check_reads_only_the_boundary_the_run_takes():
+    clock = Clock()
+    for needs in ({}, {"network": True}, {"model": True}, {"network": True, "model": True}):
+        held = {(False, False): "boundary", (True, False): "boundary_via", (False, True): "boundary_model",
+                (True, True): "boundary_via_model"}[(needs.get("network", False), needs.get("model", False))]
+        others = [k for k in ("boundary", "boundary_via", "boundary_model", "boundary_via_model") if k != held]
+        aws = FakeAWS(clock, **{k: "another" for k in others})
+        assert firing.why_no_boundary(aws, aws, **needs) is None, needs
+        aws = FakeAWS(clock, **{held: "another"})
+        assert firing.why_no_boundary(aws, aws, **needs) == firing.not_the_boundary(**needs), needs
+        aws = FakeAWS(clock, **{held: None})
+        assert firing.why_no_boundary(aws, aws, **needs) == firing.no_boundary(**needs), needs
 
 
 def test_a_run_refuses_a_model_named_by_anything_but_its_id_before_anything_is_made():
@@ -216,11 +227,11 @@ def test_the_plan_says_the_model_is_called_and_billed_and_without_one_says_nothi
 
 def test_the_plan_with_a_model_checks_the_boundary_for_it(capsys, monkeypatch):
     from arvaken_stop_test.aws import boto
-    fake = FakeAWS(Clock(), boundary="the kit's before the model")
+    fake = FakeAWS(Clock(), boundary_model=None)
     monkeypatch.setattr(boto, "clients_for", lambda region: type("C", (), {"iam": fake, "sts": fake})())
     args = ["aws", "plan", "--stop", STOP, "--region", "eu-central-1", "--run", "r0123abcd"]
     cli.main([*args, "--model", MODEL])
-    assert f"It will not run: {firing.BOUNDARY_WITHOUT_MODEL}." in capsys.readouterr().out
+    assert f"It will not run: {firing.no_boundary(model=True)}\n" in capsys.readouterr().out
     cli.main(args)
     assert "It will not run" not in capsys.readouterr().out
 

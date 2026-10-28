@@ -14,6 +14,7 @@ import pytest
 from arvaken_stop_test import report, result
 from arvaken_stop_test.aws import fire as firing
 from arvaken_stop_test.aws import run as running
+from arvaken_stop_test.aws.stack import template
 from arvaken_stop_test.timing import PATH_WORDS
 from test_aws_run import STOP, Clock, FakeAWS, a_run
 
@@ -221,13 +222,25 @@ def test_where_the_function_is_still_there_its_interfaces_are_named_left_without
     assert not any(s.startswith("AWS removes") for s in said)
 
 
-def test_a_run_in_a_subnet_needs_the_boundarys_network_statement_and_any_other_still_takes_the_earlier_one():
+def test_a_run_in_a_subnet_takes_a_boundary_of_its_own_and_any_other_run_never_needs_it():
+    """A run in a subnet's roles carry arvaken-stop-test-boundary-via, and the run refuses before anything is made
+    where it is missing or not the kit's; it does not need arvaken-stop-test-boundary. Any other run takes that alone,
+    in an account that never made the subnet's, so the kit's own boundary stays as it was to 0.2.1."""
+    for held, says in ((None, firing.NO_BOUNDARY_VIA), ("another", firing.NOT_THE_BOUNDARY_VIA)):
+        clock = Clock()
+        aws = FakeAWS(clock, boundary_via=held)
+        with pytest.raises(firing.Refused) as e:
+            through(aws, clock, subnet=SUBNET, security_groups=GROUPS)
+        assert str(e.value) == says
+        assert aws.stack is None and aws.invocations == 0 and not aws.ec2_calls
     clock = Clock()
-    aws = FakeAWS(clock, boundary="the kit's to 0.2.1")
-    with pytest.raises(firing.Refused) as e:
-        through(aws, clock, subnet=SUBNET, security_groups=GROUPS)
-    assert str(e.value) == firing.BOUNDARY_WITHOUT_NETWORK
-    assert aws.stack is None and aws.invocations == 0 and not aws.ec2_calls
+    assert result.check(through(FakeAWS(clock, boundary=None), clock, subnet=SUBNET, security_groups=GROUPS)[1])
     for a_kind in (lambda f, c: through(f, c)[1], lambda f, c: a_run(f, c, stop_ref=firing.INLINE)[1]):
         clock = Clock()
-        assert result.check(a_kind(FakeAWS(clock, boundary="the kit's to 0.2.1"), clock))
+        assert result.check(a_kind(FakeAWS(clock, boundary_via=None), clock))
+    for subnet, name in (("", "arvaken-stop-test-boundary"), (SUBNET, "arvaken-stop-test-boundary-via")):
+        roles = [r["Properties"] for r in template("r0123abcd", "https://e.test", subnet=subnet,
+                                                    security_groups=GROUPS if subnet else ())["Resources"].values()
+                 if r["Type"] == "AWS::IAM::Role"]
+        assert len(roles) == 2 and all(p["PermissionsBoundary"] == {
+            "Fn::Sub": f"arn:${{AWS::Partition}}:iam::${{AWS::AccountId}}:policy/{name}"} for p in roles)

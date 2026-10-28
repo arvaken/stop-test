@@ -9,7 +9,10 @@
    "Action": ["iam:CreateRole", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:AttachRolePolicy",
               "iam:DetachRolePolicy"],
    "Resource": "arn:aws:iam::*:role/arvaken-stop-test-*",
-   "Condition": {"StringLike": {"iam:PermissionsBoundary": "arn:aws:iam::*:policy/arvaken-stop-test-boundary"}}},
+   "Condition": {"StringLike": {"iam:PermissionsBoundary": [
+     "arn:aws:iam::*:policy/arvaken-stop-test-boundary", "arn:aws:iam::*:policy/arvaken-stop-test-boundary-via",
+     "arn:aws:iam::*:policy/arvaken-stop-test-boundary-model",
+     "arn:aws:iam::*:policy/arvaken-stop-test-boundary-via-model"]}}},
   {"Sid": "TheRunsRoles", "Effect": "Allow",
    "Action": ["iam:DeleteRole", "iam:GetRole", "iam:TagRole", "iam:UntagRole", "iam:ListRoleTags", "iam:GetRolePolicy",
               "iam:ListRolePolicies", "iam:ListAttachedRolePolicies"],

@@ -27,7 +27,7 @@ from typing import Any
 
 from datetime import datetime, timezone
 
-from arvaken_stop_test.aws.stack import BOUNDARY, TAG, boundary_document, names
+from arvaken_stop_test.aws.stack import BOUNDARY, TAG, boundary_document, boundary_file, boundary_name, names
 
 MANAGED_POLICY = re.compile(r"arn:aws(-[a-z]+)*:iam::(\d{12}|aws):policy/[\w+=,.@/-]{1,512}")
 OWN_TRIGGER_WARNING = ("Your own trigger may stop more than the test agent. It runs as you made it, and the kit cannot "
@@ -88,48 +88,54 @@ NO_BOUNDARY = (f"Your account has no policy {BOUNDARY}, the permissions boundary
                "Create it once from permissions/aws-boundary.json, as the README's \"The permissions it needs\" says.")
 NOT_THE_BOUNDARY = (f"Your account's policy {BOUNDARY} is not the kit's permissions boundary: its default version "
                     "differs from permissions/aws-boundary.json.")
-# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
-BOUNDARY_WITHOUT_NETWORK = (
-    f"Your account's policy {BOUNDARY} is the kit's earlier boundary, which does not let the test agent make its "
-    "network interfaces in your subnet. With an administrator's credentials, make permissions/aws-boundary.json its "
-    "default version: aws iam create-policy-version --policy-arn <its ARN> --policy-document "
-    "file://permissions/aws-boundary.json --set-as-default")
-# CUSTOMER TEXT (D562, F4): not yet approved
-BOUNDARY_WITHOUT_MODEL = (
-    f"Your account's policy {BOUNDARY} is the kit's earlier boundary, which does not let the test agent call a model. "
-    "With an administrator's credentials, make permissions/aws-boundary.json its default version: aws iam "
-    "create-policy-version --policy-arn <its ARN> --policy-document file://permissions/aws-boundary.json "
-    "--set-as-default")
+
+
+def _for(network: bool, model: bool) -> str:
+    return "a run" + (" in your subnet" if network else "") + (" that calls a model" if model else "")
+
+
+def no_boundary(network: bool = False, model: bool = False) -> str:
+    """What the kit says where the account has no boundary for this run: for a run with neither, as to 0.2.1."""
+    if not (network or model):
+        return NO_BOUNDARY
+    # CUSTOMER TEXT (D561, D562: the boundary of a run in a subnet or with a model): not yet approved
+    return (f"Your account has no policy {boundary_name(network, model)}, the permissions boundary the kit puts on the "
+            f"roles it makes for {_for(network, model)}. Create it once from {boundary_file(network, model)}, as the "
+            "README's \"The permissions it needs\" says.")
+
+
+def not_the_boundary(network: bool = False, model: bool = False) -> str:
+    """What the kit says where that boundary is not the kit's: for a run with neither, as to 0.2.1."""
+    if not (network or model):
+        return NOT_THE_BOUNDARY
+    # CUSTOMER TEXT (D561, D562: the boundary of a run in a subnet or with a model): not yet approved
+    return (f"Your account's policy {boundary_name(network, model)} is not the kit's permissions boundary for "
+            f"{_for(network, model)}: its default version differs from {boundary_file(network, model)}.")
+
+
+NO_BOUNDARY_VIA, NOT_THE_BOUNDARY_VIA = no_boundary(network=True), not_the_boundary(network=True)
 
 
 def why_no_boundary(iam: Any, sts: Any, network: bool = False, model: bool = False) -> str | None:
     """Why a run cannot make its roles under the kit's permissions boundary, or None: the policy must be in your
-    account, and its default version must be the kit's, statement for statement. A run without a subnet also takes the
-    boundary as it was before its statement for a subnet's network interfaces (to 0.2.1), which allows less; a run in a
-    subnet needs that statement (stack.py). Likewise a run without a model takes the boundary as it was before its
-    statement for a call to a model, with or without the one for a subnet; a run with a model needs it. Where the
-    boundary is the one to 0.2.1 and a run needs both, the kit says what a subnet needs: making the kit's boundary the
-    default version gives both."""
+    account, and its default version must be the kit's, statement for statement. A run in a subnet, with a model, or
+    both takes a boundary of its own (stack.py), and only that one; any other run takes arvaken-stop-test-boundary, as
+    to 0.2.1."""
     import json
     caller = sts.get_caller_identity()
-    arn = f"arn:{caller['Arn'].split(':')[1]}:iam::{caller['Account']}:policy/{BOUNDARY}"
+    arn = f"arn:{caller['Arn'].split(':')[1]}:iam::{caller['Account']}:policy/{boundary_name(network, model)}"
     try:
         version = iam.get_policy(PolicyArn=arn)["Policy"]["DefaultVersionId"]
     except Exception as e:
         if str(getattr(e, "response", {}).get("Error", {}).get("Code")) == "NoSuchEntity":
-            return NO_BOUNDARY
+            return no_boundary(network, model)
         raise
     document = iam.get_policy_version(PolicyArn=arn, VersionId=version)["PolicyVersion"]["Document"]
     document = json.loads(document) if isinstance(document, str) else document
     statements = lambda d: sorted(json.dumps(s, sort_keys=True) for s in d["Statement"])  # noqa: E731
-    found = statements(document)
-    if found == statements(boundary_document()):
+    if statements(document) == statements(boundary_document(network, model)):
         return None
-    if found == statements(boundary_document(model=False)):
-        return BOUNDARY_WITHOUT_MODEL if model else None
-    if found == statements(boundary_document(network=False)):
-        return BOUNDARY_WITHOUT_NETWORK if network else BOUNDARY_WITHOUT_MODEL if model else None
-    return NOT_THE_BOUNDARY
+    return not_the_boundary(network, model)
 
 
 def covers(iam: Any, stop_ref: str, run: str) -> bool:

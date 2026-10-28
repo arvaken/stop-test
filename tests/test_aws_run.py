@@ -65,9 +65,9 @@ class FakeAWS:
 
     def __init__(self, clock: Clock, *, delay=8.0, trail_delay=120.0, skew=0.05, left=(), role_tagged=True,
                  endpoint_error=None, log_group=False, bucket_stays=False, cold_after=None, invoke_error=None,
-                 stop_denies=("s3:PutObject", "s3:GetObject"), boundary="the kit's", gateway_refuses=(),
-                 gateway_breaks=None, gw_delay=3.0, eni_after=600.0, eni_described=True, subnet_has=(),
-                 stack_stays=False, model_error=None):
+                 stop_denies=("s3:PutObject", "s3:GetObject"), boundary="the kit's", boundary_via="the kit's",
+                 boundary_model="the kit's", boundary_via_model="the kit's", gateway_refuses=(), gateway_breaks=None,
+                 gw_delay=3.0, eni_after=600.0, eni_described=True, subnet_has=(), stack_stays=False, model_error=None):
         self.clock, self.delay, self.trail_delay, self.skew = clock, delay, trail_delay, skew
         self.left, self.role_tagged, self.endpoint_error = list(left), role_tagged, endpoint_error
         self.stack = None
@@ -88,8 +88,10 @@ class FakeAWS:
         # what the declared managed policy denies, as IAM's policy simulator decides it (the kit's check before a run)
         self.stop_denies = tuple(stop_denies)
         self.stopped_from: float | None = None
-        # the account's policy arvaken-stop-test-boundary: the kit's own, another document, or none
-        self.boundary = boundary
+        # the account's policies arvaken-stop-test-boundary, and -via, -model and -via-model (a run in a subnet's,
+        # with a model's, or with both's): each the kit's own, another document, or none
+        self.boundaries = {(False, False): boundary, (True, False): boundary_via, (False, True): boundary_model,
+                           (True, True): boundary_via_model}
         self.made_roles: list[dict] = []
         self.concurrency: int | None = None
         # the customer's gateway: paths it refuses throughout; paths it refuses from the nth invocation; when their own
@@ -151,17 +153,25 @@ class FakeAWS:
         return {"Account": "123456789012", "Arn": "arn:aws:sts::123456789012:assumed-role/runner/you"}
 
     # iam
+    def _boundary(self, PolicyArn):
+        """Which of the kit's boundaries PolicyArn names (a run in a subnet's, with a model's), and what the account
+        holds there; or None where it names none."""
+        for (network, model), held in self.boundaries.items():
+            name = "arvaken-stop-test-boundary" + ("-via" if network else "") + ("-model" if model else "")
+            if PolicyArn.endswith(f":policy/{name}"):
+                return network, model, held
+        return None
+
     def get_policy(self, PolicyArn):
-        if PolicyArn.endswith(":policy/arvaken-stop-test-boundary") and self.boundary is None:
+        if (found := self._boundary(PolicyArn)) and found[2] is None:
             raise ClientError("NoSuchEntity")
         return {"Policy": {"Arn": PolicyArn, "DefaultVersionId": "v1"}}
 
     def get_policy_version(self, PolicyArn, VersionId):
-        if PolicyArn.endswith(":policy/arvaken-stop-test-boundary"):
+        if found := self._boundary(PolicyArn):
             from arvaken_stop_test.aws.stack import boundary_document
-            document = boundary_document() if self.boundary == "the kit's" else \
-                boundary_document(network=False) if self.boundary == "the kit's to 0.2.1" else \
-                boundary_document(model=False) if self.boundary == "the kit's before the model" else \
+            network, model, held = found
+            document = boundary_document(network, model) if held == "the kit's" else \
                 {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]}
             return {"PolicyVersion": {"VersionId": VersionId, "Document": document}}
         return {"PolicyVersion": {"VersionId": VersionId, "Document": {"Version": "2012-10-17", "Statement": [
