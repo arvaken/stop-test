@@ -25,11 +25,12 @@ network settings, and nothing more. A run without a subnet makes the role withou
 **A call to a model (`--model`; the design's section 4, its optional fifth row).** Where the customer names a model, by
 a Bedrock model's ID or a cross-Region inference profile's, the function's environment names it (MODEL) and the agent's
 role alone is allowed `bedrock:InvokeModel` (which the agent's Converse call needs) on exactly what that ID needs
-(model_resources): for a model's ID, that model in the run's region; for a profile's (its ID begins with its
-geography, as `eu.` or `global.`: PROFILE_PREFIXES, from AWS's Bedrock guide on inference profiles), the profile in the
-run's region and the model it names in every region, as AWS requires both for a profile that routes calls to other
-regions. The second role is never given it. A run without a model makes the stack exactly as before. An ID is checked
-for its shape (MODEL_ID) before it is written into the template, so it can name nothing but a model or a profile.
+(model_resources): for a model's ID, that model in the run's region; for a profile's (its ID begins with its geography,
+as `eu.` or `global.`: PROFILE_PREFIXES, as Bedrock listed its system-defined profiles on 28 October 2026
+[source: aws-bedrock-inference-profile-ids]), the profile in the run's region and the model it names in every region, as
+AWS requires both for a profile that routes calls to other regions [source: aws-bedrock-inference-profile-permissions].
+The second role is never given it. A run without a model makes the stack exactly as before. An ID is checked for its
+shape (MODEL_ID) before it is written into the template, so it can name nothing but a model or a profile.
 
 AWS's Lambda guide asks for those network actions on every resource ("allow them on all resources")
 [source: aws-lambda-vpc-permissions], so a boundary that allows them lets any role made under it make, delete and
@@ -67,9 +68,10 @@ NETWORK_ACTIONS = ("ec2:CreateNetworkInterface", "ec2:DescribeNetworkInterfaces"
 NETWORK_SID = "TheTestAgentsNetworkInterfacesInASubnetYouName"
 MODEL_SID = "TheTestAgentsCallToAModel"
 # A Bedrock model's ID (provider.model, with a version after ":") or a cross-Region inference profile's (its geography,
-# then a model's ID), and the geographies such a profile's ID begins with.
+# then a model's ID), and the geographies such a profile's ID begins with, as Bedrock's ListInferenceProfiles gave its
+# system-defined profiles in five Regions on 28 October 2026 [source: aws-bedrock-inference-profile-ids].
 MODEL_ID = re.compile(r"[a-z0-9-]{1,63}(\.[a-z0-9-]{1,63}){1,2}(:[a-z0-9-]{1,63}){0,2}")
-PROFILE_PREFIXES = ("us", "us-gov", "eu", "apac", "au", "jp", "ca", "global")
+PROFILE_PREFIXES = ("us", "eu", "apac", "au", "jp", "ca", "global")
 NETWORK_STATEMENTS = (
     {"Sid": NETWORK_SID, "Effect": "Allow", "Action": list(NETWORK_ACTIONS), "Resource": "*"},
     {"Sid": "NoneOfThemFromAFunctionsOwnCode", "Effect": "Deny", "Action": list(NETWORK_ACTIONS), "Resource": "*",
@@ -118,7 +120,8 @@ def is_model_id(model: str) -> bool:
 
 def model_resources(model: str) -> list[dict[str, str]]:
     """What the agent's role may invoke for this ID: a model in the run's region; or, for a cross-Region inference
-    profile, the profile in the run's region and the model it names in every region (AWS requires both)."""
+    profile, the profile in the run's region and the model it names in every region (AWS requires both:
+    [source: aws-bedrock-inference-profile-permissions])."""
     if not is_model_id(model):
         raise ValueError("a model is named by a Bedrock model's ID or an inference profile's")
     geography, _, named = model.partition(".")

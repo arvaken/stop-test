@@ -54,7 +54,7 @@ def test_a_models_id_is_allowed_on_that_model_in_the_runs_region():
     ("us.anthropic.claude-3-haiku-20240307-v1:0", "anthropic.claude-3-haiku-20240307-v1:0"),
     ("apac.amazon.nova-lite-v1:0", "amazon.nova-lite-v1:0"),
     ("global.anthropic.claude-sonnet-4-20250514-v1:0", "anthropic.claude-sonnet-4-20250514-v1:0"),
-    ("us-gov.anthropic.claude-3-haiku-20240307-v1:0", "anthropic.claude-3-haiku-20240307-v1:0")])
+    ("au.anthropic.claude-3-haiku-20240307-v1:0", "anthropic.claude-3-haiku-20240307-v1:0")])
 def test_an_inference_profiles_id_is_allowed_on_the_profile_and_on_its_model_in_every_region(profile, model):
     """AWS's Bedrock guide (prerequisites for inference profiles): "When you specify an inference profile in the
     Resource field ..., you must also specify the foundation model in each Region associated with it.\""""
