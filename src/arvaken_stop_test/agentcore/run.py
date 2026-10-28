@@ -51,6 +51,7 @@ import json
 import queue
 import threading
 import time
+import urllib.parse
 import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, wait as wait_for
@@ -80,6 +81,8 @@ LEAD = 5.0                   # seconds of new calls before the stop
 SLACK = 30.0                 # seconds a watch runs past what the kit needs
 RECOVERY = 300.0             # seconds to wait, between repeats, for new calls to be answered again
 TRAIL_WAIT = 900.0           # seconds to wait, after the last window, for CloudTrail to record each firing
+TRAIL_READY_WAIT = 1500.0    # seconds to wait, before the first stop, for the run's trail to record the agent's calls
+TRAIL_READY_EVERY = 10.0     # how often the kit calls the agent while it waits
 MAKE_WAIT = 600.0            # seconds to wait for the runtime to be ready, or deleted
 ROLE_WAIT = 120.0            # seconds to retry while IAM has not yet made a new role known everywhere
 NEW_CALL_WORKERS = 64
@@ -93,6 +96,7 @@ NOT_FOUND = {"NoSuchEntity", "ResourceNotFoundException", "NoSuchBucket", "NoSuc
              "TrailNotFoundException"}
 AUDIT_RECORD = "CloudTrail's record of the call, to the whole second"
 TRAIL_RECORD = "CloudTrail's record of the call, a data event in the run's own trail, to the whole second"
+POLL_TRAIL = 30.0            # how often the kit looks in the trail's bucket
 
 
 class NotStarted(aws_fire.Refused):
@@ -170,6 +174,7 @@ class Run:
     left_behind: list[str] = field(default_factory=list)
     checked_gone: list[str] = field(default_factory=list)
     trail_kept: dict[str, Any] | None = None
+    trail_recording: float | None = None    # the kit's clock when the run's trail was seen recording the agent's calls
     trail_records: dict[str, int] = field(default_factory=dict)
 
     @property
@@ -518,6 +523,34 @@ def _event_history(lookups: Any, attribute: dict, event: str, before: float, aft
     return None
 
 
+def _unquoted(arn: Any) -> str:
+    """An ARN as a record gives it: AgentCore's PutResourcePolicy records its resourceArn URL-encoded, "arn%3Aaws%3A..."
+    (read in event history, 28 October 2026)."""
+    return urllib.parse.unquote(arn) if isinstance(arn, str) else ""
+
+
+def trail_recording(c: Clients, r: Run, clock: Clock, wait: float = TRAIL_READY_WAIT) -> None:
+    """Before the first stop, wait until the run's trail has recorded a call to the agent, calling the agent every
+    TRAIL_READY_EVERY seconds meanwhile. A trail begins recording a runtime's data events some minutes after it is made
+    and started: in the first trial (28 October 2026) its first record came 2 minutes 31 seconds after logging began,
+    and a stop fired 30 seconds after it was not recorded. Where none comes by `wait`, nothing is fired."""
+    bucket, session, end = trailing.names(r.run)["bucket"], _session(r, "trail"), clock.now() + wait
+    while clock.now() < end:
+        for _ in range(int(POLL_TRAIL // TRAIL_READY_EVERY)):
+            try:
+                answer(c, r, session)
+                r.calls += 1
+            except Exception as e:  # noqa: BLE001 - only the trail's record of a call is waited for
+                if code(e) in KIT_CREDENTIALS:
+                    raise
+            clock.sleep(TRAIL_READY_EVERY)
+        if any(e.get("eventSource") == trailing.SOURCE for e in trailing.records(c.s3, bucket)):
+            r.trail_recording = clock.now()
+            return
+    raise NotStarted(f"The run's trail recorded none of the test agent's calls in {int(wait // 60)} minutes, so ending "
+                     "a session could not be timed from it. Nothing was fired.", r)
+
+
 def firing_moments(c: Clients, r: Run, clock: Clock, wait: float = TRAIL_WAIT) -> None:
     """Each repeat's firing moments from CloudTrail, waited for up to `wait` seconds; else the kit's own clock when the
     call was made, moved onto the agent's."""
@@ -529,7 +562,7 @@ def firing_moments(c: Clients, r: Run, clock: Clock, wait: float = TRAIL_WAIT) -
                                   event, rep.fired_before, rep.fired_after)
         return _event_history(c.cloudtrail, {"AttributeKey": "EventName", "AttributeValue": event}, event,
                               rep.fired_before, rep.fired_after,
-                              match=lambda d: (d.get("requestParameters") or {}).get("resourceArn") == arn)
+                              match=lambda d: _unquoted((d.get("requestParameters") or {}).get("resourceArn")) == arn)
 
     def ended(rep: Repeat) -> float | None:
         return trailing.find(trailing.records(c.s3, trailing.names(r.run)["bucket"]), firing.EVENTS["end"],
@@ -725,8 +758,8 @@ def _moment(r: Run, rep: Repeat, p: str) -> tuple[float | None, float, str | Non
 
 def _one(r: Run, rep: Repeat, p: str) -> PathResult:
     at, precision, source = _moment(r, rep, p)
-    found = judge(rep.beats.get(p, []), at, window=r.window, tried=p in rep.working, setup_errors=rep.setup_errors.get(p),
-                  fired_precision=precision)
+    found = judge(rep.beats.get(p, []), at, window=r.window, tried=p in rep.working,
+                  setup_errors=rep.setup_errors.get(p), fired_precision=precision)
     keeps = rep.session_expires if p == "another_identity" and found.outcome == NOT_STOPPED else None
     return replace(found, fired_source=source if at is not None else None, keeps_working_until=keeps, fired_at=at)
 
@@ -766,6 +799,7 @@ def details(r: Run, doc: dict) -> dict:
     if r.trail:
         out["trail"] = {"name": trailing.names(r.run)["trail"], "bucket": trailing.names(r.run)["bucket"],
                         "selectors": trailing.selectors(r.outputs.get("Runtime", "")),
+                        "recording_from": iso(r.trail_recording),
                         "end_session_found": [rep.end_source == TRAIL_RECORD for rep in r.repeats if rep.end_after],
                         "records": r.trail_records, "kept": r.trail_kept}
     return out
@@ -814,6 +848,8 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, window: float = WINDOWS["aw
         if trail:
             trailing.make(c.cloudtrail, c.s3, r.run, r.region, r.account, r.outputs["Runtime"], r.partition)
         warm_up(c, r, clock)
+        if trail:
+            trail_recording(c, r, clock)
         for i in range(repeats):
             if i:
                 recover(c, r, clock)

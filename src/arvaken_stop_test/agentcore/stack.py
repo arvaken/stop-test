@@ -14,12 +14,12 @@ The roles are named as the Lambda agent's are (aws/stack.py), so the kit fires a
 the same way (aws/fire.py). Both carry the kit's permissions boundary, and their policies are what the boundary already
 allows, objects in a run's bucket and assuming a run's role: AgentCore needs no change to it. The agent's role is given
 nothing to read its code and nothing to write logs: it reaches only what the agent's paths use. AWS's pages on direct
-code deployment differ on whether a runtime's role must read its code; the trial run in Arvaken's install-test account
-(28 October 2026) is where the kit finds out.
+code deployment differ on whether a runtime's role must read its code; in Arvaken's first trial run, in its own
+install-test account (r52212363, 28 October 2026), the runtime's sessions started with its role given none.
 
-**The runtime's session limits are the kit's** (`lifecycleConfiguration`): a session idle for IDLE seconds ends, and none
-lives past MAX_LIFETIME, an hour, which is also the longest a streaming response lasts. Each run's details record them
-(run.py), as the outcome of a running session is worded with them (the design's section 5).
+**The runtime's session limits are the kit's** (`lifecycleConfiguration`): a session idle for IDLE seconds ends, and
+none lives past MAX_LIFETIME, an hour, which is also the longest a streaming response lasts. Each run's details record
+them (run.py), as the outcome of a running session is worded with them (the design's section 5).
 
 **The code** is the test agent (agent.py) as main.py, with boto3 and the libraries it needs beside it (SHIPPED), copied
 from the kit's own installation: each is pure Python, so it runs on AgentCore's arm64 Python as it is. The zip is made
@@ -77,7 +77,8 @@ def agent_source() -> str:
 
 
 def code_zip() -> bytes:
-    """The runtime's code: the test agent as main.py, and the libraries it imports, the same bytes from the same files."""
+    """The runtime's code: the test agent as main.py, and the libraries it imports, the same bytes from the same
+    files."""
     entries = [(ENTRY_POINT, agent_source().encode("utf-8"))]
     entries += [(arcname, path.read_bytes()) for name in SHIPPED for arcname, path in _files(name)]
     out = io.BytesIO()
@@ -124,7 +125,8 @@ def second_trust(agent_role_arn: str) -> dict[str, Any]:
 
 def second_policy(run: str, partition: str = "aws") -> dict[str, Any]:
     return {"Version": "2012-10-17", "Statement": [
-        {"Effect": "Allow", "Action": "s3:PutObject", "Resource": f"arn:{partition}:s3:::{names(run)['bucket']}/another/*"}]}
+        {"Effect": "Allow", "Action": "s3:PutObject",
+         "Resource": f"arn:{partition}:s3:::{names(run)['bucket']}/another/*"}]}
 
 
 def boundary_arn(account: str, partition: str = "aws") -> str:

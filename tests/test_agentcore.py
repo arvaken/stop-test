@@ -21,6 +21,7 @@ import hashlib
 import io
 import json
 import threading
+import urllib.parse
 import urllib.request
 from concurrent.futures import Future
 from datetime import datetime, timezone
@@ -39,6 +40,7 @@ ACCOUNT, REGION = "111122223333", "eu-central-1"
 DENY_ALL = "arn:aws:iam::aws:policy/AWSDenyAll"
 ENDPOINT = "https://stop-test.example"
 DELAY, DENY_DELAY, TRAIL_DELAY, DELIVERY = 8.0, 3.0, 120.0, 300.0
+TRAIL_START = 151.0             # a new trail's first data event came 2 minutes 31 seconds after logging began
 SKEW = 0.05                     # the agent's clock ahead of the kit's
 
 
@@ -123,7 +125,8 @@ class FakeStream:
 
 
 class FakeAWS:
-    def __init__(self, clock: Clock, *, boundary=True, trail_records_stop=True, deny_cuts_stream=False):
+    def __init__(self, clock: Clock, *, boundary=True, trail_records_stop=True, deny_cuts_stream=False,
+                 trail_records=True):
         self.clock = clock
         self.roles: dict[str, dict] = {}
         self.buckets: dict[str, dict[str, tuple[bytes, float]]] = {}
@@ -140,6 +143,7 @@ class FakeAWS:
         self.boundary = boundary
         self.deny_cuts_stream = deny_cuts_stream
         self.trail_records_stop = trail_records_stop
+        self.trail_records = trail_records
         # seconds after a session opens: its stream breaks while the session goes on; or the session dies
         self.breaks_in: float | None = None
         self.dies_in: float | None = None
@@ -156,7 +160,8 @@ class FakeAWS:
         return any(t >= at + DELAY for at in fired)
 
     def deny_in_effect(self, t: float) -> bool:
-        return bool(self.runtime and self.runtime.get("policy_at") is not None and t >= self.runtime["policy_at"] + DENY_DELAY)
+        at = self.runtime.get("policy_at") if self.runtime else None
+        return at is not None and t >= at + DENY_DELAY
 
     @property
     def run(self) -> str:
@@ -341,7 +346,8 @@ class FakeAWS:
         rt = self._runtime(arn=resourceArn)
         rt["policy"], rt["policy_at"] = json.loads(policy), self.clock.now()
         self.events.append({"region": REGION, "name": "PutResourcePolicy", "at": self.clock.now(),
-                            "resource": resourceArn, "params": {"resourceArn": resourceArn}})
+                            "resource": resourceArn,
+                            "params": {"resourceArn": urllib.parse.quote(resourceArn, safe="")}})
 
     def get_resource_policy(self, resourceArn):
         rt = self._runtime(arn=resourceArn)
@@ -377,9 +383,9 @@ class FakeAWS:
             self._data("StopRuntimeSession", runtimeSessionId, self.clock.now(), None)
 
     def _data(self, name, session, at, error):
-        if self.trail and self.trail["logging"]:
+        if self.trail and self.trail["logging"] and self.trail_records and at >= self.trail["started"] + TRAIL_START:
             self.data_events.append({"eventSource": "bedrock-agentcore.amazonaws.com", "eventName": name,
-                                     "eventTime": _iso(at), "requestParameters": {"runtimeSessionId": session},
+                                     "eventTime": _iso(at), "requestParameters": None,
                                      **({"errorCode": error} if error else {}), "_at": at})
 
     def _deliver(self):
@@ -418,12 +424,14 @@ class FakeAWS:
                       "validation": EnableLogFileValidation, "multi": IsMultiRegionTrail,
                       "global": IncludeGlobalServiceEvents}
         self.trail_history.append(self.trail)
+        for marker in ("CloudTrail/", "CloudTrail-Digest/"):     # as CloudTrail marks them, with empty objects
+            self.buckets[S3BucketName][f"AWSLogs/{ACCOUNT}/{marker}"] = (b"", self.clock.now())
 
     def put_event_selectors(self, TrailName, AdvancedEventSelectors):
         self.trail["selectors"] = AdvancedEventSelectors
 
     def start_logging(self, Name):
-        self.trail["logging"] = True
+        self.trail["logging"], self.trail["started"] = True, self.clock.now()
 
     def stop_logging(self, Name):
         if not self.trail:
@@ -513,6 +521,9 @@ def test_the_trails_records_are_kept_and_fingerprinted_before_it_and_its_bucket_
     assert kept["files"] >= 1 and kept["sha256sums"] == hashlib.sha256(sums).hexdigest()
     for line in sums.decode().splitlines():
         digest, key = line.split("  ")
+        if key.endswith("/"):           # CloudTrail's empty marker of a folder, kept as the folder
+            assert folder.joinpath(*key.split("/")).is_dir() and digest == hashlib.sha256(b"").hexdigest()
+            continue
         assert hashlib.sha256(folder.joinpath(*key.split("/")).read_bytes()).hexdigest() == digest
     assert aws.trail is None and trail.names(r.run)["bucket"] not in aws.buckets
     assert not doc["run"]["left_anything"]
@@ -566,6 +577,29 @@ def test_a_deny_alone_that_ends_the_running_session_is_measured_as_stopped_and_t
     page = report.page(doc, [x for _, x in running.results(r)])
     assert 'class="differs"' not in page
     assert page.count(report.NOT_KNOWN) == 4
+
+
+def test_no_stop_is_fired_until_the_runs_trail_records_the_agents_calls(tmp_path):
+    clock = Clock()
+    aws = FakeAWS(clock)
+    r, doc = a_run(aws, clock, fire.DENY_AND_END, tmp_path, trail=True)
+    d = running.details(r, doc)
+    recording = datetime.fromisoformat(d["trail"]["recording_from"].replace("Z", "+00:00")).timestamp()
+    assert recording >= aws.trail_history[0]["started"] + TRAIL_START
+    assert r.repeats[0].fired_before > recording
+    assert d["trail"]["end_session_found"] == [True]
+
+
+def test_a_trail_that_records_nothing_ends_the_run_before_any_stop_and_is_kept_then_removed(tmp_path):
+    clock = Clock()
+    aws = FakeAWS(clock, trail_records=False)
+    with pytest.raises(running.NotStarted) as e:
+        a_run(aws, clock, fire.DENY_AND_END, tmp_path, trail=True)
+    assert "Nothing was fired" in str(e.value)
+    assert all(rt["policy"] is None and rt["policy_at"] is None for rt in aws.runtime_history)
+    assert not any(ev["name"] == "PutResourcePolicy" for ev in aws.events)
+    assert e.value.run.left_behind == [] and aws.trail is None and not aws.buckets
+    assert (tmp_path / "trail" / "AWSLogs" / ACCOUNT / "CloudTrail-Digest").is_dir()
 
 
 def test_the_deny_is_every_principal_denied_all_six_calls_to_the_runtime_with_no_condition():
@@ -859,7 +893,8 @@ def test_the_agent_answers_a_new_call_says_it_is_healthy_and_streams_a_watch(mon
                                        method="POST", headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(asked, timeout=5) as response:
             assert response.headers["Content-Type"] == "text/event-stream"
-            events = [json.loads(line[6:]) for line in response.read().decode().splitlines() if line.startswith("data: ")]
+            events = [json.loads(line[6:]) for line in response.read().decode().splitlines()
+                      if line.startswith("data: ")]
         assert events[0]["session_expires"] == 4000.0 and events[-1]["done"] is True
         assert all(e["beats"] == {"own_calls": {"at": 1.0, "ok": True}} for e in events[1:-1]) and len(events) > 2
     finally:

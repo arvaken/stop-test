@@ -20,8 +20,8 @@ The founder's conditions, each as the kit meets it:
    its bucket deleted; where any of it fails, they are left, and named as left. Sealing the copies with the
    measurement's evidence is Arvaken's record's step. Log file validation is on, so any digest file CloudTrail delivers
    before the trail is deleted, signed by AWS, is copied with them.
-4. **One trial run first**: a run's details say, for each repeat, whether its StopRuntimeSession was found in the trail's
-   records and when, and count the trail's records by the call (run.py).
+4. **One trial run first**: a run's details say, for each repeat, whether its StopRuntimeSession was found in the
+   trail's records and when, and count the trail's records by the call (run.py).
 5. **Times as ranges**: CloudTrail's records are whole seconds, so a moment from them is taken as known to a second.
 """
 from __future__ import annotations
@@ -152,7 +152,8 @@ def _unless(codes: set[str], call: Callable[[], Any]) -> Any:
 
 
 def keep(cloudtrail: Any, s3: Any, run: str, folder: Path, now: Callable[[], float] = time.time,
-         sleep: Callable[[float], None] = time.sleep, quiet: float = QUIET, limit: float = QUIET_LIMIT) -> dict[str, Any]:
+         sleep: Callable[[float], None] = time.sleep, quiet: float = QUIET,
+         limit: float = QUIET_LIMIT) -> dict[str, Any]:
     """Stop logging, wait until no new file has come for `quiet` seconds (up to `limit`), then copy every object to
     `folder`, with SHA256SUMS, each copy read back against what was downloaded. Returns what was kept. A trail or bucket
     an interrupted run never made has nothing to keep."""
@@ -170,6 +171,10 @@ def keep(cloudtrail: Any, s3: Any, run: str, folder: Path, now: Callable[[], flo
     folder.mkdir(parents=True, exist_ok=True)
     sums, found = [], []
     for key in sorted(seen):
+        if key.endswith("/"):           # a folder CloudTrail marks with an empty object (AWSLogs/<account>/...)
+            folder.joinpath(*key.split("/")).mkdir(parents=True, exist_ok=True)
+            sums.append(f"{hashlib.sha256(b'').hexdigest()}  {key}\n")
+            continue
         body = s3.get_object(Bucket=n["bucket"], Key=key)["Body"].read()
         path = folder.joinpath(*key.split("/"))
         path.parent.mkdir(parents=True, exist_ok=True)

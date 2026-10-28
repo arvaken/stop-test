@@ -124,7 +124,8 @@ tr.differs td{{font-weight:600}}</style></head><body>
 to {html.escape(doc['run']['ended_at'] or '')}. The stop was fired by {html.escape(doc['stop']['fired_by'])}.
 The window was {html.escape(worded('not stopped', window).removeprefix('not stopped within '))}; the kit's clock and the
 test agent's were {doc['run']['clock_gap_ms']} ms apart.</p>
-<table><thead><tr><th>Repeat</th><th>Path</th><th>{EXPECTED_HEADING[doc['stop']['kind'] in AGENTCORE]}</th><th>What the test found</th>
+<table><thead><tr><th>Repeat</th><th>Path</th><th>{EXPECTED_HEADING[doc['stop']['kind'] in AGENTCORE]}</th>
+<th>What the test found</th>
 <th>First refused</th><th>Errors seen (this page only)</th></tr></thead><tbody>
 {''.join(rows)}
 </tbody></table>
