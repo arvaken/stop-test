@@ -180,15 +180,19 @@ the gateway option waits for a later version. Name your gateway with `--via` and
 stop-test aws plan --via https://gateway.example:8443 --product-attachment all-outbound --product-name "Our test gateway" --region eu-central-1
 ```
 
-The test agent then sends through your gateway, as an HTTPS proxy, only the calls your gateway is attached to: [FILL:
-for each --product-attachment value, the test agent's calls it covers]. Its other calls go directly, as your agents'
-would. Its call with a key and its open-internet call go to Arvaken's test address. Through your gateway, they reach it
-from the address your gateway's traffic leaves from, which is yours, and Arvaken's test address sees that address.
-[FILL: what it keeps, and for how long.]
+The test agent then sends through your gateway, as an HTTPS proxy, only the calls your gateway is attached to: with
+`model`, its call to the model you name with `--model`; with `outside-services`, its call with a key and its
+open-internet call; with `all-outbound`, every call it makes: its own calls to AWS, its work under the second role, its
+call with a key, its open-internet call and, with `--model`, its call to the model. Its other calls go directly, as your
+agents' would. Its call with a key and its open-internet call go to Arvaken's test address. Through your gateway, they
+reach it from the address your gateway's traffic leaves from, which is yours, and Arvaken's test address sees that
+address. [FILL: what it keeps, and for how long.]
 
 With `--via`, name your gateway with both of:
 
-- `--product-attachment`: how it is attached: [FILL: only the values whose calls the test agent makes];
+- `--product-attachment`: how it is attached: `model` (its calls to a model), only with `--model`, since only then does
+  the test agent call one; `outside-services` (its calls to outside services); or `all-outbound` (all its outbound
+  traffic);
 - `--product-name`: its name, in your own words, up to 200 characters. It's shown as you wrote it. The kit doesn't check
   it, and the result is your own test, not Arvaken's rating of any product.
 
@@ -207,10 +211,10 @@ everything behind it is safe, such as one you use only for testing. The kit neve
 off.
 
 When it asks, press Enter, then fire your stop. Each path is timed from that mark, so a time errs toward slower, never
-faster. A path whose calls were already refused at your mark is reported as not measured. The kit times each path for
-[FILL: window, at least 15 minutes, set before the run] after your mark. When the timing is done, the kit says so, and
-you can turn your switch off. A run through a gateway is timed once and not repeated, since only you can take its stop
-off.
+faster. A path whose calls were already refused at your mark is reported as not measured. The kit times each path for 15
+minutes after your mark, or longer if you give `--window` (15m or more) before the run. When the timing is done, the kit
+says so, and you can turn your switch off. A run through a gateway is timed once and not repeated, since only you can
+take its stop off.
 
 A path that did not work through your gateway before the stop is reported as not measured, never as stopped. If none
 did, there is nothing to time: the kit asks for no mark, and removes what it made. The page shows each path beside what
