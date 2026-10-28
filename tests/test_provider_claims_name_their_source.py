@@ -37,8 +37,11 @@ OWED_AT_MOST = 0
 
 PROVIDER = r"(?:AWS|Amazon|Google Cloud|Google|Microsoft|Azure|Entra)"
 ATTRIBUTIONS = [re.compile(p, re.M) for p in (
-    rf"\b{PROVIDER}(?:'s)? (?:own )?(?:documentation|docs|pages?|guides?|examples?|reference|FAQ)\b",
-    rf"\b{PROVIDER} (?:says|said|documents|documented|describes|described|states|stated|writes|notes|recommends)\b",
+    # its pages, a service's among them ("AWS's Lambda guide", "Google Cloud's Cloud Run docs")
+    rf"\b{PROVIDER}(?:'s)? (?:own )?(?:[A-Z][\w-]*(?: [A-Z][\w-]*)? )?"
+    r"(?:documentation|docs|pages?|guides?|examples?|reference|FAQ)\b",
+    rf"\b{PROVIDER} (?:says|said|documents|documented|describes|described|states|stated|writes|notes|recommends"
+    r"|requires|required|asks|asked|warns)\b",
     # the provider named as a sentence's speaker, "AWS: ...", at the start of a line, a comment, a sentence or brackets
     rf"(?:^\s*(?:#|[-+])?|[.;(]|\*\*)\s*{PROVIDER}(?: \([^)]*\))?: ",
     # and as a citation, "... (AWS)."
@@ -198,7 +201,9 @@ def test_what_counts_as_a_claim_and_a_citation():
                  "Google's pages contradict each other", "AWS: streaming lasts up to 60 minutes",
                  "a stopped session restarts on the next call to it (AWS): each",
                  "(Developer Guide, runtime sessions)", "Microsoft's own pages", "Azure documents it",
-                 "as AWS's Service Authorization Reference lists them", "according to Google Cloud"):
+                 "as AWS's Service Authorization Reference lists them", "according to Google Cloud",
+                 "AWS's Lambda guide asks for those actions", "from AWS's Bedrock guide on inference profiles",
+                 "as AWS requires both for a profile"):
         assert attributed(said), said
     for plain in ("Denying calls to this agent refuses new sessions.", "AWS takes no policy on a harness itself",
                   "the terms of AWS's service", "an AWS deny can't stop them"):
