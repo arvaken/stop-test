@@ -1,12 +1,17 @@
 """The stop test on AgentCore (agentcore/; arvaken/mark, AGENTCORE-MEASUREMENT.md; D618), against a fake AWS.
 
-The fake holds what the run depends on, as this file's reading of AWS's documented behaviour, not AWS's own: a policy
-on the runtime's role denies the session's own calls DELAY seconds after the call; the runtime's resource policy refuses
-new calls DENY_DELAY seconds after it is written, and never cuts a stream already open; StopRuntimeSession ends the
-session and its stream at once; CloudTrail's event history shows a management call TRAIL_DELAY seconds after it, IAM's
-in us-east-1 and AgentCore's in the run's region; a trail delivers its data events to its bucket DELIVERY seconds after
-each. The running session's stream is the fake's own (FakeStream), polled on the run's fake clock; the real stream is
-tested on its own, against bytes as AgentCore sends them (test_the_stream_*), and the agent against its own server.
+The fake holds what the run depends on, as this file's own assumptions, not AWS's behaviour: a policy on the runtime's
+role denies the session's own calls DELAY seconds after the call; the runtime's resource policy refuses new calls
+DENY_DELAY seconds after it is written; StopRuntimeSession ends the session and its stream at once; CloudTrail's event
+history shows a management call TRAIL_DELAY seconds after it, IAM's in us-east-1 and AgentCore's in the run's region; a
+trail delivers its data events to its bucket DELIVERY seconds after each.
+
+What a deny of calls does to a session already running, AWS's pages do not say (the founder, 28 October 2026: no AWS
+claim either way). It is what the run measures. The fake leaves the stream open by default, and with
+`deny_cuts_stream=True` ends it once the deny refuses calls; the run is tested both ways.
+
+The running session's stream is the fake's own (FakeStream), polled on the run's fake clock; the real stream is tested
+on its own, against bytes as AgentCore sends them (test_the_stream_*), and the agent against its own server.
 """
 from __future__ import annotations
 
@@ -86,6 +91,9 @@ class FakeStream:
         while self.next <= self.clock.now() and self.next <= self.end:
             t = self.next
             ended = self.aws.sessions[self.session]["ended"]
+            if self.aws.deny_cuts_stream and self.aws.deny_in_effect(t):
+                cut = self.aws.runtime["policy_at"] + DENY_DELAY
+                ended = cut if ended is None else min(ended, cut)
             if self.aws.breaks_in is not None and t >= self.start + self.aws.breaks_in:
                 if self.ended is None:
                     self.ended = (self.start + self.aws.breaks_in, "ResponseStreamingError")
@@ -130,6 +138,7 @@ class FakeAWS:
         self.trail: dict | None = None
         self.trail_history: list[dict] = []
         self.boundary = boundary
+        self.deny_cuts_stream = deny_cuts_stream
         self.trail_records_stop = trail_records_stop
         # seconds after a session opens: its stream breaks while the session goes on; or the session dies
         self.breaks_in: float | None = None
@@ -546,6 +555,19 @@ def test_a_deny_alone_refuses_new_calls_and_the_running_session_keeps_going(tmp_
     assert d["repeats"][0]["own_calls"]["fired_at"] == d["repeats"][0]["new_calls"]["fired_at"]
 
 
+def test_a_deny_alone_that_ends_the_running_session_is_measured_as_stopped_and_the_page_expected_nothing():
+    clock = Clock()
+    aws = FakeAWS(clock, deny_cuts_stream=True)
+    r, doc = a_run(aws, clock, fire.DENY)
+    assert outcomes(doc) == {p: "stopped" for p in running.PATHS}
+    d = running.details(r, doc)
+    assert d["sessions"][0]["stream_ended_by"] == "ResponseStreamingError"
+    assert d["sessions"][0]["writes_after_stream_ended"] == 0
+    page = report.page(doc, [x for _, x in running.results(r)])
+    assert 'class="differs"' not in page
+    assert page.count(report.NOT_KNOWN) == 4
+
+
 def test_the_deny_is_every_principal_denied_all_six_calls_to_the_runtime_with_no_condition():
     arn = f"arn:aws:bedrock-agentcore:{REGION}:{ACCOUNT}:runtime/arvaken_stop_test_r0a1b2c3d-AbCdE12345"
     assert json.loads(fire.deny_document(arn)) == {"Version": "2012-10-17", "Statement": [{
@@ -734,9 +756,10 @@ def test_the_page_says_what_each_agentcore_kind_is_expected_to_stop():
     page = report.page(doc, [d for _, d in running.results(r)])
     assert "This kind of stop would be expected" in page and "new calls to the agent" in page
     assert report.expected("deny calls to an AgentCore agent", "new_calls") == "stopped"
-    assert report.expected("deny calls to an AgentCore agent", "own_calls") == "not stopped"
+    assert report.expected("deny calls to an AgentCore agent", "own_calls") is None
     assert report.expected("deny calls to an AgentCore agent and end its sessions", "own_calls") == "stopped"
-    assert report.expected("policy on an AgentCore agent's role", "new_calls") == "not stopped"
+    assert report.expected("policy on an AgentCore agent's role", "new_calls") is None
+    assert page.count(report.NOT_KNOWN) == 4 and 'class="differs"' not in page
 
 
 # -- the real stream, against bytes as AgentCore sends them

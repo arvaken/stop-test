@@ -43,23 +43,27 @@ REVOKE_NOTE = ("Revoking sessions denies the sessions issued before the moment i
                "unaffected, so what is expected here is of the sessions the test agent held when the stop was fired.")
 
 
-# On AgentCore (AGENTCORE-MEASUREMENT.md, section 3; D618), each kind's expectation, path by path: a policy on the
-# role stops the running session's own calls and leaves new calls answered; a deny of calls refuses new calls and leaves
-# the running session going; with the session ended as well, everything stops.
-AGENTCORE = {
-    "policy on an AgentCore agent's role": {**EXPECTED, "new_calls": "not stopped"},
-    "deny calls to an AgentCore agent": {"own_calls": "not stopped", "another_identity": "not stopped",
-                                         "outside_key": "not stopped", "open_internet": "not stopped",
-                                         "new_calls": "stopped"},
+# On AgentCore (AGENTCORE-MEASUREMENT.md, section 3; D618), each kind's expectation, path by path, only where it
+# follows from what the stop is: a policy on the role reaches the running session's own calls as on Lambda; a deny of
+# calls refuses new calls; ending the session ends its four paths (AWS: StopRuntimeSession "instantly terminates the
+# specified session"). None where AWS's pages say nothing, which is what the run measures (the founder, 28 October 2026:
+# no AWS claim either way): what a deny does to a session already running, and whether new calls are answered while the
+# runtime's role is denied.
+AGENTCORE: dict[str, dict[str, str | None]] = {
+    "policy on an AgentCore agent's role": {**EXPECTED, "new_calls": None},
+    "deny calls to an AgentCore agent": {"own_calls": None, "another_identity": None, "outside_key": None,
+                                         "open_internet": None, "new_calls": "stopped"},
     "deny calls to an AgentCore agent and end its sessions": {"own_calls": "stopped", "another_identity": "stopped",
                                                               "outside_key": "stopped", "open_internet": "stopped",
                                                               "new_calls": "stopped"},
 }
 # CUSTOMER TEXT (D618): not yet approved
 EXPECTED_HEADING = {False: "A stop on its role would be expected", True: "This kind of stop would be expected"}
+# CUSTOMER TEXT (D618): not yet approved
+NOT_KNOWN = "not known before measuring"
 
 
-def expected(kind: str, path: str) -> str:
+def expected(kind: str, path: str) -> str | None:
     if kind in AGENTCORE:
         return AGENTCORE[kind][path]
     return "stopped" if kind == REVOKE_KIND and path == "another_identity" else EXPECTED[path]
@@ -93,14 +97,16 @@ def page(doc: Mapping[str, Any], details: list[Mapping[str, PathResult]] | None 
     rows = []
     for i, repeat in enumerate(doc["repeats"]):
         for path, part in repeat.items():
-            expected_here, actual = worded(expected(doc["stop"]["kind"], path), window), worded(part["outcome"], window)
+            expectation = expected(doc["stop"]["kind"], path)
+            expected_here = NOT_KNOWN if expectation is None else worded(expectation, window)
+            actual = worded(part["outcome"], window)
             errors = ""
             if details and i < len(details) and path in details[i]:
                 found = details[i][path]
                 errors = ", ".join(f"{code} {n}" for code, n in sorted(found.errors.items()))
                 if found.reason and part["outcome"] == "not run":
                     errors = f"{found.reason}: {errors}" if errors else found.reason
-            mark = "" if expected(doc["stop"]["kind"], path) == part["outcome"] else ' class="differs"'
+            mark = "" if expectation in (None, part["outcome"]) else ' class="differs"'
             if details and i < len(details) and path in details[i] and _found(details[i][path]):
                 actual = f"{actual} ({_found(details[i][path])})"
             rows.append(f"<tr{mark}><td>{i + 1}</td><td>{html.escape(PATH_WORDS[path])}</td>"

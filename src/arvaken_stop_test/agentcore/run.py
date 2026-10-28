@@ -38,8 +38,7 @@ timed from the deny and the session's four paths from StopRuntimeSession. Where 
 TRAIL_WAIT, its moment is the kit's own clock.
 
 **Between repeats** the kit removes the stop and waits for new calls to be answered again (RECOVERY); each repeat opens
-a new session, which must work before its stop. AWS restarts a stopped session on the next call to it, so the kit never
-calls one again.
+a new session, which must work before its stop. The kit never calls a repeat's session again once the repeat is over.
 
 **What was made is checked gone by its own identifier** (the founder, 23 October 2026, as on Lambda): the runtime, its
 endpoints, its workload identity, its code in S3, the bucket, both roles, any log group AgentCore made for the runtime

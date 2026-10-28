@@ -13,8 +13,9 @@ Every name carries the run, and everything that takes a tag is tagged `arvaken-s
 The roles are named as the Lambda agent's are (aws/stack.py), so the kit fires and removes a policy on the agent's role
 the same way (aws/fire.py). Both carry the kit's permissions boundary, and their policies are what the boundary already
 allows, objects in a run's bucket and assuming a run's role: AgentCore needs no change to it. The agent's role is given
-nothing to read its code, as AgentCore reads the zip with the credentials of whoever makes the runtime (AWS's guide to
-direct code deployment), and nothing to write logs: it reaches only what the agent's paths use.
+nothing to read its code and nothing to write logs: it reaches only what the agent's paths use. AWS's pages on direct
+code deployment differ on whether a runtime's role must read its code; the trial run in Arvaken's install-test account
+(28 October 2026) is where the kit finds out.
 
 **The runtime's session limits are the kit's** (`lifecycleConfiguration`): a session idle for IDLE seconds ends, and none
 lives past MAX_LIFETIME, an hour, which is also the longest a streaming response lasts. Each run's details record them
