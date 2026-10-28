@@ -26,11 +26,12 @@ network settings, and nothing more. A run without a subnet makes the role withou
 a Bedrock model's ID or a cross-Region inference profile's, the function's environment names it (MODEL) and the agent's
 role alone is allowed `bedrock:InvokeModel` (which the agent's Converse call needs) on exactly what that ID needs
 (model_resources): for a model's ID, that model in the run's region; for a profile's (its ID begins with its geography,
-as `eu.` or `global.`: PROFILE_PREFIXES, as Bedrock listed its system-defined profiles on 28 October 2026
-[source: aws-bedrock-inference-profile-ids]), the profile in the run's region and the model it names in every region, as
-AWS requires both for a profile that routes calls to other regions [source: aws-bedrock-inference-profile-permissions].
-The second role is never given it. A run without a model makes the stack exactly as before. An ID is checked for its
-shape (MODEL_ID) before it is written into the template, so it can name nothing but a model or a profile.
+as `eu.` or `global.`: PROFILE_PREFIXES, as Bedrock's ListInferenceProfiles returned its system-defined profiles in five
+Regions, read in Arvaken's own test account on 28 October 2026), the profile in the run's region and the model it names
+in every region, as AWS requires both for a profile that routes calls to other regions
+[source: aws-bedrock-inference-profile-permissions]. The second role is never given it. A run without a model makes the
+stack exactly as before. An ID is checked for its shape (MODEL_ID) before it is written into the template, so it can
+name nothing but a model or a profile.
 
 AWS's Lambda guide asks for those network actions on every resource ("allow them on all resources")
 [source: aws-lambda-vpc-permissions], so a boundary that allows them lets any role made under it make, delete and
@@ -68,8 +69,8 @@ NETWORK_ACTIONS = ("ec2:CreateNetworkInterface", "ec2:DescribeNetworkInterfaces"
 NETWORK_SID = "TheTestAgentsNetworkInterfacesInASubnetYouName"
 MODEL_SID = "TheTestAgentsCallToAModel"
 # A Bedrock model's ID (provider.model, with a version after ":") or a cross-Region inference profile's (its geography,
-# then a model's ID), and the geographies such a profile's ID begins with, as Bedrock's ListInferenceProfiles gave its
-# system-defined profiles in five Regions on 28 October 2026 [source: aws-bedrock-inference-profile-ids].
+# then a model's ID), and the geographies such a profile's ID begins with, as Bedrock's ListInferenceProfiles returned
+# its system-defined profiles in five Regions, read in Arvaken's own test account on 28 October 2026.
 MODEL_ID = re.compile(r"[a-z0-9-]{1,63}(\.[a-z0-9-]{1,63}){1,2}(:[a-z0-9-]{1,63}){0,2}")
 PROFILE_PREFIXES = ("us", "eu", "apac", "au", "jp", "ca", "global")
 NETWORK_STATEMENTS = (
