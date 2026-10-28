@@ -275,6 +275,7 @@ def warm_up(c: Clients, r: Run, clock: Clock) -> None:
         clock.sleep(1.0)
     if best is None:
         codes = ", ".join(f"{k} {v}" for k, v in sorted(errors.items()))
+        # CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
         raise NotStarted(f"The test agent did not answer before the stop ({codes}), so nothing was timed.", r)
     r.offset = best[1]
 
@@ -548,6 +549,7 @@ def trail_recording(c: Clients, r: Run, clock: Clock, wait: float = TRAIL_READY_
         if any(e.get("eventSource") == trailing.SOURCE for e in trailing.records(c.s3, bucket)):
             r.trail_recording = clock.now()
             return
+    # CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
     raise NotStarted(f"The run's trail recorded none of the test agent's calls in {int(wait // 60)} minutes, so ending "
                      "a session could not be timed from it. Nothing was fired.", r)
 
@@ -832,7 +834,7 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, window: float = WINDOWS["aw
     if not 1 <= repeats <= 5:
         raise ValueError("a run repeats one to five times")
     if READY_WAIT + LEAD + window + HOLD + SLACK > LONGEST:
-        # source: aws-agentcore-streaming-limit
+        # CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618); source: aws-agentcore-streaming-limit
         raise ValueError(f"a window on AgentCore is at most {int(LONGEST - READY_WAIT - LEAD - HOLD - SLACK)} seconds: "
                          "the running session is watched on one streaming response, which AWS keeps up to 60 minutes")
     the_name = run_name or new_run()

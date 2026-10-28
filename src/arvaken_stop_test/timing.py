@@ -45,7 +45,7 @@ PATH_WORDS = {
     "outside_key": "a key for a service outside the cloud",
     "open_internet": "the open internet",
     "model": "a call to a model",
-    # CUSTOMER TEXT (D618): not yet approved
+    # CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
     "new_calls": "new calls to the agent",
 }
 

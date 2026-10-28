@@ -57,9 +57,9 @@ AGENTCORE: dict[str, dict[str, str | None]] = {
                                                               "outside_key": "stopped", "open_internet": "stopped",
                                                               "new_calls": "stopped"},
 }
-# CUSTOMER TEXT (D618): not yet approved
+# CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
 EXPECTED_HEADING = {False: "A stop on its role would be expected", True: "This kind of stop would be expected"}
-# CUSTOMER TEXT (D618): not yet approved
+# CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
 NOT_KNOWN = "not known before measuring"
 
 

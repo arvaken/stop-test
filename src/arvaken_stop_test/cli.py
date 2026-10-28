@@ -157,7 +157,7 @@ def _google(args, p) -> int:
 
 
 # On AgentCore (agentcore/; D618): the plan's lines, each kind's, and what is said once the result is written.
-# CUSTOMER TEXT (D618): not yet approved
+# CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
 AGENTCORE_STOPS = {
     "attached": "- attaches your stop, {stop}, to the test agent's role alone;",
     "inline": "- writes a policy denying every action on the test agent's role alone;",
@@ -165,7 +165,7 @@ AGENTCORE_STOPS = {
     "deny_and_end": ("- writes a resource policy on the test agent denying every call to it, from anyone, then ends "
                      "the session the test agent is running;"),
 }
-# CUSTOMER TEXT (D618): not yet approved
+# CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
 AGENTCORE_PLAN = (
     "Run {run} in {region}, on AgentCore:\n"
     "- creates a test agent, the AgentCore runtime {runtime}, from the kit's own code; its role and a second role; and "
@@ -177,13 +177,13 @@ AGENTCORE_PLAN = (
     "- times each path for {window} seconds after firing, {repeats} time(s);\n"
     "- calls the test agent about {calls} times. AWS bills each session's use to your account;\n"
     "- then removes the stop it fired and everything it made, and names anything left.")
-# CUSTOMER TEXT (D618): not yet approved
+# CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
 AGENTCORE_PLAN_TRAIL = (
     "- creates a CloudTrail trail of its own, {trail}, recording only the test agent's data events, and its bucket "
     "{bucket}. Before deleting them, it copies their records beside the result, with the SHA-256 of each;\n")
-# CUSTOMER TEXT (D618): not yet approved
+# CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
 AGENTCORE_KEPT = "The trail's records are in {folder}, each with its SHA-256 in {folder}/SHA256SUMS."
-# CUSTOMER TEXT (D618): not yet approved
+# CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
 AGENTCORE_HELP = {
     "stop": "your declared stop: a managed policy's ARN, attached to the test agent's role",
     "inline_deny": "the stop is a policy written on the test agent's role, denying every action",
@@ -232,6 +232,7 @@ def _agentcore(args, p) -> int:
     from arvaken_stop_test.aws.stack import new_run
     if args.action in ("plan", "run"):
         if sum((bool(args.stop), args.inline_deny, args.deny_calls, args.deny_calls_and_end_sessions)) != 1:
+            # CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
             p.error("give one of --stop, --inline-deny, --deny-calls or --deny-calls-and-end-sessions")
     run_name = args.run_name or new_run()
     if args.action == "plan":
@@ -307,6 +308,7 @@ def main(argv: list[str] | None = None) -> int:
     clean.add_argument("--run", dest="run_name", required=True)
     clean.add_argument("--region", required=True)
     clean.add_argument("--stop", default="", help="the policy's ARN, if the run attached your managed policy")
+    # CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
     agentcore = sub.add_parser("agentcore", help="the stop test on an agent in Amazon Bedrock AgentCore")
     agentcore_sub = agentcore.add_subparsers(dest="action", required=True)
     for name in ("plan", "run"):
