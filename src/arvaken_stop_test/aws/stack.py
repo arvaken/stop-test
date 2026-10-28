@@ -9,18 +9,28 @@ Every resource is named with the run's prefix, `arvaken-stop-test-<run>`, and ta
 The roles' permissions reach only the run's own bucket and the run's own second role. The kit touches nothing it did
 not create, except to attach the customer's stop to the agent's role (fire.py).
 
-Both roles carry the permissions boundary `arvaken-stop-test-boundary` (boundary.json), a policy your account holds
-once, which allows no more than the roles' own policies need: objects in a run's bucket, and assuming a run's role. The
-kit's policy (permissions/aws-policy.json) lets its holder make or change a role only with that boundary on it, so it
-cannot make a role that reaches anything else.
+Both roles carry the permissions boundary `arvaken-stop-test-boundary` (boundary.json), or in a subnet one of their
+own (below): a policy your account holds once, which allows no more than the roles' own policies need: objects in a
+run's bucket, and assuming a run's role. The kit's policy (permissions/aws-policy.json) lets its holder make or change a
+role only with one of those boundaries on it; under arvaken-stop-test-boundary it cannot make a role that reaches
+anything else.
 
 **In a subnet the customer names (`--subnet`, `--security-group`; D561, section 5).** Where the customer's gateway is
 reached only from their own network, the test agent's function is put in that subnet, with the security groups they
 name. Lambda then makes the function's network interfaces there, as the function's role: that role alone is given the
 six EC2 actions Lambda needs for it, those of AWS's managed policy AWSLambdaVPCAccessExecutionRole without its logs
-actions, and the boundary allows them too (its statement NETWORK_SID). Nothing else of the customer's is attached or
-changed: the subnet and the groups are named in the function's network settings, and nothing more. A run without a
-subnet makes the role without them, and still takes the boundary as it was before that statement (fire.py).
+actions. Nothing else of the customer's is attached or changed: the subnet and the groups are named in the function's
+network settings, and nothing more. A run without a subnet makes the role without them.
+
+AWS's Lambda guide asks for those actions on every resource ("allow them on all resources"), so a boundary that allows
+them lets any role made under it make, delete and re-address network interfaces anywhere in the account: not what
+arvaken-stop-test-boundary may do. A run in a subnet's roles therefore carry a boundary of their own,
+`arvaken-stop-test-boundary-via` (boundary_name), which your account holds only where someone made it to run in a
+subnet: arvaken-stop-test-boundary and the statements NETWORK_STATEMENTS. They allow the six actions, and deny them to
+any call from a function's own code: Lambda puts its function's ARN on those calls, and not on the calls it makes
+itself to make a function's network interfaces (its guide, "Using source function ARN to control function access
+behavior"), so the agent's code cannot make them, nor any other function's under that boundary. A run without a subnet
+takes arvaken-stop-test-boundary, as before.
 """
 from __future__ import annotations
 
@@ -41,6 +51,11 @@ INLINE_LIMIT = 4096          # CloudFormation's limit on a function's inline cod
 NETWORK_ACTIONS = ("ec2:CreateNetworkInterface", "ec2:DescribeNetworkInterfaces", "ec2:DescribeSubnets",
                    "ec2:DeleteNetworkInterface", "ec2:AssignPrivateIpAddresses", "ec2:UnassignPrivateIpAddresses")
 NETWORK_SID = "TheTestAgentsNetworkInterfacesInASubnetYouName"
+NETWORK_STATEMENTS = (
+    {"Sid": NETWORK_SID, "Effect": "Allow", "Action": list(NETWORK_ACTIONS), "Resource": "*"},
+    {"Sid": "NoneOfThemFromAFunctionsOwnCode", "Effect": "Deny", "Action": list(NETWORK_ACTIONS), "Resource": "*",
+     "Condition": {"Null": {"lambda:SourceFunctionArn": "false"}}},
+)
 
 
 def new_run() -> str:
@@ -53,12 +68,22 @@ def names(run: str) -> dict[str, str]:
     return {"stack": base, "function": f"{base}-agent", "agent_role": f"{base}-agent", "second_role": f"{base}-second"}
 
 
-def boundary_document(network: bool = True) -> dict[str, Any]:
-    """The permissions boundary on both roles, as permissions/aws-boundary.json gives it for your account to hold; with
-    `network` False, as it was before its statement for a subnet's network interfaces (the kit's to 0.2.1)."""
+def boundary_name(network: bool = False) -> str:
+    """The permissions boundary a run's roles carry: arvaken-stop-test-boundary, or in a subnet its own."""
+    return f"{BOUNDARY}-via" if network else BOUNDARY
+
+
+def boundary_file(network: bool = False) -> str:
+    """Where this repository gives that boundary for your account to hold."""
+    return f"permissions/aws-{boundary_name(network).removeprefix(PREFIX + '-')}.json"
+
+
+def boundary_document(network: bool = False) -> dict[str, Any]:
+    """The permissions boundary on both roles, as boundary_file gives it: the kit's (boundary.json, as to 0.2.1); in a
+    subnet, that and NETWORK_STATEMENTS."""
     doc = json.loads(resources.files("arvaken_stop_test.aws").joinpath("boundary.json").read_text(encoding="utf-8"))
-    if not network:
-        doc["Statement"] = [s for s in doc["Statement"] if s.get("Sid") != NETWORK_SID]
+    if network:
+        doc["Statement"] += json.loads(json.dumps(NETWORK_STATEMENTS))
     return doc
 
 
@@ -81,7 +106,7 @@ def template(run: str, endpoint: str, outside_key: str | None = None, subnet: st
     n = names(run)
     tags = [{"Key": TAG, "Value": run}]
     second_arn = {"Fn::Sub": f"arn:${{AWS::Partition}}:iam::${{AWS::AccountId}}:role/{n['second_role']}"}
-    boundary = {"Fn::Sub": f"arn:${{AWS::Partition}}:iam::${{AWS::AccountId}}:policy/{BOUNDARY}"}
+    boundary = {"Fn::Sub": f"arn:${{AWS::Partition}}:iam::${{AWS::AccountId}}:policy/{boundary_name(bool(subnet))}"}
     bucket_objects = lambda prefix: {"Fn::Sub": f"${{Bucket.Arn}}/{prefix}/*"}  # noqa: E731
     own = [{"Effect": "Allow", "Action": ["s3:PutObject", "s3:GetObject"], "Resource": bucket_objects("own")},
            {"Effect": "Allow", "Action": "sts:AssumeRole", "Resource": second_arn}]

@@ -83,19 +83,22 @@ def test_the_aws_policy_names_the_runs_own_resources_wherever_aws_lets_it():
 
 
 BOUNDARY = json.loads((ROOT / "permissions" / "aws-boundary.json").read_text(encoding="utf-8"))
+BOUNDARY_VIA = json.loads((ROOT / "permissions" / "aws-boundary-via.json").read_text(encoding="utf-8"))
 ROLE_CHANGES = {"iam:CreateRole", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:AttachRolePolicy",
                 "iam:DetachRolePolicy"}
 
 
 def test_the_aws_policy_makes_or_changes_a_role_only_under_the_kits_boundary():
     """Whoever holds the policy cannot make a role beyond the boundary: every act that makes a role, or gives one a
-    policy, is allowed only where the role's permissions boundary is arvaken-stop-test-boundary, and none of them
-    elsewhere; and nothing in the policy changes a role's boundary or the boundary policy itself."""
+    policy, is allowed only where the role's permissions boundary is arvaken-stop-test-boundary, or a run in a
+    subnet's arvaken-stop-test-boundary-via, and none of them elsewhere; and nothing in the policy changes a role's
+    boundary or a boundary policy itself."""
     for s in AWS_POLICY["Statement"]:
         actions = set(s["Action"] if isinstance(s["Action"], list) else [s["Action"]])
         if actions & ROLE_CHANGES:
             assert actions == ROLE_CHANGES and s["Condition"] == {
-                "StringLike": {"iam:PermissionsBoundary": "arn:aws:iam::*:policy/arvaken-stop-test-boundary"}}
+                "StringLike": {"iam:PermissionsBoundary": ["arn:aws:iam::*:policy/arvaken-stop-test-boundary",
+                                                           "arn:aws:iam::*:policy/arvaken-stop-test-boundary-via"]}}
     assert not allowed() & {"iam:PutRolePermissionsBoundary", "iam:DeleteRolePermissionsBoundary",
                             "iam:CreatePolicy", "iam:CreatePolicyVersion", "iam:SetDefaultPolicyVersion",
                             "iam:DeletePolicy", "iam:DeletePolicyVersion"}
@@ -108,32 +111,41 @@ def _granted(t: dict) -> dict[str, set[str]]:
             for k, r in t["Resources"].items() if r["Type"] == "AWS::IAM::Role"}
 
 
+def _effect(doc: dict, effect: str) -> set[tuple[str, str]]:
+    return {(a, s["Resource"]) for s in doc["Statement"] if s["Effect"] == effect
+            for a in (s["Action"] if isinstance(s["Action"], list) else [s["Action"]])}
+
+
 def test_the_boundary_is_the_kits_and_allows_what_the_two_roles_do_and_no_more():
     """With a subnet of yours (--subnet; D561), the agent's role alone may also make its function's network interfaces,
-    with AWSLambdaVPCAccessExecutionRole's EC2 actions and none of its logs actions; the boundary allows them for that
-    alone. Without a subnet, the roles are as before, and so is the boundary as the kit took it to 0.2.1."""
+    with AWSLambdaVPCAccessExecutionRole's EC2 actions and none of its logs actions. AWS asks for them on every
+    resource, so the kit's own boundary never allows them: it is as the kit took it to 0.2.1, and a run in a subnet's
+    roles carry arvaken-stop-test-boundary-via, which allows them and denies them to a function's own code."""
     from arvaken_stop_test.aws.stack import NETWORK_ACTIONS, boundary_document, template
-    assert BOUNDARY == boundary_document()                  # permissions/ gives the one the kit checks for
-    allows = {(a, s["Resource"]) for s in BOUNDARY["Statement"] for a in
-              (s["Action"] if isinstance(s["Action"], list) else [s["Action"]])}
+    assert BOUNDARY == boundary_document()                  # permissions/ gives the ones the kit checks for
+    assert BOUNDARY_VIA == boundary_document(network=True)
+    for name in ("aws-boundary.json", "aws-boundary-via.json"):  # as the account holds them: written as the kit dumps
+        text = (ROOT / "permissions" / name).read_text(encoding="utf-8")
+        assert text == json.dumps(json.loads(text), indent=1) + "\n"
     before = {("s3:PutObject", "arn:aws:s3:::arvaken-stop-test-*/*"),
               ("s3:GetObject", "arn:aws:s3:::arvaken-stop-test-*/*"),
               ("sts:AssumeRole", "arn:aws:iam::*:role/arvaken-stop-test-*")}
     network = {(a, "*") for a in NETWORK_ACTIONS}
-    assert allows == before | network
+    assert _effect(BOUNDARY, "Allow") == before and not _effect(BOUNDARY, "Deny")     # the kit's, as to 0.2.1
+    assert _effect(BOUNDARY_VIA, "Allow") == before | network
+    assert _effect(BOUNDARY_VIA, "Deny") == network
+    assert [s["Condition"] for s in BOUNDARY_VIA["Statement"] if s["Effect"] == "Deny"] == [
+        {"Null": {"lambda:SourceFunctionArn": "false"}}]  # Lambda's own calls for the interfaces carry no function ARN
     assert set(NETWORK_ACTIONS) == {"ec2:CreateNetworkInterface", "ec2:DescribeNetworkInterfaces",
                                     "ec2:DescribeSubnets", "ec2:DeleteNetworkInterface",
                                     "ec2:AssignPrivateIpAddresses", "ec2:UnassignPrivateIpAddresses"}
-    earlier = {(a, s["Resource"]) for s in boundary_document(network=False)["Statement"] for a in
-               (s["Action"] if isinstance(s["Action"], list) else [s["Action"]])}
-    assert earlier == before                                # the boundary as it was, which a run without a subnet takes
     plain = _granted(template("r0123abcd", "https://e.test"))
     assert set().union(*plain.values()) == {a for a, _ in before}     # each the roles' own policies grant, none more
     in_a_subnet = _granted(template("r0123abcd", "https://e.test", subnet="subnet-0abc1234",
                                     security_groups=["sg-0abc1234"]))
     assert in_a_subnet["AgentRole"] == plain["AgentRole"] | set(NETWORK_ACTIONS)
     assert in_a_subnet["SecondRole"] == plain["SecondRole"]             # the second role is never given them
-    assert set().union(*in_a_subnet.values()) == {a for a, _ in allows}
+    assert set().union(*in_a_subnet.values()) == {a for a, _ in _effect(BOUNDARY_VIA, "Allow")}
 
 
 def test_a_subnet_of_yours_is_named_in_the_functions_network_settings_and_nothing_else_of_yours_is():

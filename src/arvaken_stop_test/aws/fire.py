@@ -27,7 +27,7 @@ from typing import Any
 
 from datetime import datetime, timezone
 
-from arvaken_stop_test.aws.stack import BOUNDARY, TAG, boundary_document, names
+from arvaken_stop_test.aws.stack import BOUNDARY, TAG, boundary_document, boundary_file, boundary_name, names
 
 MANAGED_POLICY = re.compile(r"arn:aws(-[a-z]+)*:iam::(\d{12}|aws):policy/[\w+=,.@/-]{1,512}")
 OWN_TRIGGER_WARNING = ("Your own trigger may stop more than the test agent. It runs as you made it, and the kit cannot "
@@ -88,36 +88,34 @@ NO_BOUNDARY = (f"Your account has no policy {BOUNDARY}, the permissions boundary
                "Create it once from permissions/aws-boundary.json, as the README's \"The permissions it needs\" says.")
 NOT_THE_BOUNDARY = (f"Your account's policy {BOUNDARY} is not the kit's permissions boundary: its default version "
                     "differs from permissions/aws-boundary.json.")
-# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
-BOUNDARY_WITHOUT_NETWORK = (
-    f"Your account's policy {BOUNDARY} is the kit's earlier boundary, which does not let the test agent make its "
-    "network interfaces in your subnet. With an administrator's credentials, make permissions/aws-boundary.json its "
-    "default version: aws iam create-policy-version --policy-arn <its ARN> --policy-document "
-    "file://permissions/aws-boundary.json --set-as-default")
+# CUSTOMER TEXT (D561, the boundary of a run in a subnet): not yet approved
+NO_BOUNDARY_VIA = (f"Your account has no policy {boundary_name(network=True)}, the permissions boundary the kit puts "
+                   "on the roles it makes for a run in your subnet. Create it once from "
+                   f"{boundary_file(network=True)}, as the README's \"The permissions it needs\" says.")
+# CUSTOMER TEXT (D561, the boundary of a run in a subnet): not yet approved
+NOT_THE_BOUNDARY_VIA = (f"Your account's policy {boundary_name(network=True)} is not the kit's permissions boundary "
+                        f"for a run in your subnet: its default version differs from {boundary_file(network=True)}.")
 
 
 def why_no_boundary(iam: Any, sts: Any, network: bool = False) -> str | None:
     """Why a run cannot make its roles under the kit's permissions boundary, or None: the policy must be in your
-    account, and its default version must be the kit's, statement for statement. A run without a subnet also takes the
-    boundary as it was before its statement for a subnet's network interfaces (to 0.2.1), which allows less; a run in a
-    subnet needs that statement (stack.py)."""
+    account, and its default version must be the kit's, statement for statement. A run in a subnet takes a boundary of
+    its own (stack.py), and only that one; any other run takes arvaken-stop-test-boundary, as to 0.2.1."""
     import json
     caller = sts.get_caller_identity()
-    arn = f"arn:{caller['Arn'].split(':')[1]}:iam::{caller['Account']}:policy/{BOUNDARY}"
+    arn = f"arn:{caller['Arn'].split(':')[1]}:iam::{caller['Account']}:policy/{boundary_name(network)}"
     try:
         version = iam.get_policy(PolicyArn=arn)["Policy"]["DefaultVersionId"]
     except Exception as e:
         if str(getattr(e, "response", {}).get("Error", {}).get("Code")) == "NoSuchEntity":
-            return NO_BOUNDARY
+            return NO_BOUNDARY_VIA if network else NO_BOUNDARY
         raise
     document = iam.get_policy_version(PolicyArn=arn, VersionId=version)["PolicyVersion"]["Document"]
     document = json.loads(document) if isinstance(document, str) else document
     statements = lambda d: sorted(json.dumps(s, sort_keys=True) for s in d["Statement"])  # noqa: E731
-    if statements(document) == statements(boundary_document()):
+    if statements(document) == statements(boundary_document(network)):
         return None
-    if statements(document) == statements(boundary_document(network=False)):
-        return BOUNDARY_WITHOUT_NETWORK if network else None
-    return NOT_THE_BOUNDARY
+    return NOT_THE_BOUNDARY_VIA if network else NOT_THE_BOUNDARY
 
 
 def covers(iam: Any, stop_ref: str, run: str) -> bool:
