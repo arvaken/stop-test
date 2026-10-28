@@ -87,8 +87,9 @@ TERMS_READABLE = {
                                                                             "signature.value"},
 }
 CONTAINERS = {"format", "kit", "run", "stop", "agent", "repeats", "signature"}
-# Version 2: exactly what the kit's terms v3 (D595; v2 until D615) add, and nothing more: the product's kind and how it
-# is attached, readable; its name and the gateway's address, identifying. A field with no phrase here fails below.
+# Version 2: exactly what the kit's terms v4 (D595; v2 until D615, v3 until D625) add, and nothing more: the product's
+# kind and how it is attached, readable; its name and the gateway's address, identifying. A field with no phrase here
+# fails below.
 V2_READABLE = {
     "for a product's control, the kind of product and how it is attached": {"stop.product.kind",
                                                                              "stop.product.attachment"},
@@ -187,7 +188,7 @@ def _resigned(doc: dict, change) -> dict:
     lambda d: d["stop"]["product"].__setitem__("kind", "in-agent SDK") or
     d["stop"]["product"].__setitem__("attachment", "inside its code"),                     # an address, but no gateway
     lambda d: d["run"].__delitem__("via"),
-    # the two fields version 2 no longer has (the kit's terms v3 list neither): refused wherever they are
+    # the two fields version 2 no longer has (the kit's terms v4 list neither): refused wherever they are
     lambda d: d["run"].__setitem__("timing_from", "your mark"),
     lambda d: d["repeats"][0]["outside_key"].__setitem__("failed_before_stop", True),
     lambda d: d["repeats"][0]["own_calls"].__setitem__("failed_before_stop", False),
