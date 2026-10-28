@@ -129,15 +129,47 @@ def model_resources(model: str) -> list[dict[str, str]]:
 
 
 def agent_code() -> str:
-    """agent.py as the function runs it: without its module docstring, which is for readers of this repository."""
+    """agent.py as the function runs it: without its module docstring and its comments, which are for readers of this
+    repository, and indented two spaces a level rather than four (_compact), to fit CloudFormation's inline limit. It is
+    the same program: tests/test_agent.py holds its syntax tree to agent.py's."""
     source = resources.files("arvaken_stop_test.aws").joinpath("agent.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     first = tree.body[0]
     if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
         source = "\n".join(source.splitlines()[first.end_lineno:]).lstrip("\n")
+    source = _compact(source)
     if len(source) > INLINE_LIMIT:
         raise ValueError(f"the test agent's code is {len(source)} characters; CloudFormation takes {INLINE_LIMIT}")
     return source
+
+
+def _compact(source: str) -> str:
+    """Python source without its comments, each statement indented half as far (four spaces a level become two), and
+    each line continuing a statement moved left as far as its statement's first line, so it keeps its alignment."""
+    import io
+    import tokenize
+    starts: dict[int, int] = {}         # each statement's first line, and how far it is indented
+    comments: dict[int, int] = {}       # each comment's line, and its column
+    new = True
+    for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+        if tok.type == tokenize.COMMENT:
+            comments[tok.start[0]] = tok.start[1]
+        elif tok.type == tokenize.NEWLINE:
+            new = True
+        elif tok.type not in (tokenize.NL, tokenize.INDENT, tokenize.DEDENT, tokenize.ENDMARKER) and new:
+            starts[tok.start[0]] = tok.start[1]
+            new = False
+    out, shift = [], 0
+    for row, line in enumerate(source.splitlines(), 1):
+        if row in comments:
+            line = line[:comments[row]].rstrip()
+            if not line:
+                continue                # a line that was a comment alone
+        if row in starts:
+            shift = starts[row] // 2
+        lead = len(line) - len(line.lstrip(" "))
+        out.append(line[min(shift, lead):])
+    return "\n".join(out)
 
 
 def template(run: str, endpoint: str, outside_key: str | None = None, subnet: str = "",

@@ -18,10 +18,11 @@ The paths (the design's section 4; D532, K3):
   message, "1", and one token of output. Its answer is never kept or returned: as on every path, only whether it
   succeeded, and if not the error's code. Without MODEL, the agent makes no such call and its reply has no "model".
 
-**Through a gateway (the kit's `--via`; D561, section 5).** Where the kit's invocation names a gateway (`via`), every
-call the agent makes goes through it as an HTTPS proxy: its own calls to AWS, its work under the other identity (the
-session's own calls, which the agent makes itself; the design's section 3 judges them as its own calls), the session
-taken for it, its call with a key and its open-internet call. The last two still go to Arvaken's test endpoint, never to
+**Through a gateway (the kit's `--via`; D561, section 5).** Where the kit's invocation names a gateway (`via`), the
+calls of the paths it names (`through`: those the gateway's declared attachment covers) go through it as an HTTPS proxy,
+and the others go directly: its own calls to AWS, its work under the other identity (the session's own calls, which the
+agent makes itself; the design's section 3 judges them as its own calls) with the session taken for it, its call with a
+key and its open-internet call. The last two still go to Arvaken's test endpoint, never to
 a real third party's service. Where the invocation carries the customer's certificate bundle (`ca`, for a gateway that
 inspects TLS and presents its own certificate), the agent trusts it beside the default ones for those calls alone, and
 for the gateway's own certificate where its address is https. The gateway and the bundle come with each invocation, as
@@ -40,7 +41,8 @@ every failure, as each is a heartbeat's result, by its code.
 
 This file is shipped as the function's code, so it uses only what Lambda's Python runtime has: the standard library
 and boto3 (with botocore). CloudFormation takes a function's inline code to 4096 characters (stack.py): what explains
-it is here, in the docstring, which is not shipped.
+it is here, in the docstring, which is not shipped, nor are the comments; the code is shipped indented two spaces a
+level, the same program (stack.agent_code).
 """
 import os
 import tempfile
@@ -111,14 +113,15 @@ def _get(url, headers, gw=({}, None)):
 
 def handler(event, context):
     bucket, endpoint = os.environ["BUCKET"], os.environ["ENDPOINT"].rstrip("/")
-    gw = _gateway(event)
+    gw, by = _gateway(event), event.get("through", ())
+    g = lambda p: gw if p in by else ({}, None)  # noqa: E731
     if event.get("action") == "assume":
-        sts = _client("sts", gw)
+        sts = _client("sts", g("another_identity"))
         c = sts.assume_role(RoleArn=os.environ["SECOND_ROLE"], RoleSessionName="arvaken-stop-test",
                             DurationSeconds=3600)["Credentials"]
         return {"at": time.time(), "session": {"key": c["AccessKeyId"], "secret": c["SecretAccessKey"],
                                                "token": c["SessionToken"], "expires": c["Expiration"].timestamp()}}
-    s3 = _client("s3", gw)
+    s3 = _client("s3", g("own_calls"))
     n = str(event.get("n", 0))
 
     def own_calls():
@@ -129,19 +132,20 @@ def handler(event, context):
         session = event.get("session")
         if not session:
             raise RuntimeError("NoSession")
-        other = _client("s3", gw, aws_access_key_id=session["key"], aws_secret_access_key=session["secret"],
-                        aws_session_token=session["token"])
+        other = _client("s3", g("another_identity"), aws_access_key_id=session["key"],
+                        aws_secret_access_key=session["secret"], aws_session_token=session["token"])
         other.put_object(Bucket=bucket, Key=f"another/{n}", Body=b"x")
 
     def outside_key():
-        _get(f"{endpoint}/key", {"Authorization": "Bearer " + os.environ["OUTSIDE_KEY"]}, gw)
+        _get(f"{endpoint}/key", {"Authorization": "Bearer " + os.environ["OUTSIDE_KEY"]}, g("outside_key"))
 
     def open_internet():
-        _get(f"{endpoint}/open", {}, gw)
+        _get(f"{endpoint}/open", {}, g("open_internet"))
 
     def model():
-        _client("bedrock-runtime", gw).converse(modelId=os.environ["MODEL"], inferenceConfig={"maxTokens": 1},
-                                                messages=[{"role": "user", "content": [{"text": "1"}]}])
+        _client("bedrock-runtime", g("model")).converse(modelId=os.environ["MODEL"],
+                                                        inferenceConfig={"maxTokens": 1},
+                                                        messages=[{"role": "user", "content": [{"text": "1"}]}])
 
     beats = {"own_calls": _try(own_calls), "another_identity": _try(another_identity),
              "outside_key": _try(outside_key), "open_internet": _try(open_internet)}

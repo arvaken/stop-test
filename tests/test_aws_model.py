@@ -291,3 +291,36 @@ def test_the_help_names_the_model_option_on_aws_alone(capsys):
         cli.main(["google", "run", "--help"])
     out = capsys.readouterr().out
     assert "--model MODEL_ID" in out and cli.HELP["google_via"] in " ".join(out.split())
+
+
+def test_a_gateway_attached_to_its_calls_to_a_model_carries_the_model_call_alone():
+    """The founder's condition a (28 October 2026): attached to its calls to a model, only the test agent's call to
+    the model goes through the gateway, and its switch stops that alone; every other call goes directly. Without
+    --model the attachment covers none of the run's calls, and the run is refused before anything is made."""
+    from test_aws_gateway import GATEWAY, through
+    to_a_model = {**GATEWAY, "attachment": "its calls to a model"}
+    clock = Clock()
+    aws = FakeAWS(clock)
+    r, doc, _ = through(aws, clock, model=MODEL, product=to_a_model)
+    assert result.check(doc) == doc and r.through == {"model"}
+    assert aws.payloads and all(p["through"] == ["model"] for p in aws.payloads)
+    assert {p: v["outcome"] for p, v in doc["repeats"][0].items()} == {
+        **{p: "not stopped" for p in running.AWS_PATHS}, "model": "stopped"}
+    assert 'class="differs"' not in report.page(doc, [d for _, d in running.results(r)])
+    clock = Clock()
+    aws = FakeAWS(clock)
+    with pytest.raises(ValueError):
+        through(aws, clock, product=to_a_model)
+    assert aws.stack is None and aws.invocations == 0
+
+
+def test_the_command_line_takes_the_model_attachment_only_with_a_model(capsys):
+    from test_cli_and_page import VIA
+    args = ["aws", "plan", "--via", VIA, "--product-attachment", "model", "--product-name", "Model gateway",
+            "--region", "eu-central-1", "--run", "r0123abcd"]
+    with pytest.raises(SystemExit):
+        cli.main(args)
+    assert cli.ATTACHMENT_WITHOUT_CALLS in capsys.readouterr().err
+    assert cli.main([*args, "--model", MODEL]) == 0
+    out = capsys.readouterr().out
+    assert cli.PLAN_VIA_SOME.format(via="https://gw.example:8443", calls="its call to the model") in out

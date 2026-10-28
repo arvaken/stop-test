@@ -7,6 +7,7 @@ the gateway stops carrying calls 3 seconds after that, so each time from the mar
 the switch's own 3, never faster."""
 from __future__ import annotations
 
+import html
 import json
 
 import pytest
@@ -15,7 +16,7 @@ from arvaken_stop_test import report, result
 from arvaken_stop_test.aws import fire as firing
 from arvaken_stop_test.aws import run as running
 from arvaken_stop_test.aws.stack import template
-from arvaken_stop_test.timing import PATH_WORDS
+from arvaken_stop_test.timing import GATEWAY_WINDOW, PATH_WORDS
 from test_aws_run import STOP, Clock, FakeAWS, a_run
 
 VIA = "https://user:pass@gw.example:8443/p?token=x#f"      # as the customer gives it
@@ -37,6 +38,7 @@ def through(aws: FakeAWS, clock: Clock, *, after: float | None = 7.0, said: list
         if after is not None:
             aws.switch_at = clock.now() + after
     kw = dict(stop_ref="", fired_by="your own trigger", via=VIA, ca=PEM, product=GATEWAY, mark=mark,
+              window=GATEWAY_WINDOW,
               say=said.append if said is not None else (lambda _: None))
     kw.update(over)
     r, doc = a_run(aws, clock, **kw)
@@ -68,16 +70,19 @@ def test_through_a_gateway_each_path_is_timed_from_your_mark_and_the_result_says
 
 
 def test_the_gateway_and_the_bundle_go_with_each_invocation_and_are_written_nowhere():
-    clock = Clock()
+    """The founder's condition d: "The --via address is cleaned before any log line, terminal output or file is
+    written." Each invocation carries it as given, to sign in to the gateway; nothing else holds more than its scheme,
+    host and port: what the kit says as the run goes, the result, the details, the page, the run's record."""
+    clock, said = Clock(), []
     aws = FakeAWS(clock)
-    r, doc, _ = through(aws, clock)
+    r, doc, _ = through(aws, clock, said=said)
     assert aws.payloads and all(p["via"] == VIA and p["ca"] == PEM for p in aws.payloads)     # as given, to sign in
     assert sum(p.get("action") == "assume" for p in aws.payloads) == 2
     assert "gw.example" not in aws.stack["body"] and "BEGIN CERTIFICATE" not in aws.stack["body"]
     details = running.details(r, doc)
     assert details["gateway"] == {"via": "https://gw.example:8443", "product": GATEWAY}
     page = report.page(doc, [d for _, d in running.results(r)])
-    for written in (json.dumps(doc), json.dumps(details), page, repr(r)):
+    for written in (json.dumps(doc), json.dumps(details), page, repr(r), "\n".join(said)):
         assert all(s not in written for s in ("user:pass", "pass@", "token", "/p?", "BEGIN CERTIFICATE"))
     assert report.GATEWAY_NOTE.format(name=GATEWAY["name"], attachment=GATEWAY["attachment"],
                                       via="https://gw.example:8443") in page
@@ -142,6 +147,8 @@ def test_where_no_path_works_through_the_gateway_no_mark_is_asked_and_nothing_is
     dict(subnet=SUBNET),                            # a subnet with no security group
     dict(security_groups=GROUPS),
     dict(repeats=2),
+    dict(window=GATEWAY_WINDOW - 1),                # the founder's condition c: at least 15 minutes
+    dict(product={**GATEWAY, "attachment": "its calls to a model"}),    # condition a: no call to a model in this run
 ])
 def test_a_gateway_run_that_is_not_one_is_refused_before_anything_is_made(over):
     clock = Clock()
@@ -244,3 +251,80 @@ def test_a_run_in_a_subnet_takes_a_boundary_of_its_own_and_any_other_run_never_n
                  if r["Type"] == "AWS::IAM::Role"]
         assert len(roles) == 2 and all(p["PermissionsBoundary"] == {
             "Fn::Sub": f"arn:${{AWS::Partition}}:iam::${{AWS::AccountId}}:policy/{name}"} for p in roles)
+
+
+# The founder's conditions for the gateway release, 28 October 2026 (his answer in the kit's session).
+OUTSIDE = {**GATEWAY, "attachment": "its calls to outside services"}
+
+
+def test_only_the_calls_the_attachment_covers_go_through_the_gateway_and_the_page_expects_by_it():
+    """Condition a: "Only calls the declared attachment covers go through --via". Attached to its calls to outside
+    services, the test agent's call with a key and its open-internet call go through the gateway, and its switch stops
+    them; its own calls and its work under the second role go directly, as the customer's agents' would, and it does
+    not. The page expects each path by the attachment, so neither kind differs from what was expected."""
+    clock = Clock()
+    aws = FakeAWS(clock)
+    r, doc, _ = through(aws, clock, product=OUTSIDE)
+    assert result.check(doc) == doc and r.through == {"outside_key", "open_internet"}
+    assert aws.payloads and all(p["through"] == ["open_internet", "outside_key"] for p in aws.payloads)
+    assert {p: v["outcome"] for p, v in doc["repeats"][0].items()} == {
+        "own_calls": "not stopped", "another_identity": "not stopped", "outside_key": "stopped",
+        "open_internet": "stopped"}
+    page = report.page(doc, [d for _, d in running.results(r)])
+    assert 'class="differs"' not in page
+    assert html.escape(report.GATEWAY_NOTE_SOME.format(
+        name=OUTSIDE["name"], attachment=OUTSIDE["attachment"], via="https://gw.example:8443",
+        paths="a key for a service outside the cloud, the open internet")) in page
+    assert "Every call the test agent made" not in page
+    expects = {a: [report.expected("a product's control", p, a) for p in running.AWS_PATHS]
+               for a in result.GATEWAY_ROUTES}
+    assert expects == {"its calls to a model": ["not stopped"] * 4,
+                       "its calls to outside services": ["not stopped", "not stopped", "stopped", "stopped"],
+                       "all its outbound traffic": ["stopped"] * 4}
+
+
+def test_attached_to_all_its_outbound_traffic_every_call_goes_through_the_gateway():
+    clock = Clock()
+    aws = FakeAWS(clock)
+    r, doc, _ = through(aws, clock)
+    assert r.through == set(running.AWS_PATHS) and all(set(p["through"]) == set(running.AWS_PATHS)
+                                                         for p in aws.payloads)
+    assert {v["outcome"] for v in doc["repeats"][0].values()} == {"stopped"}
+
+
+def test_a_path_going_directly_that_did_not_work_before_the_stop_is_not_run_as_in_any_run():
+    r = running.Run(run="r0123abcd", stop_ref="", fired_by="your own trigger", window=GATEWAY_WINDOW, region="x",
+                    via=VIA, product=OUTSIDE, setup_errors={"own_calls": {"AccessDenied": 10}})
+    assert running._did_not_work(r, "own_calls") == (
+        "Before the stop, its own calls to the cloud did not work (AccessDenied 10): it will be reported as not run.")
+    assert running._did_not_work(r, "outside_key") == running.NOT_THROUGH_THE_GATEWAY.format(
+        path=PATH_WORDS["outside_key"], codes="no answer")
+
+
+def test_a_path_already_refused_at_your_mark_is_not_measured_never_stopped():
+    """Condition b: "A path already refused at the mark is 'not measured'". The customer's switch was on before they
+    pressed Enter, so each path through the gateway was refused at its first heartbeat after the mark: no time from the
+    mark can be told of it."""
+    clock, said = Clock(), []
+    aws = FakeAWS(clock)
+    r, doc, marks = through(aws, clock, after=-10.0, said=said)
+    assert len(marks) == 1 and result.check(doc)
+    assert {v["outcome"] for v in doc["repeats"][0].values()} == {"not measured"}
+    found = running.results(r)[0][1]
+    assert {f.reason for f in found.values()} == {running.ALREADY_REFUSED_REASON}
+    assert all(f.effect_between is None for f in found.values())
+    page = report.page(doc, [d for _, d in running.results(r)])
+    assert report.ALREADY_REFUSED_NOTE in page and page.count(running.ALREADY_REFUSED_REASON) == 4
+    # a refusal only after the first heartbeat after the mark is timed, as before
+    clock = Clock()
+    _, doc, _ = through(FakeAWS(clock), clock, after=2.0)
+    assert {v["outcome"] for v in doc["repeats"][0].values()} == {"stopped"}
+
+
+def test_the_window_is_the_one_given_before_the_run_and_the_result_records_it():
+    """Condition c: "The timing window is fixed before the run, at least 15 minutes, and recorded in the result.\""""
+    for window in (GATEWAY_WINDOW, 20 * 60.0):
+        clock = Clock()
+        r, doc, _ = through(FakeAWS(clock), clock, window=window)
+        assert r.window == window and doc["run"]["window_seconds"] == int(window)
+    assert GATEWAY_WINDOW == 15 * 60.0

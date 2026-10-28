@@ -251,8 +251,9 @@ class FakeAWS:
         agent_now = self.clock.now() + self.skew
 
         def through(p: str) -> bool:
-            """Whether the gateway the invocation names carries this path's call now; True without one."""
-            if "via" not in event:
+            """Whether the gateway the invocation names carries this path's call now; True without one, or for a path
+            the invocation does not send through it (its call goes directly)."""
+            if "via" not in event or p not in event.get("through", ()):
                 return True
             return not (p in self.gateway_refuses or self.invocations >= self.gateway_breaks.get(p, 10 ** 9) or
                         (self.switch_at is not None and self.clock.now() >= self.switch_at + self.gw_delay))

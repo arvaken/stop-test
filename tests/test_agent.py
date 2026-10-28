@@ -142,9 +142,11 @@ def test_without_a_model_the_agent_calls_none_and_its_reply_is_as_before(an_agen
 def test_through_a_gateway_the_model_call_goes_through_it_with_the_bundle(an_agent, monkeypatch):
     made, _ = an_agent
     monkeypatch.setenv("MODEL", MODEL)
-    assert agent.handler({"n": 3, "session": SESSION, "via": VIA, "ca": PEM}, None)["beats"]["model"]["ok"]
+    assert agent.handler({"n": 3, "session": SESSION, "via": VIA, "ca": PEM, "through": ["model"]},
+                         None)["beats"]["model"]["ok"]
     (bedrock,) = [kw for name, kw in made if name == "bedrock-runtime"]
     assert bedrock["config"].proxies == {"http": VIA, "https": VIA}
+    assert all(kw["config"].proxies is None for name, kw in made if name != "bedrock-runtime")    # the others directly
     assert bedrock["config"].proxies_config == {"proxy_ca_bundle": agent.CA} and bedrock["verify"] == agent.CA
 
 
@@ -159,8 +161,9 @@ def test_the_agent_with_its_model_call_still_fits_cloudformations_inline_limit()
 def test_through_a_gateway_every_client_and_call_of_the_agent_goes_through_it_with_the_bundle(an_agent):
     made, gets = an_agent
     session = {"key": "k", "secret": "s", "token": "t"}
-    assert agent.handler({"action": "assume", "via": VIA, "ca": PEM}, None)["session"]["key"] == "k"
-    out = agent.handler({"n": 3, "session": session, "via": VIA, "ca": PEM}, None)
+    every = ["another_identity", "open_internet", "outside_key", "own_calls"]
+    assert agent.handler({"action": "assume", "via": VIA, "ca": PEM, "through": every}, None)["session"]["key"] == "k"
+    out = agent.handler({"n": 3, "session": session, "via": VIA, "ca": PEM, "through": every}, None)
     assert all(b["ok"] for b in out["beats"].values()), out
     # its own calls, the session's for the other identity, and the session taken for it: each client through it
     assert [name for name, _ in made] == ["sts", "s3", "s3"]
@@ -189,7 +192,8 @@ def test_without_a_gateway_the_agent_calls_directly_and_trusts_no_bundle(an_agen
 
 def test_a_gateway_with_no_bundle_is_trusted_as_the_default_ones_are(an_agent):
     made, gets = an_agent
-    agent.handler({"n": 3, "session": {"key": "k", "secret": "s", "token": "t"}, "via": VIA}, None)
+    agent.handler({"n": 3, "session": {"key": "k", "secret": "s", "token": "t"}, "via": VIA,
+                   "through": ["another_identity", "open_internet", "outside_key", "own_calls"]}, None)
     assert all(kw["config"].proxies == {"http": VIA, "https": VIA} and kw["verify"] is None for _, kw in made)
     assert all(gw == ({"proxies": {"http": VIA, "https": VIA}, "proxies_config": None}, None) for _, gw in gets)
 
@@ -315,3 +319,32 @@ def test_a_real_gateway_carries_the_agents_calls_and_only_the_customers_bundle_l
     # and without a gateway, the call goes straight there, never through it, and no bundle of the customer's is used
     assert len(seen) == tunnels == 2 and direct["ok"] is False and direct["error"] == "Unreachable"
     assert len(reached) == 1
+
+
+def test_through_a_gateway_only_the_paths_the_invocation_names_go_through_it(an_agent):
+    """The founder's condition a (28 October 2026): attached to its calls to outside services, the agent's call with a
+    key and its open-internet call go through the gateway; its own calls, the session taken for the other identity and
+    that identity's calls go directly."""
+    made, gets = an_agent
+    outside = ["open_internet", "outside_key"]
+    agent.handler({"action": "assume", "via": VIA, "ca": PEM, "through": outside}, None)
+    out = agent.handler({"n": 3, "session": {"key": "k", "secret": "s", "token": "t"}, "via": VIA, "ca": PEM,
+                         "through": outside}, None)
+    assert all(b["ok"] for b in out["beats"].values()), out
+    assert [name for name, _ in made] == ["sts", "s3", "s3"]
+    assert all(kw["config"].proxies is None and kw["verify"] is None for _, kw in made)
+    assert [url for url, _ in gets] == ["https://stop-test.example/key", "https://stop-test.example/open"]
+    assert all(gw == ({"proxies": {"http": VIA, "https": VIA}, "proxies_config": {"proxy_ca_bundle": agent.CA}},
+                      agent.CA) for _, gw in gets)
+
+
+def test_the_shipped_agent_is_agent_py_statement_for_statement():
+    """What the function runs is agent.py without its docstring, its comments, and half its indentation: the same
+    syntax tree, so the same program."""
+    import ast
+    from arvaken_stop_test.aws.stack import agent_code
+    tree = ast.parse(Path(agent.__file__).read_text(encoding="utf-8"))
+    tree.body = tree.body[1:]                       # its module docstring, which is not shipped
+    shipped = agent_code()
+    assert ast.dump(ast.parse(shipped)) == ast.dump(tree)
+    assert "#" not in shipped.replace("#{", "") and "\n    def " not in shipped and "\n  def " in shipped

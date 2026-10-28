@@ -27,7 +27,7 @@ import urllib.parse
 from pathlib import Path
 
 from arvaken_stop_test import report, result
-from arvaken_stop_test.timing import HOLD, WINDOWS
+from arvaken_stop_test.timing import GATEWAY_WINDOW, HOLD, PATHS, WINDOWS
 
 ENDPOINT = "https://stop-test.arvaken.com"        # Arvaken's test endpoint (D532, K3); see endpoint/ in this repository
 
@@ -89,6 +89,20 @@ PLAN_SUBNET = ("- runs the test agent in your subnet {subnet}, with your securit
 PLAN_VIA = ("- sends every call the test agent makes through your gateway at {via}, as an HTTPS proxy: its own calls "
             "to AWS, its work under the second role, its call with a key and its open-internet call. The last two "
             "still go to Arvaken's test address;")
+# Through a gateway attached to less than all its outbound traffic, the plan names the calls that go through it.
+# CUSTOMER TEXT (the founder's condition a, 28 October 2026): not yet approved
+PLAN_VIA_SOME = ("- sends through your gateway at {via}, as an HTTPS proxy, only the test agent's calls it is attached "
+                 "to: {calls}. Its other calls go directly, as your agents' would;")
+# CUSTOMER TEXT (the founder's condition a, 28 October 2026): not yet approved
+CALL_WORDS = {"own_calls": "its own calls to AWS", "another_identity": "its work under the second role",
+              "outside_key": "its call with a key", "open_internet": "its open-internet call",
+              "model": "its call to the model"}
+# CUSTOMER TEXT (the founder's conditions a and c, 28 October 2026): not yet approved
+ATTACHMENT_WITHOUT_CALLS = ("--product-attachment model goes with --model: only then does the test agent call a "
+                            "model.")
+# CUSTOMER TEXT (the founder's condition c, 28 October 2026): not yet approved
+VIA_WINDOW = ("--via times each path for at least 15 minutes after your mark: give --window 15m or more, or leave it "
+              "out.")
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 PLAN_CA = ("- uses your certificate bundle {file} for the calls through your gateway alone; it is never written into "
            "the result;")
@@ -158,7 +172,7 @@ def _plan(args, run_name: str) -> str:
         gateway.append(PLAN_SUBNET.format(subnet=args.subnet, groups=", ".join(args.security_group),
                                           minutes=int(ENI_WAIT // 60)))
     if args.via:            # the address as the result keeps it: its scheme, host and port alone
-        gateway.append(PLAN_VIA.format(via=result.gateway_address(args.via)))
+        gateway.append(_plan_via(args))
     if args.via and args.ca_bundle:
         gateway.append(PLAN_CA.format(file=args.ca_bundle.name))
     lines = [f"Run {run_name} in {args.region}:",
@@ -183,6 +197,23 @@ def _plan(args, run_name: str) -> str:
     return "\n".join(lines)
 
 
+def routed(args) -> tuple[str, ...]:
+    """The paths whose calls go through the gateway: those its declared attachment covers, of the run's own."""
+    from arvaken_stop_test.aws.run import AWS_PATHS, MODEL
+    covered = result.GATEWAY_ROUTES[ATTACHMENTS[args.product_attachment]]
+    own = (*AWS_PATHS, MODEL) if args.model else AWS_PATHS
+    return tuple(q for q in PATHS if q in covered and q in own)
+
+
+def _plan_via(args) -> str:
+    via = result.gateway_address(args.via)
+    if ATTACHMENTS[args.product_attachment] == "all its outbound traffic":
+        return PLAN_VIA.format(via=via)
+    calls = [CALL_WORDS[q] for q in routed(args)]
+    return PLAN_VIA_SOME.format(via=via, calls=" and ".join(calls) + (
+        ", which still go to Arvaken's test address" if set(routed(args)) <= {"outside_key", "open_internet"} else ""))
+
+
 def _gateway(args, p) -> str:
     """The gateway option's arguments, checked before anything is asked or made; returns the certificate bundle's text,
     if any. Nothing said here prints the gateway's address back."""
@@ -204,6 +235,10 @@ def _gateway(args, p) -> str:
         p.error(VIA_NEEDS_PRODUCT)
     if args.repeats != 1:
         p.error(VIA_ONCE)
+    if not routed(args):
+        p.error(ATTACHMENT_WITHOUT_CALLS)
+    if args.window < GATEWAY_WINDOW:
+        p.error(VIA_WINDOW)
     groups = args.security_group or []
     if bool(args.subnet) != bool(groups) or (args.subnet and not SUBNET.fullmatch(args.subnet)) or \
             not all(SECURITY_GROUP.fullmatch(g) for g in groups):
@@ -429,7 +464,8 @@ def main(argv: list[str] | None = None) -> int:
     write(Path(f"stop-test-{run_name}.html"), report.page(doc, [d for _, d in running.results(r)],
                                                           network=running.network(r) if r.subnet else None))
     write(Path(f"stop-test-{run_name}-details.json"), json.dumps(running.details(r, doc), indent=1))
-    print(WROTE_THROUGH_A_GATEWAY.format(out=out) if args.via else
+    # through a gateway, the calls to Arvaken's test address leave from the gateway's address where they go through it
+    print(WROTE_THROUGH_A_GATEWAY.format(out=out) if args.via and "outside_key" in routed(args) else
           f"Wrote {out}, its page and its details. Nothing about your account was sent to Arvaken.")
     print(f"Your result's reference: {result.reference(doc)}. It's the SHA-256 of the result's signature.")
     return 0
