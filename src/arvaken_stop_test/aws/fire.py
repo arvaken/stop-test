@@ -98,7 +98,7 @@ def no_boundary(network: bool = False, model: bool = False) -> str:
     """What the kit says where the account has no boundary for this run: for a run with neither, as to 0.2.1."""
     if not (network or model):
         return NO_BOUNDARY
-    # CUSTOMER TEXT (D561, D562: the boundary of a run in a subnet or with a model): not yet approved
+    # CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
     return (f"Your account has no policy {boundary_name(network, model)}, the permissions boundary the kit puts on the "
             f"roles it makes for {_for(network, model)}. Create it once from {boundary_file(network, model)}, as the "
             "README's \"The permissions it needs\" says.")
@@ -108,7 +108,7 @@ def not_the_boundary(network: bool = False, model: bool = False) -> str:
     """What the kit says where that boundary is not the kit's: for a run with neither, as to 0.2.1."""
     if not (network or model):
         return NOT_THE_BOUNDARY
-    # CUSTOMER TEXT (D561, D562: the boundary of a run in a subnet or with a model): not yet approved
+    # CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
     return (f"Your account's policy {boundary_name(network, model)} is not the kit's permissions boundary for "
             f"{_for(network, model)}: its default version differs from {boundary_file(network, model)}.")
 

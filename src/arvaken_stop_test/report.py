@@ -55,10 +55,10 @@ GATEWAY_HEADING = "A stop of your gateway would be expected"
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 GATEWAY_NOTE = ("Your stop: {name}, a gateway attached to {attachment}. Every call the test agent made went through "
                 "your gateway at {via}.")
-# CUSTOMER TEXT (the founder's condition a, 28 October 2026): not yet approved
+# CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
 GATEWAY_NOTE_SOME = ("Your stop: {name}, a gateway attached to {attachment}. The test agent's calls it covers "
                      "({paths}) went through your gateway at {via}. Its other calls went directly.")
-# CUSTOMER TEXT (the founder's condition b, 28 October 2026): not yet approved
+# CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
 ALREADY_REFUSED_NOTE = "A path already refused at your mark is not measured either."
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 MARK_NOTE = ("You fired your stop yourself, after your mark. Each time here is from your mark, the moment you pressed "

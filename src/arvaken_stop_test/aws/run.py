@@ -82,12 +82,12 @@ NOTHING_THROUGH_THE_GATEWAY = ("No path worked through your gateway before the s
                                "Don't fire your stop: the kit is removing what it made.")
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 NOT_MEASURED_REASON = "it did not work through your gateway before the stop"
-# CUSTOMER TEXT (the founder's condition b, 28 October 2026): not yet approved
+# CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
 ALREADY_REFUSED_REASON = "it was already refused at your mark"
-# CUSTOMER TEXT (the founder's conditions a and c, 28 October 2026): not yet approved
+# CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
 NOT_COVERED_BY_THE_ATTACHMENT = ("Your gateway, as you said it is attached ({attachment}), covers none of the test "
                                  "agent's calls in this run, so there is nothing of it to time.")
-# CUSTOMER TEXT (the founder's conditions a and c, 28 October 2026): not yet approved
+# CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
 GATEWAY_WINDOW_TOO_SHORT = "Through your gateway the kit times each path for at least 15 minutes after your mark."
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 FROM_THE_MARK = "your mark, the moment you pressed Enter, on the kit's clock moved onto the agent's"

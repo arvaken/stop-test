@@ -90,17 +90,17 @@ PLAN_VIA = ("- sends every call the test agent makes through your gateway at {vi
             "to AWS, its work under the second role, its call with a key and its open-internet call. The last two "
             "still go to Arvaken's test address;")
 # Through a gateway attached to less than all its outbound traffic, the plan names the calls that go through it.
-# CUSTOMER TEXT (the founder's condition a, 28 October 2026): not yet approved
+# CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
 PLAN_VIA_SOME = ("- sends through your gateway at {via}, as an HTTPS proxy, only the test agent's calls it is attached "
                  "to: {calls}. Its other calls go directly, as your agents' would;")
-# CUSTOMER TEXT (the founder's condition a, 28 October 2026): not yet approved
+# CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
 CALL_WORDS = {"own_calls": "its own calls to AWS", "another_identity": "its work under the second role",
               "outside_key": "its call with a key", "open_internet": "its open-internet call",
               "model": "its call to the model"}
-# CUSTOMER TEXT (the founder's conditions a and c, 28 October 2026): not yet approved
+# CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
 ATTACHMENT_WITHOUT_CALLS = ("--product-attachment model goes with --model: only then does the test agent call a "
                             "model.")
-# CUSTOMER TEXT (the founder's condition c, 28 October 2026): not yet approved
+# CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
 VIA_WINDOW = ("--via times each path for at least 15 minutes after your mark: give --window 15m or more, or leave it "
               "out.")
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
