@@ -1,9 +1,10 @@
 {
  "about": "IAM's policy simulator and the kit's matcher, each case of permissions/policy-cases.json, run in Arvaken's install-test account; a release publishes only when this passed for its files",
- "checked": "2026-10-29T18:52:06+00:00",
+ "checked": "2026-10-29T20:38:59+00:00",
  "files": {
-  "permissions/aws-agentcore-policy.json": "d21256fb591deb5fbb6653d58974ec93f6dd1df0c37af626fd3a73e1fd117d24",
-  "permissions/policy-cases.json": "51fad40120c4165dfa8da6a41ab5cfbb0e676b68a1d3eaa117f6c2c775547634"
+  "permissions/aws-agentcore-policy.json": "fb89aee76dd812ab3274d641e026d85074010cbddcde4db7f965f6c2a794f18d",
+  "permissions/aws-agentcore-harness-policy.json": "ed9b8510004f83ed8c2479a22fd00867079572acaeeb20e0033e29109c3e4754",
+  "permissions/policy-cases.json": "b03c84ba8732d0abe38f3b484fc90d49570388b82ad7a554d83c9596d6da7135"
  },
  "cases": [
   {
@@ -251,7 +252,163 @@
    "expected": "denied",
    "simulator": "denied",
    "matcher": "denied"
+  },
+  {
+   "id": "tag-runtime-made-with-the-runs-tag",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "tag-harness-made-with-the-runs-tag",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "tag-identity-made-with-the-runs-tag",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "tag-identity-directory-with-the-runs-tag",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "tag-identity-directory-without-the-runs-tag",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "identity-directory-checked-beside-the-runs-identity-get",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "identity-directory-checked-beside-the-runs-identity-delete",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "identity-directory-other-than-the-default-delete",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "tag-yours-without-the-runs-tag",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "tag-your-harness-without-the-runs-tag",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "endpoint-run-make",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "endpoint-yours-make",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "endpoint-yours-delete",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "invoke-for-user-run",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "invoke-for-user-yours",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "harness-endpoint-run-make",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "harness-endpoint-yours-delete",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "identity-run-make",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "identity-yours-make",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "harness-invoke-for-user-run",
+   "expected": "allowed",
+   "simulator": "denied",
+   "matcher": "allowed"
+  },
+  {
+   "id": "harness-invoke-for-user-yours",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "endpoint-made-with-the-runs-tag",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "endpoint-made-without-the-runs-tag",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "identity-directory-with-the-runs-tag",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "identity-directory-without-the-runs-tag",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "identity-directory-update",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
   }
  ],
- "passed": true
+ "passed": false
 }

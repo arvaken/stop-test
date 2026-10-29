@@ -519,12 +519,12 @@
    "expected": "denied"
   },
   {
-   "id": "harness-invoke-for-user-run",
+   "id": "harness-invoke-for-user-not-granted",
    "statement": "TheRunsHarness",
    "action": "bedrock-agentcore:InvokeAgentRuntimeForUser",
    "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:harness/arvaken_stop_test_r0a1b2c3d-AbC",
    "context": {},
-   "expected": "allowed"
+   "expected": "denied"
   },
   {
    "id": "harness-invoke-for-user-yours",
