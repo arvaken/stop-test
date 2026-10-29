@@ -2,9 +2,11 @@
 
 The fake holds what the run depends on, as this file's own assumptions, not AWS's behaviour: a policy on the runtime's
 role denies the session's own calls DELAY seconds after the call; the runtime's resource policy refuses new calls
-DENY_DELAY seconds after it is written; StopRuntimeSession ends the session and its stream at once; CloudTrail's event
-history shows a management call TRAIL_DELAY seconds after it, IAM's in us-east-1 and AgentCore's in the run's region; a
-trail delivers its data events to its bucket DELIVERY seconds after each.
+DENY_DELAY seconds after it is written and, with `linger`, still refuses one in ten of the `linger` new calls after its
+removal (in r58051bd3, 29 October 2026, a removed deny went on refusing some new calls for minutes); StopRuntimeSession
+ends the session and its stream at once; CloudTrail's event history shows a management call TRAIL_DELAY seconds after
+it, IAM's in us-east-1 and AgentCore's in the run's region; a trail delivers its data events to its bucket DELIVERY
+seconds after each.
 
 What a deny of calls does to a session already running, AWS's pages do not say (the founder, 28 October 2026: no AWS
 claim either way). It is what the run measures. The fake leaves the stream open by default, and with
@@ -149,6 +151,10 @@ class FakeAWS:
         self.dies_in: float | None = None
         self.new_calls: list[tuple[float, bool]] = []
         self.invoke_error: str | None = None
+        # how many new calls after a deny's removal it still refuses one in ten of
+        self.linger = 0
+        self.lingering = 0
+        self.removed_at: list[float] = []
 
     # -- what the fake decides
     def role_denied(self, t: float) -> bool:
@@ -360,6 +366,8 @@ class FakeAWS:
         if rt["policy"] is None:
             raise Error("ResourceNotFoundException")
         rt["policy"], rt["policy_at"] = None, None
+        self.lingering = self.linger
+        self.removed_at.append(self.clock.now())
 
     # -- bedrock-agentcore
     def invoke_agent_runtime(self, agentRuntimeArn, runtimeSessionId, qualifier, contentType, accept, payload):
@@ -369,6 +377,9 @@ class FakeAWS:
         rt = self._runtime(arn=agentRuntimeArn)
         assert len(runtimeSessionId) >= 33 and json.loads(payload) == {"action": "answer"}
         denied = self.deny_in_effect(now)
+        if not denied and self.lingering:       # the removed deny still refuses every tenth call
+            self.lingering -= 1
+            denied = (self.linger - self.lingering) % 10 == 0
         self._data("InvokeAgentRuntime", runtimeSessionId, now, "AccessDenied" if denied else None)
         self.new_calls.append((now, not denied))
         if denied:
@@ -665,6 +676,29 @@ def test_a_session_that_dies_before_its_stop_reads_not_run_never_stopped():
     r, doc = a_run(aws, clock, fire.DENY)
     assert all(outcomes(doc)[p] == "not run" for p in running.SESSION_PATHS)
     assert outcomes(doc)["new_calls"] == "stopped"
+
+
+def test_between_repeats_the_kit_waits_until_the_removed_deny_holds_before_the_next_stop():
+    clock = Clock()
+    aws = FakeAWS(clock)
+    aws.linger = 60                         # five answered in a row come long before the removal holds
+    r, doc = a_run(aws, clock, fire.DENY_AND_END, repeats=2)
+    assert outcomes(doc, 1) == {p: "stopped" for p in running.PATHS}
+    removed = aws.removed_at[0]
+    refused = [t for t, ok in aws.new_calls if not ok and removed <= t < r.repeats[1].opened]
+    assert refused and r.repeats[1].opened - max(refused) >= running.RECOVERED
+
+
+def test_new_calls_refused_just_before_the_stop_read_not_run_and_name_that_refusal(monkeypatch):
+    clock = Clock()
+    aws = FakeAWS(clock)
+    aws.linger = 60
+    monkeypatch.setattr(running, "RECOVERED", 4.0)     # five answered in a row, as the kit once waited for
+    r, doc = a_run(aws, clock, fire.DENY, repeats=2)
+    assert outcomes(doc, 1)["new_calls"] == "not run"
+    new = running.details(r, doc)["repeats"][1]["new_calls"]
+    # the calls before it were answered: the last call sent before the stop, refused, is the path's error
+    assert new["reason"] == "the path could not be set up" and new["errors"] == {"AccessDeniedException": 1}
 
 
 def test_the_kits_own_credentials_expiring_ends_the_run_and_is_never_read_as_stopped():

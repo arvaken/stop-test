@@ -24,7 +24,8 @@ stop"; "Measure both kinds, recording both results for each"):
 **Before each stop**, the session's paths must work: the kit waits for its own calls to succeed READY_TRIES times in a
 row, up to READY_WAIT, opening a new session if one does not get there (READY_SESSIONS). A path whose last try before
 the stop failed reads "not run", as on Lambda. New calls are made from LEAD seconds before the stop, and the path is
-tried only where the last call before the stop was answered.
+tried only where the last call sent before the stop was answered; where it was refused, the path's errors are each
+refusal of a call sent before the stop, the last call's among them.
 
 **The firing moment** comes from CloudTrail's record of the call (D569):
 - a policy on the role: AttachRolePolicy or PutRolePolicy, in event history in us-east-1, where IAM's calls are
@@ -38,8 +39,9 @@ Each path is timed from the call that acts on it: where the deny is followed by 
 timed from the deny and the session's four paths from StopRuntimeSession. Where CloudTrail has no record of a call by
 TRAIL_WAIT, its moment is the kit's own clock.
 
-**Between repeats** the kit removes the stop and waits for new calls to be answered again (RECOVERY); each repeat opens
-a new session, which must work before its stop. The kit never calls a repeat's session again once the repeat is over.
+**Between repeats** the kit removes the stop and waits until its removal holds: every new call answered for RECOVERED
+seconds in a row, up to RECOVERY (recover). Each repeat opens a new session, which must work before its stop. The kit
+never calls a repeat's session again once the repeat is over.
 
 **What was made is checked gone by its own identifier** (the founder, 23 October 2026, as on Lambda): the runtime, its
 endpoints, its workload identity, its code in S3, the bucket, both roles, any log group AgentCore made for the runtime
@@ -80,7 +82,8 @@ READY_TRIES = 3              # how many tries in a row of its own calls must suc
 READY_SESSIONS = 3           # how many sessions the kit opens for one repeat before it fires without its own calls
 LEAD = 5.0                   # seconds of new calls before the stop
 SLACK = 30.0                 # seconds a watch runs past what the kit needs
-RECOVERY = 300.0             # seconds to wait, between repeats, for new calls to be answered again
+RECOVERY = 900.0             # seconds to wait, between repeats, for the stop's removal to hold
+RECOVERED = 120.0            # seconds in which every new call must be answered for the removal to hold
 TRAIL_WAIT = 900.0           # seconds to wait, after the last window, for CloudTrail to record each firing
 TRAIL_READY_WAIT = 1500.0    # seconds to wait, before the first stop, for the run's trail to record the agent's calls
 TRAIL_READY_EVERY = 10.0     # how often the kit calls the agent while it waits
@@ -472,12 +475,11 @@ def time_one(c: Clients, r: Run, clock: Clock, say: Callable[[str], None] = lamb
     before = [b for sent, b in found if sent < rep.fired_before]
     if before and before[-1].ok:
         rep.working.add(NEW_CALLS)
-    else:
-        for _, b in found:
-            if b.ok or b.at >= rep.fired_before + r.offset:
-                break
-            errors = rep.setup_errors.setdefault(NEW_CALLS, {})
-            errors[b.error or "unknown"] = errors.get(b.error or "unknown", 0) + 1
+    else:                                   # each call sent before the stop that was refused, the last among them
+        for b in before:
+            if not b.ok:
+                errors = rep.setup_errors.setdefault(NEW_CALLS, {})
+                errors[b.error or "unknown"] = errors.get(b.error or "unknown", 0) + 1
     if stream.ended is not None:
         rep.stream_ended, rep.stream_ended_by = stream.ended
         if rep.stream_ended_by == "done":
@@ -498,17 +500,24 @@ def _codes(rep: Repeat, p: str) -> str:
 
 
 def recover(c: Clients, r: Run, clock: Clock) -> None:
-    """Between repeats: remove the stop, then wait until new calls are answered again, five in a row."""
+    """Between repeats: remove the stop, then wait until its removal holds: every new call answered, from the first
+    of them sent, for RECOVERED seconds, up to RECOVERY. A removed deny comes off gradually: in r58051bd3 (29 October
+    2026), new calls were answered and refused in turn for one to three minutes after each DeleteResourcePolicy, never
+    more than seven answered in a row, and five in a row let the next repeat begin while its new calls were still
+    refused."""
     firing.remove(c.iam, c.control, r.run, r.stop_ref, r.outputs.get("Runtime"))
-    end, good = clock.now() + RECOVERY, 0
-    while clock.now() < end and good < 5:
+    end, since = clock.now() + RECOVERY, None
+    while clock.now() < end:
+        sent = clock.now()
         try:
             answer(c, r, _session(r, "recover"))
-            good += 1
+            since = sent if since is None else since
+            if clock.now() - since >= RECOVERED:
+                return
         except Exception as e:  # noqa: BLE001 - the stop may still be taking itself off
             if code(e) in KIT_CREDENTIALS:
                 raise
-            good = 0
+            since = None
         clock.sleep(1.0)
 
 
