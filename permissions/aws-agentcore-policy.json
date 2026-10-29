@@ -40,6 +40,7 @@
    "Condition": {"Null": {"aws:RequestTag/arvaken-stop-test": "false"}}},
   {"Sid": "TaggingWhatTheRunMakesWithTheRunsTag", "Effect": "Allow", "Action": "bedrock-agentcore:TagResource",
    "Resource": ["arn:aws:bedrock-agentcore:*:*:runtime/*", "arn:aws:bedrock-agentcore:*:*:harness/*",
+                "arn:aws:bedrock-agentcore:*:*:workload-identity-directory/default",
                 "arn:aws:bedrock-agentcore:*:*:workload-identity-directory/default/workload-identity/*"],
    "Condition": {"Null": {"aws:RequestTag/arvaken-stop-test": "false"}}},
   {"Sid": "TheRunsHarnessMadeWithTheRunsTag", "Effect": "Allow", "Action": "bedrock-agentcore:CreateHarness",

@@ -389,6 +389,24 @@
    "expected": "allowed"
   },
   {
+   "id": "tag-identity-directory-with-the-runs-tag",
+   "statement": "TaggingWhatTheRunMakesWithTheRunsTag",
+   "action": "bedrock-agentcore:TagResource",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:workload-identity-directory/default",
+   "context": {
+    "aws:RequestTag/arvaken-stop-test": "r0a1b2c3d"
+   },
+   "expected": "allowed"
+  },
+  {
+   "id": "tag-identity-directory-without-the-runs-tag",
+   "statement": "TaggingWhatTheRunMakesWithTheRunsTag",
+   "action": "bedrock-agentcore:TagResource",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:workload-identity-directory/default",
+   "context": {},
+   "expected": "denied"
+  },
+  {
    "id": "tag-yours-without-the-runs-tag",
    "statement": "TaggingWhatTheRunMakesWithTheRunsTag",
    "action": "bedrock-agentcore:TagResource",
