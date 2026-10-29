@@ -842,6 +842,20 @@ def test_clean_finds_an_interrupted_runs_runtime_by_its_name_and_takes_its_stop_
     assert interrupted.left_behind == [] and aws.runtime is None and not aws.roles and not aws.buckets
 
 
+@pytest.mark.parametrize("reason", ["a reason AWS gives", None])
+def test_a_runtime_agentcore_did_not_make_ready_is_named_with_awss_own_reason_where_it_gives_one(reason):
+    clock = Clock()
+    aws = FakeAWS(clock)
+    aws._run = "r0a1b2c3d"
+    aws.get_agent_runtime = lambda agentRuntimeId: {"status": "CREATE_FAILED", **(
+        {"failureReason": reason} if reason else {})}
+    r = running.Run(run="r0a1b2c3d", stop_ref=fire.DENY, window=120.0, region=REGION, account=ACCOUNT)
+    with pytest.raises(RuntimeError) as e:
+        running.make(clients(aws), r, ENDPOINT, clock)
+    assert str(e.value) == "the runtime arvaken_stop_test_r0a1b2c3d is CREATE_FAILED, not ready" + (
+        f": {reason}" if reason else "")
+
+
 def test_the_runtime_must_be_the_runs_own_before_any_deny_is_written_on_it():
     clock = Clock()
     aws = FakeAWS(clock)

@@ -211,6 +211,14 @@ def _retrying(call: Callable[[], Any], codes: set[str], clock: Clock, limit: flo
             clock.sleep(5.0)
 
 
+# CUSTOMER TEXT: for the founder's approval, with the policy's next permissions
+def not_ready(what: str, name: str, got: dict) -> RuntimeError:
+    """A runtime or harness that AgentCore did not make ready, with AWS's own reason where it gives one: a permission
+    AgentCore was refused while making it is named there, and nowhere else the kit can read."""
+    why = (got.get("failureReason") or "").strip()
+    return RuntimeError(f"the {what} {name} is {got['status']}, not ready" + (f": {why}" if why else ""))
+
+
 def _session(r: Run, what: str) -> str:
     """A session's ID: the run, what it is for, and 32 random hex digits (AgentCore takes 33 characters or more)."""
     return f"{r.run}-{what}-{uuid.uuid4().hex}"
@@ -247,7 +255,7 @@ def make(c: Clients, r: Run, endpoint: str, clock: Clock) -> None:
         if got["status"] == "READY":
             return
         if got["status"].endswith("FAILED") or clock.now() >= end:
-            raise RuntimeError(f"the runtime {n['runtime']} is {got['status']}, not ready")
+            raise not_ready("runtime", n["runtime"], got)
         clock.sleep(5.0)
 
 

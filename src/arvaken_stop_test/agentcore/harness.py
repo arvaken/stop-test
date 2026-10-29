@@ -494,7 +494,7 @@ def make(c: Clients, r: HarnessRun, endpoint: str, clock: Clock) -> None:
         if got["status"] == "READY":
             break
         if got["status"].endswith("FAILED") or clock.now() >= end:
-            raise RuntimeError(f"the harness {n['harness']} is {got['status']}, not ready")
+            raise running.not_ready("harness", n["harness"], got)
         clock.sleep(5.0)
     environment = (got.get("environment") or {}).get("agentCoreRuntimeEnvironment") or {}
     r.outputs["Runtime"], r.outputs["RuntimeId"] = environment.get("agentRuntimeArn", ""), environment.get(

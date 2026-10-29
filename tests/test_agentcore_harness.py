@@ -301,6 +301,21 @@ def test_the_model_is_called_about_once_a_second_while_a_stop_is_watched_and_new
     assert rep.new_calls >= r.window
 
 
+@pytest.mark.parametrize("reason", ["a reason AWS gives", None])
+def test_a_harness_agentcore_did_not_make_ready_is_named_with_awss_own_reason_where_it_gives_one(reason):
+    clock = ta.Clock()
+    aws = FakeHarnessAWS(clock)
+    aws._run = "r0a1b2c3d"
+    aws.get_harness = lambda harnessId: {"harness": {"status": "CREATE_FAILED", **(
+        {"failureReason": reason} if reason else {})}}
+    r = harness.HarnessRun(run="r0a1b2c3d", stop_ref=fire.INLINE, window=0.0, region=ta.REGION, account=ta.ACCOUNT,
+                           model=MODEL)
+    with pytest.raises(RuntimeError) as e:
+        harness.make(clients(aws), r, ta.ENDPOINT, clock)
+    assert str(e.value) == "the harness arvaken_stop_test_r0a1b2c3d is CREATE_FAILED, not ready" + (
+        f": {reason}" if reason else "")
+
+
 def test_clean_finds_an_interrupted_runs_harness_by_its_name_and_takes_its_stop_off():
     clock = ta.Clock()
     aws = FakeHarnessAWS(clock)
