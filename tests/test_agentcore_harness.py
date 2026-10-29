@@ -471,3 +471,10 @@ def test_the_harness_boundary_is_the_kits_boundary_and_what_a_harness_needs_besi
     assert shipped["Statement"][:len(kits["Statement"])] == kits["Statement"]
     beside = {a for s in shipped["Statement"][len(kits["Statement"]):] for a in s["Action"]}
     assert beside == set(harness.MODEL_CALLS) | set(harness.IMAGE_PULL) | set(harness.WORKLOAD_TOKEN)
+
+
+def test_the_kits_agentcore_policy_lets_it_make_a_harnesss_roles_under_their_own_boundary_alone():
+    policy = json.loads((ROOT / "permissions" / "aws-agentcore-policy.json").read_text(encoding="utf-8"))
+    [roles] = [s for s in policy["Statement"] if s["Sid"] == "TheRunsRolesEachUnderTheKitsBoundary"]
+    assert roles["Condition"]["StringLike"]["iam:PermissionsBoundary"] == [
+        "arn:aws:iam::*:policy/arvaken-stop-test-boundary", f"arn:aws:iam::*:policy/{harness.HARNESS_BOUNDARY}"]

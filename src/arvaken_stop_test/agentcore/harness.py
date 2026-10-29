@@ -803,6 +803,7 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, model: str, window: float =
     from arvaken_stop_test.aws.stack import new_run
     clock = clock or Clock()
     if not firing.on_the_role(stop_ref):
+        # CUSTOMER TEXT: for the founder's approval, word for word, with the harness module
         raise firing.Refused(f"a harness takes a policy on its role alone, not {stop_ref}")
     reason = firing.why_not(stop_ref)
     if reason:
