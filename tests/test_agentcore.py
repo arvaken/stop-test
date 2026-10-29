@@ -1004,7 +1004,10 @@ FROM_AWS_FIRE = {"iam:ListRoleTags", "iam:PutRolePolicy", "iam:AttachRolePolicy"
                  "iam:DeleteRolePolicy", "iam:ListAttachedRolePolicies", "iam:DetachRolePolicy", "iam:GetPolicy",
                  "iam:GetPolicyVersion"}
 # what AWS asks of the caller beside each call's own action: passing the role, and the tags given when a thing is made
-BESIDE = {"iam:PassRole", "iam:TagRole", "bedrock-agentcore:TagResource", "cloudtrail:AddTags"}
+BESIDE = {"iam:PassRole", "iam:TagRole", "bedrock-agentcore:TagResource", "cloudtrail:AddTags",
+          # what AWS lists as required to make and delete a harness, though the kit's harness has no memory
+          # (PROVIDER-SOURCES: aws-sar-agentcore-create-harness, aws-agentcore-harness-delete-permissions)
+          "bedrock-agentcore:CreateMemory", "bedrock-agentcore:GetMemory", "bedrock-agentcore:DeleteMemory"}
 
 
 def _calls() -> set[str]:
@@ -1031,6 +1034,12 @@ def test_every_call_the_agentcore_module_makes_is_in_its_policy_and_the_policy_h
     assert allowed - needed == set()
 
 
+def _by_the_runs_tag(s: dict) -> bool:
+    """Whether a statement holds only for a thing that carries, or is being made with, the run's tag."""
+    null = s.get("Condition", {}).get("Null", {})
+    return any(null.get(f"aws:{kind}/arvaken-stop-test") == "false" for kind in ("RequestTag", "ResourceTag"))
+
+
 def test_the_policy_reaches_only_the_runs_own_things():
     for s in POLICY["Statement"]:
         resources = s["Resource"] if isinstance(s["Resource"], list) else [s["Resource"]]
@@ -1038,7 +1047,6 @@ def test_the_policy_reaches_only_the_runs_own_things():
             reads = {("arn:aws:iam::*:policy/*", "YourStopReadAndChecked"),
                      ("arn:aws:bedrock:*:*:inference-profile/*", "YourModelsInferenceProfileRead")}
             assert resource == "*" or "arvaken-stop-test-" in resource or "arvaken_stop_test_" in resource or \
-                (resource, s["Sid"]) in reads, resource
+                (resource, s["Sid"]) in reads or _by_the_runs_tag(s), resource
         if resources == ["*"]:
-            assert s["Sid"] in ("ReadsAwsTakesOnEveryResourceOnly", "TheRunsRuntimeMadeWithTheRunsTag",
-                                "TheRunsHarnessMadeWithTheRunsTag")
+            assert s["Sid"] == "ReadsAwsTakesOnEveryResourceOnly" or _by_the_runs_tag(s), s["Sid"]

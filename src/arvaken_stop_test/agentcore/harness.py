@@ -162,7 +162,7 @@ def model_arns(model: str, region: str, account: str, partition: str = "aws",
 
 
 def harness_arn_patterns(run: str, region: str, account: str, partition: str = "aws") -> list[str]:
-    """Every ARN that may assume the harness's role: the harness, and the runtime AgentCore makes for it."""
+    """Every ARN that may assume the harness's role: the harness, and the runtime it runs in."""
     n = harness_names(run)
     return [f"arn:{partition}:bedrock-agentcore:{region}:{account}:harness/{n['harness']}-*",
             f"arn:{partition}:bedrock-agentcore:{region}:{account}:runtime/{n['harness_runtime']}-*"]
@@ -656,7 +656,7 @@ def harness_id(c: Clients, r: Run) -> str | None:
 
 def tear_down(c: Clients, r: HarnessRun, clock: Clock, say: Callable[[str], None] = lambda _: None) -> None:
     """Remove the stop the kit fired and everything it made; name anything left (D532, K4). The harness goes first,
-    with the runtime AgentCore made for it; the bucket is emptied once the session has stopped writing to it."""
+    with the runtime it runs in; the bucket is emptied once the session has stopped writing to it."""
     n = harness_names(r.run)
     try:
         firing.remove(c.iam, c.control, r.run, r.stop_ref, None)
@@ -678,7 +678,7 @@ def tear_down(c: Clients, r: HarnessRun, clock: Clock, say: Callable[[str], None
         pass
     rid = r.outputs.get("RuntimeId")
     if rid and _gone(lambda: c.control.get_agent_runtime(agentRuntimeId=rid)) is False:
-        try:        # AgentCore removes it with the harness; one still there is removed by its ID
+        try:        # the runtime the harness runs in, where it is still there, is removed by its ID
             c.control.delete_agent_runtime(agentRuntimeId=rid)
         except Exception:  # noqa: BLE001 - named below as left
             pass
@@ -717,6 +717,18 @@ def tear_down(c: Clients, r: HarnessRun, clock: Clock, say: Callable[[str], None
     r.left_behind, r.checked_gone = check_gone(c, r)
 
 
+def _memories(c: Clients, r: HarnessRun) -> list[str]:
+    """The memories managed by the run's harness, by their ARNs."""
+    prefix = f":harness/{harness_names(r.run)['harness']}-"
+    found, token = [], None
+    while True:
+        page = c.control.list_memories(**({"nextToken": token} if token else {}))
+        found += [m["arn"] for m in page.get("memories", []) if prefix in (m.get("managedByResourceArn") or "")]
+        token = page.get("nextToken")
+        if not token:
+            return found
+
+
 def check_gone(c: Clients, r: HarnessRun) -> tuple[list[str], list[str]]:
     """Each thing the run made, checked gone by its own identifier; then the run's tag, for anything else."""
     n = harness_names(r.run)
@@ -744,6 +756,9 @@ def check_gone(c: Clients, r: HarnessRun) -> tuple[list[str], list[str]]:
     if c.logs is not None and rid:
         things.append((f"the log groups /aws/bedrock-agentcore/runtimes/{rid}*",
                        lambda: there(running._log_groups(c, r))))
+    # The kit's harness has no memory, and AWS's caller permissions for making one include making a memory: after each
+    # run, any memory managed by the run's harness is named (the founder, 29 October 2026). Others are never named.
+    things.append((f"any memory managed by the harness {n['harness']}", lambda: there(_memories(c, r))))
     left, gone = [], []
     for what, call in things:
         found = _gone(call)

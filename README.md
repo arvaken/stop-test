@@ -370,6 +370,11 @@ The kit runs with your own credentials. To give it only what a run needs, use th
   ```
   aws iam create-policy --policy-name arvaken-stop-test-boundary-harness --policy-document file://permissions/aws-boundary-harness.json
   ```
+
+  AWS lists permission to create and delete a memory as required to create and delete a harness, so the kit's policy
+  grants it, for the run's own resources only. The kit's harness has no memory, and after each run the kit checks that
+  none is left. <!-- [source: aws-agentcore-harness-create-permissions, aws-agentcore-harness-delete-permissions,
+  aws-sar-agentcore-create-harness] -->
 - **Google Cloud:** [`permissions/google-role.yaml`](permissions/google-role.yaml), a custom role for your test project:
 
   ```

@@ -217,10 +217,10 @@ HARNESS_PLAN = (
     "- changes nothing else in your account;\n"
     "- then takes the stop off the test agent's role, removes everything it made, and names anything left.")
 # What the plan says is fired, and where (his ruling 1, condition c).
-# CUSTOMER TEXT: "attached" approved by the founder, 29 October 2026 (ruling 1, condition c); "inline" for his approval
+# CUSTOMER TEXT: approved by the founder, 29 October 2026 (ruling 1, condition c; "inline" in his words, the next round)
 HARNESS_STOPS = {
     "attached": "attaches your stop {stop} to the test agent's role, and to nothing else;",
-    "inline": "writes a policy denying every action on the test agent's role, and on nothing else;",
+    "inline": "puts a policy on the test agent's role that denies the role every action, and puts it on nothing else;",
 }
 # CUSTOMER TEXT: approved by the founder, 29 October 2026 (the harness module's words, ruling 1)
 HARNESS_HELP = {

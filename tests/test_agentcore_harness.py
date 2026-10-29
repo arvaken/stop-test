@@ -44,6 +44,7 @@ class FakeHarnessAWS(ta.FakeAWS):
         self.profiles_asked: list[str] = []
         self.refused_by = "AccessDeniedException"     # the code a stopped model call's message names
         self.others = []                                # harnesses of yours the kit did not make
+        self.memories = []                              # memories, as ListMemories gives them
 
     # -- bedrock: an inference profile, and the models it routes to
     def get_inference_profile(self, inferenceProfileIdentifier):
@@ -73,7 +74,7 @@ class FakeHarnessAWS(ta.FakeAWS):
         self.removed.append(self.clock.now())
         super().detach_role_policy(RoleName, PolicyArn)
 
-    # -- bedrock-agentcore-control: the harness, and the runtime AgentCore makes for it
+    # -- bedrock-agentcore-control: the harness, and the runtime it runs in
     def create_harness(self, **req):
         self.harness_requests.append(req)
         hid = f"{req['harnessName']}-HaRnEsS123"
@@ -101,6 +102,9 @@ class FakeHarnessAWS(ta.FakeAWS):
         h = self._harness(harnessId)
         h["runtime"]["gone"] = True
         self.harness = None
+
+    def list_memories(self, nextToken=None):
+        return {"memories": self.memories}
 
     def list_harnesses(self, nextToken=None):
         return {"harnesses": self.others + ([] if self.harness is None else [

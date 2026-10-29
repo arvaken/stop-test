@@ -161,6 +161,30 @@
    "sentence": "The harness is a managed abstraction that runs inside Runtime - CloudTrail records harness operations under AWS::BedrockAgentCore::Runtime.",
    "about": "AgentCore harness, and AgentCore Runtime",
    "read": "2026-10-29"
+  },
+  "aws-agentcore-harness-create-permissions": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-security.html",
+   "page": "Security and access controls - Amazon Bedrock AgentCore",
+   "sentence": "CreateHarness | bedrock-agentcore:CreateHarness, bedrock-agentcore:CreateAgentRuntime, bedrock-agentcore:CreateMemory",
+   "about": "Required IAM permissions for callers: the CreateHarness row",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-harness-delete-permissions": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-security.html",
+   "page": "Security and access controls - Amazon Bedrock AgentCore",
+   "sentence": "DeleteHarness | bedrock-agentcore:DeleteHarness, bedrock-agentcore:DeleteAgentRuntime, bedrock-agentcore:DeleteMemory",
+   "about": "Required IAM permissions for callers: the DeleteHarness row",
+   "read": "2026-10-29"
+  },
+  "aws-sar-agentcore-create-harness": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_bedrock-agentcore.html",
+   "page": "Actions, resources, and condition keys for Amazon Bedrock Agentcore - Service Authorization Reference",
+   "sentence": "CreateHarness | bedrock-agentcore-control | bedrock-agentcore:CreateAgentRuntime, bedrock-agentcore:CreateHarness, bedrock-agentcore:CreateMemory, bedrock-agentcore:GetMemory, bedrock-agentcore:TagResource, iam:PassRole (iam:PassedToService bedrock-agentcore.amazonaws.com)",
+   "about": "The CreateHarness operation, and the actions it requires",
+   "read": "2026-10-29"
   }
  },
  "owed": {
