@@ -105,7 +105,7 @@ MODEL_CALLS = ("bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream")
 # Throttles, limits and quotas, server errors, timeouts and network failures never count: such a try is "not counted",
 # neither stopped nor succeeded, and is named among the errors seen.
 REFUSALS = frozenset({"AccessDenied", "AccessDeniedException"})
-# CUSTOMER TEXT: for the founder's approval, with the classifier
+# CUSTOMER TEXT: approved by the founder, word for word, 29 October 2026, until "not measured" replaces it
 ALL_NOT_COUNTED = "every call after the stop was not counted"
 
 
