@@ -357,6 +357,140 @@
     "iam:PassedToService": "bedrock-agentcore.amazonaws.com"
    },
    "expected": "denied"
+  },
+  {
+   "id": "tag-runtime-made-with-the-runs-tag",
+   "statement": "TaggingWhatTheRunMakesWithTheRunsTag",
+   "action": "bedrock-agentcore:TagResource",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/*",
+   "context": {
+    "aws:RequestTag/arvaken-stop-test": "r0a1b2c3d"
+   },
+   "expected": "allowed"
+  },
+  {
+   "id": "tag-harness-made-with-the-runs-tag",
+   "statement": "TaggingWhatTheRunMakesWithTheRunsTag",
+   "action": "bedrock-agentcore:TagResource",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:harness/*",
+   "context": {
+    "aws:RequestTag/arvaken-stop-test": "r0a1b2c3d"
+   },
+   "expected": "allowed"
+  },
+  {
+   "id": "tag-identity-made-with-the-runs-tag",
+   "statement": "TaggingWhatTheRunMakesWithTheRunsTag",
+   "action": "bedrock-agentcore:TagResource",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:workload-identity-directory/default/workload-identity/*",
+   "context": {
+    "aws:RequestTag/arvaken-stop-test": "r0a1b2c3d"
+   },
+   "expected": "allowed"
+  },
+  {
+   "id": "tag-yours-without-the-runs-tag",
+   "statement": "TaggingWhatTheRunMakesWithTheRunsTag",
+   "action": "bedrock-agentcore:TagResource",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/your_agent-AbC",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "tag-your-harness-without-the-runs-tag",
+   "statement": "TaggingWhatTheRunMakesWithTheRunsTag",
+   "action": "bedrock-agentcore:TagResource",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:harness/your_harness-AbC",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "endpoint-run-make",
+   "statement": "TheRunsRuntime",
+   "action": "bedrock-agentcore:CreateAgentRuntimeEndpoint",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/arvaken_stop_test_r0a1b2c3d-AbC",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "endpoint-yours-make",
+   "statement": "TheRunsRuntime",
+   "action": "bedrock-agentcore:CreateAgentRuntimeEndpoint",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/your_agent-AbC",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "endpoint-yours-delete",
+   "statement": "TheRunsRuntime",
+   "action": "bedrock-agentcore:DeleteAgentRuntimeEndpoint",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/your_agent-AbC/runtime-endpoint/DEFAULT",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "invoke-for-user-run",
+   "statement": "TheRunsRuntime",
+   "action": "bedrock-agentcore:InvokeAgentRuntimeForUser",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/arvaken_stop_test_r0a1b2c3d-AbC",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "invoke-for-user-yours",
+   "statement": "TheRunsRuntime",
+   "action": "bedrock-agentcore:InvokeAgentRuntimeForUser",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/your_agent-AbC",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "harness-endpoint-run-make",
+   "statement": "TheRuntimeAWSRequiresForAHarness",
+   "action": "bedrock-agentcore:CreateAgentRuntimeEndpoint",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/harness_arvaken_stop_test_r0a1b2c3d-AbC",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "harness-endpoint-yours-delete",
+   "statement": "TheRuntimeAWSRequiresForAHarness",
+   "action": "bedrock-agentcore:DeleteAgentRuntimeEndpoint",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/harness_your_agent-AbC/runtime-endpoint/DEFAULT",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "identity-run-make",
+   "statement": "TheRuntimesWorkloadIdentity",
+   "action": "bedrock-agentcore:CreateWorkloadIdentity",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:workload-identity-directory/default/workload-identity/harness_arvaken_stop_test_r0a1b2c3d-AbC",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "identity-yours-make",
+   "statement": "TheRuntimesWorkloadIdentity",
+   "action": "bedrock-agentcore:CreateWorkloadIdentity",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:workload-identity-directory/default/workload-identity/your_agent-AbC",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "harness-invoke-for-user-run",
+   "statement": "TheRunsHarness",
+   "action": "bedrock-agentcore:InvokeAgentRuntimeForUser",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:harness/arvaken_stop_test_r0a1b2c3d-AbC",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "harness-invoke-for-user-yours",
+   "statement": "TheRunsHarness",
+   "action": "bedrock-agentcore:InvokeAgentRuntimeForUser",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:harness/your_harness-AbC",
+   "context": {},
+   "expected": "denied"
   }
  ]
 }

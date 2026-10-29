@@ -185,6 +185,30 @@
    "sentence": "CreateHarness | bedrock-agentcore-control | bedrock-agentcore:CreateAgentRuntime, bedrock-agentcore:CreateHarness, bedrock-agentcore:CreateMemory, bedrock-agentcore:GetMemory, bedrock-agentcore:TagResource, iam:PassRole (iam:PassedToService bedrock-agentcore.amazonaws.com)",
    "about": "The CreateHarness operation, and the actions it requires",
    "read": "2026-10-29"
+  },
+  "aws-sar-agentcore-create-agent-runtime": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_bedrock-agentcore.html",
+   "page": "Actions, resources, and condition keys for Amazon Bedrock Agentcore - Service Authorization Reference",
+   "sentence": "CreateAgentRuntime | bedrock-agentcore-control | bedrock-agentcore:CreateAgentRuntime, bedrock-agentcore:CreateAgentRuntimeEndpoint, bedrock-agentcore:PassCapacityProvider, bedrock-agentcore:TagResource, iam:PassRole (iam:PassedToService bedrock-agentcore.amazonaws.com)",
+   "about": "The CreateAgentRuntime operation, and the actions it requires",
+   "read": "2026-10-29"
+  },
+  "aws-sar-agentcore-delete-agent-runtime": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_bedrock-agentcore.html",
+   "page": "Actions, resources, and condition keys for Amazon Bedrock Agentcore - Service Authorization Reference",
+   "sentence": "DeleteAgentRuntime | bedrock-agentcore-control | bedrock-agentcore:DeleteAgentRuntime, bedrock-agentcore:DeleteAgentRuntimeEndpoint, bedrock-agentcore:DeleteWorkloadIdentity",
+   "about": "The DeleteAgentRuntime operation, and the actions it requires",
+   "read": "2026-10-29"
+  },
+  "aws-sar-agentcore-invoke-agent-runtime": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_bedrock-agentcore.html",
+   "page": "Actions, resources, and condition keys for Amazon Bedrock Agentcore - Service Authorization Reference",
+   "sentence": "InvokeAgentRuntime | bedrock-agentcore | bedrock-agentcore:InvokeAgentRuntime, bedrock-agentcore:InvokeAgentRuntimeForUser",
+   "about": "The InvokeAgentRuntime operation, and the actions it requires",
+   "read": "2026-10-29"
   }
  },
  "owed": {

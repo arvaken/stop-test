@@ -1007,7 +1007,12 @@ FROM_AWS_FIRE = {"iam:ListRoleTags", "iam:PutRolePolicy", "iam:AttachRolePolicy"
 BESIDE = {"iam:PassRole", "iam:TagRole", "bedrock-agentcore:TagResource", "cloudtrail:AddTags",
           # what AWS lists as required to make and delete a harness, though the kit's harness has no memory
           # (PROVIDER-SOURCES: aws-sar-agentcore-create-harness, aws-agentcore-harness-delete-permissions)
-          "bedrock-agentcore:CreateMemory", "bedrock-agentcore:GetMemory", "bedrock-agentcore:DeleteMemory"}
+          "bedrock-agentcore:CreateMemory", "bedrock-agentcore:GetMemory", "bedrock-agentcore:DeleteMemory",
+          # what AWS lists as required to make, delete and call a runtime (aws-sar-agentcore-create-agent-runtime,
+          # -delete-agent-runtime, -invoke-agent-runtime); and AgentCore makes a runtime's workload identity with the
+          # caller's own credentials (CloudTrail, 29 October 2026: CreateWorkloadIdentity, invoked by AgentCore)
+          "bedrock-agentcore:CreateAgentRuntimeEndpoint", "bedrock-agentcore:DeleteAgentRuntimeEndpoint",
+          "bedrock-agentcore:InvokeAgentRuntimeForUser", "bedrock-agentcore:CreateWorkloadIdentity"}
 
 
 def _calls() -> set[str]:

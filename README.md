@@ -362,6 +362,8 @@ The kit runs with your own credentials. To give it only what a run needs, use th
 - **AgentCore:** [`permissions/aws-agentcore-policy.json`](permissions/aws-agentcore-policy.json), an IAM policy under
   the same boundary. Each statement names only what a run makes, except reading your stop policy and the reads AWS
   allows only on every resource. Its last two statements are needed only with `--trail`.
+  <!-- [source: aws-sar-agentcore-create-agent-runtime, aws-sar-agentcore-delete-agent-runtime,
+  aws-sar-agentcore-invoke-agent-runtime] -->
 
   A harness's two roles carry a boundary of their own,
   [`permissions/aws-boundary-harness.json`](permissions/aws-boundary-harness.json): the kit's boundary, and calling a

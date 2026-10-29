@@ -22,7 +22,7 @@ LIMITED = {"TheRunsRuntime", "TheRunsRuntimeMadeWithTheRunsTag", "TheRuntimeAWSR
            "TheMemoryAWSRequiresToMakeAHarnessWithTheRunsTag", "TheMemoryAWSRequiresForAHarnessTaggedWithARun",
            "TheRuntimesWorkloadIdentity", "TheRuntimesLogGroupsIfAny", "TheRunsHarness",
            "TheRunsHarnessMadeWithTheRunsTag", "TheRunsRolesEachUnderTheKitsBoundary", "TheRunsRoles",
-           "TheAgentsRoleGivenToItsRuntime"}
+           "TheAgentsRoleGivenToItsRuntime", "TaggingWhatTheRunMakesWithTheRunsTag"}
 
 
 @pytest.mark.parametrize("case", CASES["cases"], ids=[c["id"] for c in CASES["cases"]])
