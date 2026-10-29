@@ -1,0 +1,53 @@
+{
+ "Version": "2012-10-17",
+ "Statement": [
+  {
+   "Sid": "TheRunsBucketsObjects",
+   "Effect": "Allow",
+   "Action": [
+    "s3:PutObject",
+    "s3:GetObject"
+   ],
+   "Resource": "arn:aws:s3:::arvaken-stop-test-*/*"
+  },
+  {
+   "Sid": "TheRunsSecondRole",
+   "Effect": "Allow",
+   "Action": "sts:AssumeRole",
+   "Resource": "arn:aws:iam::*:role/arvaken-stop-test-*"
+  },
+  {
+   "Sid": "TheHarnessesModel",
+   "Effect": "Allow",
+   "Action": [
+    "bedrock:InvokeModel",
+    "bedrock:InvokeModelWithResponseStream"
+   ],
+   "Resource": [
+    "arn:aws:bedrock:*::foundation-model/*",
+    "arn:aws:bedrock:*:*:inference-profile/*"
+   ]
+  },
+  {
+   "Sid": "TheHarnessesManagedImage",
+   "Effect": "Allow",
+   "Action": [
+    "ecr-public:GetAuthorizationToken",
+    "sts:GetServiceBearerToken"
+   ],
+   "Resource": "*"
+  },
+  {
+   "Sid": "TheHarnessesWorkloadToken",
+   "Effect": "Allow",
+   "Action": [
+    "bedrock-agentcore:GetWorkloadAccessToken",
+    "bedrock-agentcore:GetWorkloadAccessTokenForJWT"
+   ],
+   "Resource": [
+    "arn:aws:bedrock-agentcore:*:*:workload-identity-directory/default",
+    "arn:aws:bedrock-agentcore:*:*:workload-identity-directory/default/workload-identity/harness_arvaken_stop_test_*"
+   ]
+  }
+ ]
+}

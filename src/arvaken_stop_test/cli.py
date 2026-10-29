@@ -1,5 +1,6 @@
-"""The command line: `stop-test aws plan|run|clean`, `stop-test agentcore plan|run|clean`, `stop-test google
-plan|run|clean`, and `stop-test verify` (the design's sections 2, 5 and 7; D532; on AgentCore, D618).
+"""The command line: `stop-test aws plan|run|clean`, `stop-test agentcore plan|run|clean`, `stop-test agentcore-harness
+plan|run|clean`, `stop-test google plan|run|clean`, and `stop-test verify` (the design's sections 2, 5 and 7; D532; on
+AgentCore, D618).
 
 It uses your own credentials: on AWS as the AWS command line would find them, on Google Cloud the Google Cloud CLI's
 (gcloud), as Cloud Shell has them. It sends nothing to Arvaken. Before a run
@@ -195,6 +196,98 @@ AGENTCORE_HELP = {
 }
 
 
+# CUSTOMER TEXT: for the founder's approval, word for word, with the harness module
+HARNESS_PLAN = (
+    "Run {run} in {region}, on an AgentCore harness:\n"
+    "- creates a test agent, the AgentCore harness {harness}, which calls the model {model} and has no tools; its role "
+    "and a second role; and a bucket of its own, {bucket}, each tagged with the run;\n"
+    "{stop}\n"
+    "- before each stop, opens a session of the test agent's, watches what it can reach, and asks its model about once "
+    "a second; and about once a second runs a command that does nothing in a new session of the test agent's;\n"
+    "- times each path for {window} seconds after firing, {repeats} time(s);\n"
+    "- calls the model about {turns} times and starts about {sessions} sessions. AWS bills each call to the model and "
+    "each session's use to your account;\n"
+    "- then removes the stop it fired and everything it made, and names anything left.")
+# CUSTOMER TEXT: for the founder's approval, word for word, with the harness module
+HARNESS_HELP = {
+    "command": "the stop test on a harness in Amazon Bedrock AgentCore",
+    "model": "the harness's model: a Bedrock model ID or inference profile ID",
+}
+
+
+def _harness_plan(args, run_name: str) -> str:
+    from arvaken_stop_test.agentcore import fire
+    from arvaken_stop_test.agentcore import harness
+    from arvaken_stop_test.agentcore.run import LEAD, RECOVERED
+    n, stop = harness.harness_names(run_name), fire.INLINE if args.inline_deny else args.stop
+    reason = fire.why_not(stop) or (None if harness.MODEL_ID.fullmatch(args.model or "") else harness.NOT_A_MODEL)
+    if not reason:
+        from arvaken_stop_test.agentcore.boto import clients_for
+        c = clients_for(args.region)
+        if args.stop and not fire.covers(c.iam, stop, run_name):
+            from arvaken_stop_test.aws.fire import NOT_COVERED
+            reason = NOT_COVERED.rstrip(".")
+        else:
+            reason = (harness.why_no_boundary(c.iam, c.sts) or "").rstrip(".") or None
+    watched = args.repeats * (args.window + HOLD + LEAD)
+    plan = HARNESS_PLAN.format(
+        run=run_name, region=args.region, harness=n["harness"], model=args.model, bucket=n["bucket"],
+        stop=AGENTCORE_STOPS["inline" if stop == fire.INLINE else "attached"].format(stop=stop),
+        window=int(args.window), repeats=args.repeats,
+        turns=int(watched / harness.TURN_EVERY + (args.repeats - 1) * RECOVERED + 1),
+        sessions=int(watched + args.repeats + 2))
+    return plan + (f"\nIt will not run: {reason}." if reason else "")
+
+
+def _harness(args, p) -> int:
+    from arvaken_stop_test.agentcore import fire
+    from arvaken_stop_test.agentcore import harness
+    from arvaken_stop_test.aws.stack import new_run
+    if args.action in ("plan", "run") and sum((bool(args.stop), args.inline_deny)) != 1:
+        # CUSTOMER TEXT: for the founder's approval, word for word, with the harness module
+        p.error("give one of --stop or --inline-deny")
+    run_name = args.run_name or new_run()
+    if args.action == "plan":
+        print(_harness_plan(args, run_name))
+        return 0
+    from arvaken_stop_test.agentcore.boto import clients_for
+    c = clients_for(args.region)
+    if args.action == "clean":
+        caller = c.sts.get_caller_identity()
+        r = harness.HarnessRun(run=run_name, stop_ref=args.stop or fire.INLINE, window=0.0, region=args.region,
+                               account=caller["Account"], partition=caller["Arn"].split(":")[1])
+        try:
+            fire.remove(c.iam, c.control, run_name, fire.INLINE, None)
+        except Exception:  # noqa: BLE001 - a role already gone has no stop on it
+            pass
+        harness.tear_down(c, r, harness.Clock(), say=print)
+        print("Nothing the kit made is left." if not r.left_behind else
+              "Left for you to delete:\n" + "\n".join(r.left_behind))
+        return 0
+    plan = _harness_plan(args, run_name)
+    print(plan)
+    if "It will not run:" in plan:
+        return 1
+    if input(f"Type {run_name} to go on: ").strip() != run_name:
+        print("Nothing was made.")
+        return 1
+    try:
+        r, doc = harness.run(c, fire.INLINE if args.inline_deny else args.stop, endpoint=args.endpoint,
+                             model=args.model, window=args.window, repeats=args.repeats, run_name=run_name, say=print)
+    except harness.NotStarted as e:     # said with why; then what the teardown left, as `clean` says it
+        print(str(e))
+        print("Nothing the kit made is left." if not e.run.left_behind else
+              "Left for you to delete:\n" + "\n".join(e.run.left_behind))
+        return 1
+    out = Path(f"stop-test-{run_name}.json")
+    write(out, json.dumps(doc, indent=1, sort_keys=True))
+    write(Path(f"stop-test-{run_name}.html"), report.page(doc, [d for _, d in harness.results(r)]))
+    write(Path(f"stop-test-{run_name}-details.json"), json.dumps(harness.details(r, doc), indent=1))
+    print(f"Wrote {out}, its page and its details. Nothing about your account was sent to Arvaken.")
+    print(f"Your result's reference: {result.reference(doc)}. It's the SHA-256 of the result's signature.")
+    return 0
+
+
 def _agentcore_stop(args) -> str:
     from arvaken_stop_test.agentcore import fire
     return (fire.INLINE if args.inline_deny else fire.DENY if args.deny_calls else
@@ -328,6 +421,22 @@ def main(argv: list[str] | None = None) -> int:
     aclean.add_argument("--run", dest="run_name", required=True)
     aclean.add_argument("--region", required=True)
     aclean.add_argument("--stop", default="", help="the policy's ARN, if the run attached your managed policy")
+    harness = sub.add_parser("agentcore-harness", help=HARNESS_HELP["command"])
+    harness_sub = harness.add_subparsers(dest="action", required=True)
+    for name in ("plan", "run"):
+        a = harness_sub.add_parser(name)
+        a.add_argument("--stop", default="", help=AGENTCORE_HELP["stop"])
+        a.add_argument("--inline-deny", action="store_true", help=AGENTCORE_HELP["inline_deny"])
+        a.add_argument("--model", required=True, help=HARNESS_HELP["model"])
+        a.add_argument("--window", type=_duration, default=WINDOWS["aws"], help=_window_help("aws"))
+        a.add_argument("--repeats", type=int, default=1, help="1 to 5")
+        a.add_argument("--region", required=True)
+        a.add_argument("--run", dest="run_name", help="the run's name, if you are resuming one")
+        a.add_argument("--endpoint", default=ENDPOINT, help=argparse.SUPPRESS)
+    hclean = harness_sub.add_parser("clean", help="remove what an interrupted run left")
+    hclean.add_argument("--run", dest="run_name", required=True)
+    hclean.add_argument("--region", required=True)
+    hclean.add_argument("--stop", default="", help="the policy's ARN, if the run attached your managed policy")
     google = sub.add_parser("google", help="the stop test on Google Cloud")
     google_sub = google.add_subparsers(dest="action", required=True)
     for name in ("plan", "run"):
@@ -364,6 +473,8 @@ def main(argv: list[str] | None = None) -> int:
         return _google(args, p)
     if args.command == "agentcore":
         return _agentcore(args, p)
+    if args.command == "agentcore-harness":
+        return _harness(args, p)
 
     from arvaken_stop_test.aws.stack import new_run
     if args.action in ("plan", "run"):

@@ -1004,7 +1004,10 @@ FROM_AWS_FIRE = {"iam:ListRoleTags", "iam:PutRolePolicy", "iam:AttachRolePolicy"
                  "iam:DeleteRolePolicy", "iam:ListAttachedRolePolicies", "iam:DetachRolePolicy", "iam:GetPolicy",
                  "iam:GetPolicyVersion"}
 # what AWS asks of the caller beside each call's own action: passing the role, and the tags given when a thing is made
-BESIDE = {"iam:PassRole", "iam:TagRole", "bedrock-agentcore:TagResource", "cloudtrail:AddTags"}
+BESIDE = {"iam:PassRole", "iam:TagRole", "bedrock-agentcore:TagResource", "cloudtrail:AddTags",
+          # a harness's calls are allowed on its runtime and its memory too, as AWS's table of them has it
+          # (harness-security.html, "Required IAM permissions for callers", read 29 October 2026)
+          "bedrock-agentcore:CreateMemory", "bedrock-agentcore:DeleteMemory"}
 
 
 def _calls() -> set[str]:
@@ -1038,4 +1041,5 @@ def test_the_policy_reaches_only_the_runs_own_things():
             assert resource == "*" or "arvaken-stop-test-" in resource or "arvaken_stop_test_" in resource or \
                 resource == "arn:aws:iam::*:policy/*", resource
         if resources == ["*"]:
-            assert s["Sid"] in ("ReadsAwsTakesOnEveryResourceOnly", "TheRunsRuntimeMadeWithTheRunsTag")
+            assert s["Sid"] in ("ReadsAwsTakesOnEveryResourceOnly", "TheRunsRuntimeMadeWithTheRunsTag",
+                                "TheRunsHarnessMadeWithTheRunsTag")

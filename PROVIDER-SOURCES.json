@@ -65,6 +65,78 @@
    "sentence": "The event history provides a viewable, searchable, downloadable, and immutable record of the past 90 days of management events in an AWS Region.",
    "about": "CloudTrail's event history: management events, by Region",
    "read": "2026-10-28"
+  },
+  "aws-agentcore-harness-tools-reasoning": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-security.html",
+   "page": "Security and access controls - Amazon Bedrock AgentCore",
+   "sentence": "Tools run only as a result of model reasoning.",
+   "about": "A harness's tools, and what dispatches them",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-harness-execution-role": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-security.html",
+   "page": "Security and access controls - Amazon Bedrock AgentCore",
+   "sentence": "The harness assumes an IAM role you own, configurable to include Bedrock, ECR, CloudWatch, and the AgentCore primitives it touches.",
+   "about": "The harness's IAM execution role",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-harness-ecr-public": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-security.html",
+   "page": "Security and access controls - Amazon Bedrock AgentCore",
+   "sentence": "The following sample covers a harness on the public network, which pulls its managed container image from Amazon ECR Public.",
+   "about": "The sample execution role policy, for a harness on the public network",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-harness-execute-command": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-environment.html",
+   "page": "Environment and filesystem - Amazon Bedrock AgentCore",
+   "sentence": "InvokeAgentRuntimeCommand gives you direct shell access to the harness microVM: deterministic command execution with no model reasoning, no token cost, no ambiguity.",
+   "about": "InvokeAgentRuntimeCommand on a harness session",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-harness-base-environment": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-environment.html",
+   "page": "Environment and filesystem - Amazon Bedrock AgentCore",
+   "sentence": "The base environment includes Python and bash.",
+   "about": "The harness's base environment",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-harness-bedrock-role": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-models.html",
+   "page": "Models and instructions - Amazon Bedrock AgentCore",
+   "sentence": "Bedrock uses the execution role and does not accept a model API key.",
+   "about": "A harness's Amazon Bedrock model and its credentials",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-harness-default-tools": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-tools.html",
+   "page": "Tools - Amazon Bedrock AgentCore",
+   "sentence": "Default tools shell and file_operations are available in every session unless you restrict them with allowedTools.",
+   "about": "The harness's default tools, and allowedTools",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-command-limits": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-execute-command.html",
+   "page": "Execute shell commands in AgentCore Runtime sessions - Amazon Bedrock AgentCore",
+   "sentence": "The command must be between 1 byte and 64 KB, the timeout must be between 1 and 3600 seconds, and the session ID must be at least 33 characters.",
+   "about": "InvokeAgentRuntimeCommand's ValidationException",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-command-concurrent": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-execute-command.html",
+   "page": "Execute shell commands in AgentCore Runtime sessions - Amazon Bedrock AgentCore",
+   "sentence": "Command execution doesn't block agent invocations.",
+   "about": "InvokeAgentRuntimeCommand, and invocations of the same session",
+   "read": "2026-10-29"
   }
  },
  "owed": {
