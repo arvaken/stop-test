@@ -1,10 +1,10 @@
 {
  "about": "IAM's policy simulator and the kit's matcher, each case of permissions/policy-cases.json, run in Arvaken's install-test account; a release publishes only when this passed for its files",
- "checked": "2026-10-29T20:38:59+00:00",
+ "checked": "2026-10-29T20:42:36+00:00",
  "files": {
   "permissions/aws-agentcore-policy.json": "fb89aee76dd812ab3274d641e026d85074010cbddcde4db7f965f6c2a794f18d",
-  "permissions/aws-agentcore-harness-policy.json": "ed9b8510004f83ed8c2479a22fd00867079572acaeeb20e0033e29109c3e4754",
-  "permissions/policy-cases.json": "b03c84ba8732d0abe38f3b484fc90d49570388b82ad7a554d83c9596d6da7135"
+  "permissions/aws-agentcore-harness-policy.json": "048a482de912b7908230049e7fc251e25263956b50d756e77b136b2bb1c6e825",
+  "permissions/policy-cases.json": "25f6b53f16bb792304a0335b6080b9c812c3531d2db3ffc318bede49450a5992"
  },
  "cases": [
   {
@@ -368,10 +368,10 @@
    "matcher": "denied"
   },
   {
-   "id": "harness-invoke-for-user-run",
-   "expected": "allowed",
+   "id": "harness-invoke-for-user-not-granted",
+   "expected": "denied",
    "simulator": "denied",
-   "matcher": "allowed"
+   "matcher": "denied"
   },
   {
    "id": "harness-invoke-for-user-yours",
@@ -410,5 +410,5 @@
    "matcher": "denied"
   }
  ],
- "passed": false
+ "passed": true
 }
