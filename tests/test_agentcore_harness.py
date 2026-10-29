@@ -109,9 +109,10 @@ class FakeHarnessAWS(ta.FakeAWS):
         assert harnessArn == self.harness["arn"] and len(runtimeSessionId) >= 33
         answers = self.model_answers and not self.role_denied(now)
         self.turns.append((now, answers))
-        if not answers:
-            return {"stream": [{"messageStart": {"role": "assistant"}}, {"runtimeClientError": {
-                "message": "An error occurred (AccessDeniedException) when calling the ConverseStream operation"}}]}
+        if not answers:     # botocore raises a stream's error event as the call's error, by the event's name
+            return {"stream": _raising([{"messageStart": {"role": "assistant"}}], ta.Error(
+                "runtimeClientError", "An error occurred (AccessDeniedException) when calling the ConverseStream "
+                "operation: User: arn:aws:sts::111122223333:assumed-role/r/s is not authorized"))}
         return {"stream": [{"messageStart": {"role": "assistant"}},
                            {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": "pong"}}},
                            {"messageStop": {"stopReason": "end_turn"}},
@@ -125,6 +126,11 @@ class FakeHarnessAWS(ta.FakeAWS):
         out = json.dumps({"at": now + ta.SKEW}) + "\n" if body["command"].endswith(" clock") else ""
         return {"stream": [{"chunk": {"contentStart": {}}}, {"chunk": {"contentDelta": {"stdout": out}}},
                            {"chunk": {"contentStop": {"exitCode": 0, "status": "COMPLETED"}}}]}
+
+
+def _raising(events, error):
+    yield from events
+    raise error
 
 
 def a_run(aws, clock, stop, **over):
@@ -173,6 +179,8 @@ def test_the_harness_calls_its_model_and_nothing_else_and_its_role_trusts_agentc
                                                                                                     r.run}
     assert req["allowedTools"] == [] and "tools" not in req and req["memory"] == {"disabled": {}}
     assert req["maxIterations"] == 1 and req["model"]["bedrockModelConfig"]["modelId"] == MODEL
+    # a reasoning model spends its tokens reasoning first: 16 ended every turn as an error (r9e60a621)
+    assert req["model"]["bedrockModelConfig"]["maxTokens"] == 512 and req["maxTokens"] == 2048
     assert req["environment"]["agentCoreRuntimeEnvironment"]["networkConfiguration"] == {"networkMode": "PUBLIC"}
     role = seen["roles"][n["agent_role"]]
     assert role["boundary"] == f"arn:aws:iam::{ta.ACCOUNT}:policy/{harness.HARNESS_BOUNDARY}"
@@ -261,6 +269,15 @@ def test_clean_finds_an_interrupted_runs_harness_by_its_name_and_takes_its_stop_
     assert any(x.startswith("the harness's runtime ") for x in found.checked_gone)
 
 
+def test_a_harness_the_tag_index_names_after_it_is_deleted_is_checked_by_its_own_id():
+    clock = ta.Clock()
+    aws = FakeHarnessAWS(clock)
+    phantom = f"arn:aws:bedrock-agentcore:{ta.REGION}:{ta.ACCOUNT}:harness/arvaken_stop_test_r0a1b2c3d-bTfQWW86KQ"
+    aws.get_resources = lambda TagFilters: {"ResourceTagMappingList": [{"ResourceARN": phantom}]}
+    r, doc = a_run(aws, clock, fire.INLINE)
+    assert not doc["run"]["left_anything"] and f"the harness {phantom}, which the tag index names" in r.checked_gone
+
+
 # -- a turn, a command, and the probe's stream
 class Data:
     def __init__(self, stream):
@@ -291,15 +308,22 @@ def _run_with(stream) -> tuple[running.Clients, running.Run]:
     ([{"internalServerException": {"message": "something went wrong"}}], "InternalServerException"),
     ([{"messageStop": {"stopReason": "end_turn"}}, {"metadata": {"usage": {"outputTokens": 0}}}], "NoAnswer"),
     ([{"messageStop": {"stopReason": "end_turn"}}], "NoAnswer"),
+    (ta.Error("runtimeClientError", "An error occurred (AccessDeniedException) when calling the ConverseStream "
+                                    "operation: User: arn:aws:sts::1:assumed-role/r/s is not authorized"),
+     "AccessDeniedException"),
+    (ta.Error("runtimeClientError", "Model stopped generating due to maximum token limit. For more information see: "
+                                    "https://strandsagents.com/docs/#maxtokensreachedexception"), "runtimeClientError"),
+    (ta.Error("ExpiredTokenException", "The security token included in the request is expired"),
+     "ExpiredTokenException"),
 ])
 def test_a_turn_worked_only_where_the_model_answered_and_a_failure_keeps_its_code_alone(events, found):
-    c, r = _run_with(events)
+    c, r = _run_with(_raising([{"messageStart": {}}], events) if isinstance(events, Exception) else events)
     if found is None:
         harness.turn(c, r, "s" * 40)
         return
     with pytest.raises(Exception) as e:
         harness.turn(c, r, "s" * 40)
-    assert running.code(e.value) == found
+    assert running.code(e.value) == found and "not authorized" not in str(e.value)
 
 
 class Closable(list):

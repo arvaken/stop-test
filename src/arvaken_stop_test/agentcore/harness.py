@@ -12,9 +12,10 @@ harness's own turns, (C) both stops, AWSDenyAll and the inline deny-all.
 
 **The test harness** (make): named `arvaken_stop_test_<run>`, with the run's model and nothing else to call: no tools,
 and `allowedTools` empty, as the built-in `shell` and `file_operations` are otherwise on in every session
-[source: aws-agentcore-harness-default-tools]; memory disabled, so no memory resource is made; one iteration a turn, a
-few tokens, and a sliding window over the conversation, so each turn is one small call to the model. Its role is named
-as the runtime's (stack.names), so a policy on it is fired, removed and found in CloudTrail exactly as on the runtime.
+[source: aws-agentcore-harness-default-tools]; memory disabled, so no memory resource is made; one iteration a turn, its
+tokens capped (TURN_TOKENS), and a sliding window over the conversation, so each turn is one small call to the model.
+Its role is named as the runtime's (stack.names), so a policy on it is fired, removed and found in CloudTrail exactly as
+on the runtime.
 
 **Three things are measured, every repeat:**
 
@@ -71,7 +72,12 @@ PATHS = (*SESSION_PATHS, MODEL, NEW_CALLS)
 HARNESS_BOUNDARY = "arvaken-stop-test-boundary-harness"
 WARM_UP = 10                 # commands before the first stop, to read the microVM's clock
 TURN_EVERY = 1.0             # seconds between the starts of the running session's turns
-TURN_TOKENS = 16             # the most output tokens a turn may take
+# The most output tokens a turn's call to the model may take, and the turn in all. A reasoning model spends its tokens
+# reasoning first: in Arvaken's diagnostic (r9e60a621, 29 October 2026) openai.gpt-oss-20b-1:0 used all of 16 on its
+# reasoning and the harness ended the turn as an error ("Model stopped generating due to maximum token limit"); with
+# 512 and 2048 it answered, in 36 and 110 tokens.
+TURN_TOKENS = 512
+TURN_ALL_TOKENS = 2048
 TURN_TIMEOUT = 60            # seconds a turn may last (the harness's timeoutSeconds)
 WINDOW_MESSAGES = 4          # the sliding window over the session's conversation
 SYSTEM_PROMPT = "You are a test agent. Answer every message with one word."
@@ -215,7 +221,7 @@ def harness_request(run: str, region: str, role_arn: str, endpoint: str, second_
         "memory": {"disabled": {}},
         "truncation": {"strategy": "sliding_window", "config": {"slidingWindow": {"messagesCount": WINDOW_MESSAGES}}},
         "maxIterations": 1,
-        "maxTokens": TURN_TOKENS,
+        "maxTokens": TURN_ALL_TOKENS,
         "timeoutSeconds": TURN_TIMEOUT,
         "tags": {TAG: run},
     }
@@ -261,18 +267,30 @@ def command(c: Clients, r: Run, session: str, text: str, timeout: int) -> tuple[
     return "".join(out), exit_code, error
 
 
+def _named_code(e: Exception) -> str:
+    """A failed call's code: the one its message names where it names one, else its own. botocore raises an error event
+    of the stream as the call's error, by the event's name: a harness gives a model's failure as runtimeClientError,
+    with the model's own code (AccessDeniedException) in its message. The code alone is kept, never the message."""
+    message = str((getattr(e, "response", None) or {}).get("Error", {}).get("Message") or "")
+    found = ERROR_CODE.search(message)
+    return found.group(1) if found else code(e)
+
+
 def turn(c: Clients, r: Run, session: str) -> None:
     """One turn of the harness's: it worked where the model answered, its stream counting output tokens and holding no
     error; else it raises, with the error's code."""
-    got = c.data.invoke_harness(harnessArn=r.outputs["Harness"], runtimeSessionId=session,
-                                messages=[{"role": "user", "content": [{"text": PROMPT}]}])
     answered, error = False, None
-    for event in got["stream"]:
-        if "metadata" in event:
-            answered = answered or ((event["metadata"].get("usage") or {}).get("outputTokens") or 0) > 0
-        for name in ERROR_EVENTS:
-            if name in event:
-                error = error or _error_of(name, event[name])
+    try:
+        got = c.data.invoke_harness(harnessArn=r.outputs["Harness"], runtimeSessionId=session,
+                                    messages=[{"role": "user", "content": [{"text": PROMPT}]}])
+        for event in got["stream"]:
+            if "metadata" in event:
+                answered = answered or ((event["metadata"].get("usage") or {}).get("outputTokens") or 0) > 0
+            for name in ERROR_EVENTS:
+                if name in event:
+                    error = error or _error_of(name, event[name])
+    except Exception as e:  # noqa: BLE001 - by its code; the kit's own credentials keep theirs, and end the run
+        raise _Failed(_named_code(e)) from None
     if error or not answered:
         raise _Failed(error or "NoAnswer")
 
@@ -723,8 +741,15 @@ def check_gone(c: Clients, r: HarnessRun) -> tuple[list[str], list[str]]:
         left.append(f"the stop {r.stop_ref} (could not be checked: {code(e)})")
     named = " ".join(left)
     tagged = c.tagging.get_resources(TagFilters=[{"Key": TAG, "Values": [r.run]}]).get("ResourceTagMappingList", [])
-    left += sorted(m["ResourceARN"] for m in tagged if m["ResourceARN"].split(":")[-1].split("/")[-1] not in named
-                   and m["ResourceARN"] not in named)
+    for arn in sorted(m["ResourceARN"] for m in tagged):
+        if arn.split(":")[-1].split("/")[-1] in named or arn in named:
+            continue
+        # The tag index went on naming a harness after it was deleted, by an ID GetHarness does not know, in both of
+        # Arvaken's runs of 29 October 2026 (r84285f18, r9e60a621): a harness so named is checked by its own ID.
+        if ":harness/" in arn and _gone(lambda: c.control.get_harness(harnessId=arn.rpartition("/")[2])) is True:
+            gone.append(f"the harness {arn}, which the tag index names")
+            continue
+        left.append(arn)
     return left, gone
 
 
