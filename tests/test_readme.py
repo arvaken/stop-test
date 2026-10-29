@@ -79,8 +79,14 @@ AGENTCORE = (
     "A run writes the same three files as on Lambda. If a run could not clean up, remove what it made by the run's "
     'name: ``` stop-test agentcore clean --run <run> --region eu-central-1 ```',
     '- **AgentCore:** [`permissions/aws-agentcore-policy.json`](permissions/aws-agentcore-policy.json), an IAM policy'
-    ' under the same boundary. Each statement names only what a run makes, except reading your stop policy and the '
-    'reads AWS allows only on every resource. Its last two statements are needed only with `--trail`.',
+    ' under the same boundary. Each statement names only what a run makes, except reading your stop policy, the reads'
+    ' AWS allows only on every resource, and your default workload-identity directory, which AWS checks beside each '
+    'workload identity a run reads or deletes. Its last two statements are needed only with `--trail`.',
+    'On a harness, attach a second policy beside it, '
+    '[`permissions/aws-agentcore-harness-policy.json`](permissions/aws-agentcore-harness-policy.json). Its statements '
+    "name only the run's harness, the runtime AWS makes for it and the memory AWS requires to make it, except reading "
+    'inference profiles, which the kit does only for a profile you give as the model. The two are kept apart because '
+    'IAM allows a managed policy at most 6,144 characters; create each as a managed policy.',
 )
 
 

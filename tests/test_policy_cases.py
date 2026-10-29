@@ -1,4 +1,4 @@
-"""The kit's AgentCore policy held to its cases (scripts/policy_cases.py; the founder's ruling of 29 October 2026, 13b):
+"""The kit's AgentCore policies, the runtime's and the harness's, held to their cases (scripts/policy_cases.py; the founder's ruling of 29 October 2026, 13b):
 in CI by the matcher; in install-test by IAM's policy simulator; and at release, a record of that simulator run, for
 the very files being released, or no release.
 """
@@ -23,7 +23,8 @@ LIMITED = {"TheRunsRuntime", "TheRunsRuntimeMadeWithTheRunsTag", "TheRuntimeAWSR
            "TheRuntimesWorkloadIdentity", "TheRuntimesLogGroupsIfAny", "TheRunsHarness",
            "TheRunsHarnessMadeWithTheRunsTag", "TheRunsRolesEachUnderTheKitsBoundary", "TheRunsRoles",
            "TheAgentsRoleGivenToItsRuntime", "TaggingWhatTheRunMakesWithTheRunsTag",
-           "TheRunsRuntimeEndpointMadeWithTheRunsTag", "TheRunsWorkloadIdentityMadeWithTheRunsTag"}
+           "TheRunsRuntimeEndpointMadeWithTheRunsTag", "TheRunsWorkloadIdentityMadeWithTheRunsTag",
+           "TheWorkloadIdentityDirectoryAWSChecksBesideTheRunsIdentity"}
 
 
 @pytest.mark.parametrize("case", CASES["cases"], ids=[c["id"] for c in CASES["cases"]])
@@ -33,7 +34,7 @@ def test_the_matcher_decides_each_case_as_expected(case):
 
 def test_each_limited_statement_has_an_allowed_case_and_a_denied_one():
     sids = {s["Sid"] for s in POLICY["Statement"]}
-    assert LIMITED <= sids
+    assert len(sids) == len(POLICY["Statement"]) and LIMITED <= sids
     assert {c["statement"] for c in CASES["cases"]} <= sids
     for sid in LIMITED:
         found = {c["expected"] for c in CASES["cases"] if c["statement"] == sid}
@@ -56,7 +57,7 @@ def test_iams_policy_simulator_decides_each_case_as_the_matcher_does():
 def test_a_release_has_a_passing_simulator_record_for_the_very_files_it_releases():
     assert pc.RECORD.exists(), "no record of IAM's policy simulator: run scripts/policy_cases.py in install-test"
     record = json.loads(pc.RECORD.read_text(encoding="utf-8"))
-    assert record["files"] == {CASES["policy"]: pc.sha256(ROOT / CASES["policy"]),
+    assert record["files"] == {**{p: pc.sha256(ROOT / p) for p in CASES["policies"]},
                                "permissions/policy-cases.json": pc.sha256(pc.CASES)}, \
         "the record is of other files than these: run the simulator again on these"
     assert record["passed"] and {r["id"] for r in record["cases"]} == {c["id"] for c in CASES["cases"]}

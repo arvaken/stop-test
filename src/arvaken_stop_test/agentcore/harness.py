@@ -92,12 +92,12 @@ ERROR_EVENTS = ("accessDeniedException", "internalServerException", "resourceNot
 ERROR_CODE = re.compile(r"\b((?:[A-Z][a-z]+)+(?:Exception|Error)|AccessDenied|ExpiredToken)\b")
 MODEL_ID = re.compile(r"[a-z0-9-]{1,63}(\.[a-z0-9-]{1,63}){1,2}(:[a-z0-9-]{1,63}){0,2}")
 # Where the role takes AWS's managed image from, on the public network [source: aws-agentcore-harness-ecr-public]: a
-# token from Amazon ECR Public, and the bearer token beneath it, for ECR Public alone
-# [source: aws-iam-sts-aws-service-name]. In Arvaken's runs of 29 October 2026 the role took one as each new session
-# started, and when a stop refused it, the session started all the same.
+# token from Amazon ECR Public, and the bearer token beneath it. In Arvaken's runs of 29 October 2026 the role took one
+# as each new session started, and when a stop refused it, the session started all the same. The bearer token has no
+# condition: limited by sts:AWSServiceName to ecr-public.amazonaws.com, it was refused every time (r666063f2, 171 of
+# 171), where without one it was taken until the stop (r5a570e9d); the founder's ruling, 29 October 2026.
 IMAGE_TOKEN = "ecr-public:GetAuthorizationToken"
 BEARER_TOKEN = "sts:GetServiceBearerToken"
-BEARER_FOR = {"StringEquals": {"sts:AWSServiceName": "ecr-public.amazonaws.com"}}
 WORKLOAD_TOKEN = ("bedrock-agentcore:GetWorkloadAccessToken", "bedrock-agentcore:GetWorkloadAccessTokenForJWT")
 MODEL_CALLS = ("bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream")
 # What counts as stopped: a call refused by the stop's own refusal, and nothing else (the founder, 29 October 2026,
@@ -192,7 +192,7 @@ def harness_policy(run: str, region: str, account: str, model: str, partition: s
         {"Effect": "Allow", "Action": list(MODEL_CALLS),
          "Resource": model_arns(model, region, account, partition, profile)},
         {"Effect": "Allow", "Action": IMAGE_TOKEN, "Resource": "*"},
-        {"Effect": "Allow", "Action": BEARER_TOKEN, "Resource": "*", "Condition": BEARER_FOR},
+        {"Effect": "Allow", "Action": BEARER_TOKEN, "Resource": "*"},
         {"Effect": "Allow", "Action": list(WORKLOAD_TOKEN),
          "Resource": [directory, f"{directory}/workload-identity/{n['harness_runtime']}-*"]}]}
 

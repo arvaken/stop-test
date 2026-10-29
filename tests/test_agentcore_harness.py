@@ -558,8 +558,9 @@ def test_the_harness_boundary_is_the_kits_boundary_and_what_a_harness_needs_besi
     beside = {s["Sid"]: s for s in shipped["Statement"][len(kits["Statement"]):]}
     actions = {a for s in beside.values() for a in (s["Action"] if isinstance(s["Action"], list) else [s["Action"]])}
     assert actions == {*harness.MODEL_CALLS, harness.IMAGE_TOKEN, harness.BEARER_TOKEN, *harness.WORKLOAD_TOKEN}
-    # the bearer token for Amazon ECR Public alone (the founder, 29 October 2026, ruling 3, 12b)
-    assert beside["TheHarnessesManagedImageBearerToken"]["Condition"] == harness.BEARER_FOR
+    # the bearer token without a condition: limited to ECR Public by sts:AWSServiceName, it was refused every time
+    # (r666063f2; the founder, 29 October 2026, superseding ruling 3, 12b)
+    assert "Condition" not in beside["TheHarnessesManagedImageBearerToken"]
     assert "Condition" not in beside["TheHarnessesManagedImage"]
 
 
@@ -641,7 +642,7 @@ def _harness_section() -> str:
 
 
 def test_the_readme_and_the_policy_agree_on_what_a_harness_run_makes():
-    policy = json.loads((ROOT / "permissions" / "aws-agentcore-policy.json").read_text(encoding="utf-8"))
+    policy = ta.POLICY
     granted = {r for s in policy["Statement"] for r in (s["Resource"] if isinstance(s["Resource"], list)
                                                         else [s["Resource"]]) if "harness_arvaken_stop_test_" in r}
     section = " ".join(_harness_section().split())
@@ -655,7 +656,7 @@ def test_the_readme_and_the_policy_agree_on_what_a_harness_run_makes():
 
 
 def test_the_kits_agentcore_policy_lets_it_make_a_harnesss_roles_under_their_own_boundary_alone():
-    policy = json.loads((ROOT / "permissions" / "aws-agentcore-policy.json").read_text(encoding="utf-8"))
+    policy = ta.POLICY
     [roles] = [s for s in policy["Statement"] if s["Sid"] == "TheRunsRolesEachUnderTheKitsBoundary"]
     assert roles["Condition"]["StringLike"]["iam:PermissionsBoundary"] == [
         "arn:aws:iam::*:policy/arvaken-stop-test-boundary", f"arn:aws:iam::*:policy/{harness.HARNESS_BOUNDARY}"]

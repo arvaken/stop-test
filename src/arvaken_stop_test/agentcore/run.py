@@ -211,7 +211,7 @@ def _retrying(call: Callable[[], Any], codes: set[str], clock: Clock, limit: flo
             clock.sleep(5.0)
 
 
-# CUSTOMER TEXT: for the founder's approval, with the policy's next permissions
+# CUSTOMER TEXT: approved by the founder, word for word, 29 October 2026
 def not_ready(what: str, name: str, got: dict) -> RuntimeError:
     """A runtime or harness that AgentCore did not make ready, with AWS's own reason where it gives one: a permission
     AgentCore was refused while making it is named there, and nowhere else the kit can read."""

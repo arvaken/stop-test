@@ -138,14 +138,6 @@
    "about": "InvokeAgentRuntimeCommand, and invocations of the same session",
    "read": "2026-10-29"
   },
-  "aws-iam-sts-aws-service-name": {
-   "cloud": "aws",
-   "url": "https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_iam-condition-keys.html",
-   "page": "IAM and AWS STS condition context keys - AWS Identity and Access Management",
-   "sentence": "Use this key to specify a service where a bearer token can be used.",
-   "about": "sts:AWSServiceName",
-   "read": "2026-10-29"
-  },
   "aws-agentcore-harness-runs-the-loop": {
    "cloud": "aws",
    "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-vs-runtime.html",
@@ -208,6 +200,30 @@
    "page": "Actions, resources, and condition keys for Amazon Bedrock Agentcore - Service Authorization Reference",
    "sentence": "InvokeAgentRuntime | bedrock-agentcore | bedrock-agentcore:InvokeAgentRuntime, bedrock-agentcore:InvokeAgentRuntimeForUser",
    "about": "The InvokeAgentRuntime operation, and the actions it requires",
+   "read": "2026-10-29"
+  },
+  "aws-sar-agentcore-delete-workload-identity": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_bedrock-agentcore.html",
+   "page": "Actions, resources, and condition keys for Amazon Bedrock Agentcore - Service Authorization Reference",
+   "sentence": "DeleteWorkloadIdentity | Grants permission to delete a registered Workload Identity | Write | workload-identity* | aws:ResourceTag/${TagKey} | workload-identity-directory* | aws:ResourceTag/${TagKey}",
+   "about": "The DeleteWorkloadIdentity action: both its resource types required, the identity and its directory",
+   "read": "2026-10-29"
+  },
+  "aws-sar-agentcore-get-workload-identity": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_bedrock-agentcore.html",
+   "page": "Actions, resources, and condition keys for Amazon Bedrock Agentcore - Service Authorization Reference",
+   "sentence": "GetWorkloadIdentity | Grants permission to fetch details for a specific Workload identity, including its name and allowed OAuth2 return URLs | Read | workload-identity* | aws:ResourceTag/${TagKey} | workload-identity-directory* | aws:ResourceTag/${TagKey}",
+   "about": "The GetWorkloadIdentity action: both its resource types required, the identity and its directory",
+   "read": "2026-10-29"
+  },
+  "aws-iam-managed-policy-size": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_iam-quotas.html",
+   "page": "IAM and AWS STS quotas - AWS Identity and Access Management",
+   "sentence": "The size of each managed policy can't exceed 6,144 characters. IAM doesn't count white space when calculating the size of a policy against this limit.",
+   "about": "The size of a customer managed policy",
    "read": "2026-10-29"
   }
  },

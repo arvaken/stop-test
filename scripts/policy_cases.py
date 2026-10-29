@@ -1,4 +1,5 @@
-"""The kit's AgentCore policy, held to its cases: what it must allow of a run's own things, and what it must never allow
+"""The kit's AgentCore policies, the runtime's and the harness's, held to their cases as one, as IAM holds two policies
+attached together: what it must allow of a run's own things, and what it must never allow
 of yours (the founder's ruling of 29 October 2026, 13b and its conditions).
 
 One case file, permissions/policy-cases.json, is read twice:
@@ -6,7 +7,7 @@ One case file, permissions/policy-cases.json, is read twice:
   `*` and `?`, ignoring case; a resource's ARN by `*` and `?`, minding case; and the conditions the policy uses (Null,
   StringEquals, StringLike, ArnLike), against the request context each case gives explicitly;
 - in install-test, by IAM's own policy simulator (`simulate`), with the same context. That run writes
-  permissions/policy-simulator-record.json: the SHA-256 of the policy and of the case file it checked, and each case's
+  permissions/policy-simulator-record.json: the SHA-256 of each policy and of the case file it checked, and each case's
   expected decision, the simulator's and the matcher's. A release publishes only with a record that passed, every case
   agreeing three ways, for the very files being released (tests/test_policy_cases.py).
 
@@ -35,9 +36,11 @@ def listed(x: Any) -> list:
 
 
 def load() -> tuple[dict, dict]:
-    """The case file, and the policy it names."""
+    """The case file, and the policies it names as one: every statement of each, as IAM reads policies attached
+    together."""
     cases = json.loads(CASES.read_text(encoding="utf-8"))
-    return cases, json.loads((ROOT / cases["policy"]).read_text(encoding="utf-8"))
+    return cases, {"Version": "2012-10-17", "Statement": [
+        s for p in cases["policies"] for s in json.loads((ROOT / p).read_text(encoding="utf-8"))["Statement"]]}
 
 
 def _met(condition: dict, context: dict[str, list[str]]) -> bool:
@@ -74,11 +77,12 @@ def decide(policy: dict, case: dict) -> str:
     return "denied"
 
 
-def simulate(iam: Any, policy: dict, case: dict) -> str:
-    """IAM's policy simulator's decision for the case, with its context given explicitly."""
+def simulate(iam: Any, policies: list[dict], case: dict) -> str:
+    """IAM's policy simulator's decision for the case, the policies given as attached together, with the case's context
+    given explicitly."""
     entries = [{"ContextKeyName": k, "ContextKeyValues": listed(v), "ContextKeyType": "string"}
                for k, v in (case.get("context") or {}).items()]
-    found = iam.simulate_custom_policy(PolicyInputList=[json.dumps(policy)], ActionNames=[case["action"]],
+    found = iam.simulate_custom_policy(PolicyInputList=[json.dumps(p) for p in policies], ActionNames=[case["action"]],
                                        ResourceArns=[case["resource"]], ContextEntries=entries)["EvaluationResults"]
     decisions = {r["EvalDecision"] for r in found}
     return "allowed" if decisions == {"allowed"} else "denied"
@@ -91,12 +95,13 @@ def sha256(path: Path) -> str:
 def record(iam: Any) -> dict:
     """Every case through the simulator and the matcher, beside the SHA-256 of the files checked."""
     cases, policy = load()
-    results = [{"id": c["id"], "expected": c["expected"], "simulator": simulate(iam, policy, c),
+    files = [json.loads((ROOT / p).read_text(encoding="utf-8")) for p in cases["policies"]]
+    results = [{"id": c["id"], "expected": c["expected"], "simulator": simulate(iam, files, c),
                 "matcher": decide(policy, c)} for c in cases["cases"]]
     return {"about": "IAM's policy simulator and the kit's matcher, each case of permissions/policy-cases.json, run "
                      "in Arvaken's install-test account; a release publishes only when this passed for its files",
             "checked": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-            "files": {cases["policy"]: sha256(ROOT / cases["policy"]),
+            "files": {**{p: sha256(ROOT / p) for p in cases["policies"]},
                       CASES.relative_to(ROOT).as_posix(): sha256(CASES)},
             "cases": results,
             "passed": all(r["expected"] == r["simulator"] == r["matcher"] for r in results)}

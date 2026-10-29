@@ -23,6 +23,7 @@ import gzip
 import hashlib
 import io
 import json
+import re
 import threading
 import urllib.parse
 import urllib.request
@@ -1003,8 +1004,11 @@ def test_the_agent_answers_a_new_call_says_it_is_healthy_and_streams_a_watch(mon
 
 # -- the module's permissions, held to what it does
 
-POLICY = json.loads((Path(__file__).resolve().parents[1] / "permissions" / "aws-agentcore-policy.json")
-                    .read_text(encoding="utf-8"))
+# The runtime's policy and the harness's, as IAM reads them attached together: a harness run needs both.
+POLICIES = ("aws-agentcore-policy.json", "aws-agentcore-harness-policy.json")
+POLICY = {"Version": "2012-10-17", "Statement": [
+    s for p in POLICIES for s in json.loads((Path(__file__).resolve().parents[1] / "permissions" / p)
+                                            .read_text(encoding="utf-8"))["Statement"]]}
 SOURCE = Path(__file__).resolve().parents[1] / "src" / "arvaken_stop_test" / "agentcore"
 PREFIX = {"iam": "iam", "s3": "s3", "control": "bedrock-agentcore", "data": "bedrock-agentcore",
           "cloudtrail": "cloudtrail", "lookups": "cloudtrail", "tagging": "tag", "logs": "logs", "bedrock": "bedrock"}
@@ -1059,13 +1063,25 @@ def _by_the_runs_tag(s: dict) -> bool:
     return any(null.get(f"aws:{kind}/arvaken-stop-test") == "false" for kind in ("RequestTag", "ResourceTag"))
 
 
+def test_each_of_the_kits_agentcore_policies_fits_in_one_managed_policy():
+    # IAM's limit for a managed policy, white space not counted (PROVIDER-SOURCES: aws-iam-managed-policy-size)
+    for p in POLICIES:
+        text = (Path(__file__).resolve().parents[1] / "permissions" / p).read_text(encoding="utf-8")
+        assert len(re.sub(r"\s", "", text)) <= 6144, p
+
+
 def test_the_policy_reaches_only_the_runs_own_things():
     for s in POLICY["Statement"]:
         resources = s["Resource"] if isinstance(s["Resource"], list) else [s["Resource"]]
         for resource in resources:
-            reads = {("arn:aws:iam::*:policy/*", "YourStopReadAndChecked"),
-                     ("arn:aws:bedrock:*:*:inference-profile/*", "YourModelsInferenceProfileRead")}
+            # yours, read; and the directory AWS checks beside each of the run's identities, which carries no tag
+            # of the run's to limit it by (the founder's ruling, 29 October 2026; PROVIDER-SOURCES:
+            # aws-sar-agentcore-delete-workload-identity, aws-sar-agentcore-get-workload-identity)
+            named = {("arn:aws:iam::*:policy/*", "YourStopReadAndChecked"),
+                     ("arn:aws:bedrock:*:*:inference-profile/*", "YourModelsInferenceProfileRead"),
+                     ("arn:aws:bedrock-agentcore:*:*:workload-identity-directory/default",
+                      "TheWorkloadIdentityDirectoryAWSChecksBesideTheRunsIdentity")}
             assert resource == "*" or "arvaken-stop-test-" in resource or "arvaken_stop_test_" in resource or \
-                (resource, s["Sid"]) in reads or _by_the_runs_tag(s), resource
+                (resource, s["Sid"]) in named or _by_the_runs_tag(s), resource
         if resources == ["*"]:
             assert s["Sid"] == "ReadsAwsTakesOnEveryResourceOnly" or _by_the_runs_tag(s), s["Sid"]

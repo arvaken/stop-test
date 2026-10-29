@@ -38,12 +38,7 @@
    "Sid": "TheHarnessesManagedImageBearerToken",
    "Effect": "Allow",
    "Action": "sts:GetServiceBearerToken",
-   "Resource": "*",
-   "Condition": {
-    "StringEquals": {
-     "sts:AWSServiceName": "ecr-public.amazonaws.com"
-    }
-   }
+   "Resource": "*"
   },
   {
    "Sid": "TheHarnessesWorkloadToken",

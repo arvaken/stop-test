@@ -360,10 +360,18 @@ The kit runs with your own credentials. To give it only what a run needs, use th
 
   Before a run makes anything, the kit checks that the boundary is there and is the kit's.
 - **AgentCore:** [`permissions/aws-agentcore-policy.json`](permissions/aws-agentcore-policy.json), an IAM policy under
-  the same boundary. Each statement names only what a run makes, except reading your stop policy and the reads AWS
-  allows only on every resource. Its last two statements are needed only with `--trail`.
+  the same boundary. Each statement names only what a run makes, except reading your stop policy, the reads AWS allows
+  only on every resource, and your default workload-identity directory, which AWS checks beside each workload identity
+  a run reads or deletes. Its last two statements are needed only with `--trail`.
   <!-- [source: aws-sar-agentcore-create-agent-runtime, aws-sar-agentcore-delete-agent-runtime,
-  aws-sar-agentcore-invoke-agent-runtime] -->
+  aws-sar-agentcore-invoke-agent-runtime, aws-sar-agentcore-delete-workload-identity,
+  aws-sar-agentcore-get-workload-identity] -->
+
+  On a harness, attach a second policy beside it,
+  [`permissions/aws-agentcore-harness-policy.json`](permissions/aws-agentcore-harness-policy.json). Its statements name
+  only the run's harness, the runtime AWS makes for it and the memory AWS requires to make it, except reading inference
+  profiles, which the kit does only for a profile you give as the model. The two are kept apart because IAM allows a
+  managed policy at most 6,144 characters; create each as a managed policy. <!-- [source: aws-iam-managed-policy-size] -->
 
   A harness's two roles carry a boundary of their own,
   [`permissions/aws-boundary-harness.json`](permissions/aws-boundary-harness.json): the kit's boundary, and calling a
@@ -373,8 +381,8 @@ The kit runs with your own credentials. To give it only what a run needs, use th
   aws iam create-policy --policy-name arvaken-stop-test-boundary-harness --policy-document file://permissions/aws-boundary-harness.json
   ```
 
-  AWS lists permission to create and delete a memory as required to create and delete a harness, so the kit's policy
-  grants it, for the run's own resources only. The kit's harness has no memory, and after each run the kit checks that
+  AWS lists permission to create and delete a memory as required to create and delete a harness, so the kit's harness
+  policy grants it, for the run's own resources only. The kit's harness has no memory, and after each run the kit checks that
   none is left. <!-- [source: aws-agentcore-harness-create-permissions, aws-agentcore-harness-delete-permissions,
   aws-sar-agentcore-create-harness] -->
 - **Google Cloud:** [`permissions/google-role.yaml`](permissions/google-role.yaml), a custom role for your test project:

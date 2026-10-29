@@ -1,6 +1,6 @@
 {
- "about": "What the kit's AgentCore policy must allow of a run's own things, and must never allow of yours: each limited statement with an allowed case and a denied one, the request context given explicitly (the founder, 29 October 2026). Read by scripts/policy_cases.py, in CI and in install-test.",
- "policy": "permissions/aws-agentcore-policy.json",
+ "about": "What the kit's AgentCore policies, the runtime's and the harness's, attached together, must allow of a run's own things, and must never allow of yours: each limited statement with an allowed case and a denied one, the request context given explicitly (the founder, 29 October 2026). Read by scripts/policy_cases.py, in CI and in install-test.",
+ "policies": ["permissions/aws-agentcore-policy.json", "permissions/aws-agentcore-harness-policy.json"],
  "cases": [
   {
    "id": "runtime-run-delete",
@@ -407,6 +407,30 @@
    "expected": "denied"
   },
   {
+   "id": "identity-directory-checked-beside-the-runs-identity-get",
+   "statement": "TheWorkloadIdentityDirectoryAWSChecksBesideTheRunsIdentity",
+   "action": "bedrock-agentcore:GetWorkloadIdentity",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:workload-identity-directory/default",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "identity-directory-checked-beside-the-runs-identity-delete",
+   "statement": "TheWorkloadIdentityDirectoryAWSChecksBesideTheRunsIdentity",
+   "action": "bedrock-agentcore:DeleteWorkloadIdentity",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:workload-identity-directory/default",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "identity-directory-other-than-the-default-delete",
+   "statement": "TheWorkloadIdentityDirectoryAWSChecksBesideTheRunsIdentity",
+   "action": "bedrock-agentcore:DeleteWorkloadIdentity",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:workload-identity-directory/yours",
+   "context": {},
+   "expected": "denied"
+  },
+  {
    "id": "tag-yours-without-the-runs-tag",
    "statement": "TaggingWhatTheRunMakesWithTheRunsTag",
    "action": "bedrock-agentcore:TagResource",
@@ -547,9 +571,9 @@
    "expected": "denied"
   },
   {
-   "id": "identity-directory-delete",
-   "statement": "TheRunsWorkloadIdentityMadeWithTheRunsTag",
-   "action": "bedrock-agentcore:DeleteWorkloadIdentity",
+   "id": "identity-directory-update",
+   "statement": "TheWorkloadIdentityDirectoryAWSChecksBesideTheRunsIdentity",
+   "action": "bedrock-agentcore:UpdateWorkloadIdentity",
    "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:workload-identity-directory/default",
    "context": {
     "aws:RequestTag/arvaken-stop-test": "r0a1b2c3d"
