@@ -60,6 +60,8 @@ During a run, the kit invokes the test agent about once a second, and each time 
 | A key for a service outside your cloud | calls stop-test.arvaken.com with the random key the kit made for the run |
 | The open internet | calls stop-test.arvaken.com with nothing |
 
+With `--model`, it also tries a fifth: a call to a model (see [A call to a model](#a-call-to-a-model)).
+
 When the run ends, the kit takes off the stop it fired, deletes the stack, and checks each thing it made by its own
 identifier: the stack, the function, both roles, the bucket, the function's log group and the stop. Anything still
 there is named for you to delete.
@@ -170,6 +172,30 @@ by the run's name, adding `--stop <ARN>` if the run attached a policy of yours:
 ```
 stop-test aws clean --run <run> --region eu-central-1
 ```
+
+### A call to a model
+
+On AWS, the kit can also time the test agent's calls to a model. Name the model with `--model` and its Bedrock model
+ID or inference profile ID:
+
+```
+stop-test aws plan --stop arn:aws:iam::aws:policy/AWSDenyAll --model eu.amazon.nova-micro-v1:0 --region eu-central-1
+```
+
+With each invocation, the test agent then also calls that model once, as its own role, asking for one token. AWS bills
+each call to your account. The test agent keeps none of the model's answer: as on every path, it reports only whether
+the call worked and, if not, its error's code. The kit lets only the test agent's role call the model: for a model ID,
+that model in the run's region; for an inference profile ID, the profile in the run's region and the model it names in
+every region, as AWS requires for a profile that sends calls to other regions. The second role can't call it.
+<!-- [source: aws-bedrock-inference-profile-permissions] -->
+
+The call must work before the stop. If it doesn't, as when the ID is wrong or your account can't call that model in
+the run's region, the kit says so, times nothing, and removes what it made. After the stop, every call that fails
+counts as a failure, whatever its error, a throttle included, and the page shows the errors seen. Between repeats, the
+kit also waits until the call to the model works again.
+
+A run that calls a model needs a boundary of its own, `arvaken-stop-test-boundary-model` (see
+[The permissions it needs](#the-permissions-it-needs)).
 
 ### Through your gateway
 
