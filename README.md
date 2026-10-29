@@ -186,7 +186,8 @@ open-internet call; with `all-outbound`, every call it makes: its own calls to A
 call with a key, its open-internet call and, with `--model`, its call to the model. Its other calls go directly, as your
 agents' would. Its call with a key and its open-internet call go to Arvaken's test address. Through your gateway, they
 reach it from the address your gateway's traffic leaves from, which is yours, and Arvaken's test address sees that
-address. [FILL: what it keeps, and for how long.]
+address. Cloudflare keeps that address, with its network and country, for 31 days, as Arvaken's description of what
+Cloudflare records says above.
 
 With `--via`, name your gateway with both of:
 
