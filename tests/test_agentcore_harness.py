@@ -582,62 +582,8 @@ def test_the_readme_and_the_policy_agree_on_what_a_harness_run_makes():
     assert any(":runtime/harness_arvaken_stop_test_" in r for r in granted) and "Runtime" in section
 
 
-# What a run's policy must never reach: an AgentCore runtime, memory, workload identity or log group, or a harness, that
-# the run did not make (the founder, 29 October 2026, ruling 3, 13a and 13b).
-AC = "arn:aws:bedrock-agentcore:eu-central-1:111122223333:"
-IDENTITY = AC + "workload-identity-directory/default/workload-identity/"
-LOGS = "arn:aws:logs:eu-central-1:111122223333:log-group:/aws/bedrock-agentcore/runtimes/"
-YOURS = [
-    ("bedrock-agentcore:DeleteAgentRuntime", AC + "runtime/your_agent-AbC"),
-    ("bedrock-agentcore:UpdateAgentRuntime", AC + "runtime/your_agent-AbC"),
-    ("bedrock-agentcore:DeleteMemory", AC + "memory/your_memory-AbC"),
-    ("bedrock-agentcore:UpdateMemory", AC + "memory/your_memory-AbC"),
-    ("bedrock-agentcore:DeleteWorkloadIdentity", IDENTITY + "your_agent-AbC"),
-    ("bedrock-agentcore:UpdateWorkloadIdentity", IDENTITY + "your_agent-AbC"),
-    ("logs:DeleteLogGroup", LOGS + "your_agent-AbC"),
-    ("logs:PutRetentionPolicy", LOGS + "your_agent-AbC"),
-    ("bedrock-agentcore:DeleteHarness", AC + "harness/your_harness-AbC"),
-    ("bedrock-agentcore:UpdateHarness", AC + "harness/your_harness-AbC"),
-]
-OURS = [
-    ("bedrock-agentcore:DeleteAgentRuntime", AC + "runtime/harness_arvaken_stop_test_r0a1b2c3d-AbC"),
-    ("bedrock-agentcore:DeleteHarness", AC + "harness/arvaken_stop_test_r0a1b2c3d-AbC"),
-    ("bedrock-agentcore:DeleteWorkloadIdentity", IDENTITY + "harness_arvaken_stop_test_r0a1b2c3d-AbC"),
-    ("logs:DeleteLogGroup", LOGS + "harness_arvaken_stop_test_r0a1b2c3d-AbC"),
-]
-
-
-def _allows(policy: dict, action: str, resource: str) -> bool:
-    """Whether any statement allows the action on the resource, matched as IAM matches them: `*` and `?` in an action
-    or an ARN, case-sensitively for an ARN. A statement with a condition the request does not meet allows nothing."""
-    import fnmatch
-    listed = lambda x: x if isinstance(x, list) else [x]  # noqa: E731
-    for s in policy["Statement"]:
-        if s["Effect"] != "Allow" or "Condition" in s:
-            continue
-        if any(fnmatch.fnmatch(action.lower(), a.lower()) for a in listed(s["Action"])) and \
-                any(fnmatch.fnmatchcase(resource, r) for r in listed(s["Resource"])):
-            return True
-    return False
-
-
-def test_the_kits_agentcore_policy_reaches_nothing_of_yours_and_does_reach_what_a_run_makes():
-    policy = json.loads((ROOT / "permissions" / "aws-agentcore-policy.json").read_text(encoding="utf-8"))
-    assert [(a, r) for a, r in YOURS if _allows(policy, a, r)] == []
-    assert all(_allows(policy, a, r) for a, r in OURS)
-
-
-@pytest.mark.skipif(not __import__("os").environ.get("STOP_TEST_IAM_SIMULATOR"),
-                    reason="calls IAM's policy simulator in your account: set STOP_TEST_IAM_SIMULATOR=1 to run it")
-def test_iams_policy_simulator_denies_the_kits_agentcore_policy_anything_of_yours():
-    import boto3
-    policy = (ROOT / "permissions" / "aws-agentcore-policy.json").read_text(encoding="utf-8")
-    iam = boto3.client("iam")
-    for wanted, cases in (("implicitDeny", YOURS), ("allowed", OURS)):
-        for action, resource in cases:
-            found = iam.simulate_custom_policy(PolicyInputList=[policy], ActionNames=[action],
-                                               ResourceArns=[resource])["EvaluationResults"]
-            assert [r["EvalDecision"] for r in found] == [wanted], (action, resource)
+# What the kit's AgentCore policy must reach and must never reach: permissions/policy-cases.json, read in CI and by
+# IAM's policy simulator (tests/test_policy_cases.py).
 
 
 def test_the_kits_agentcore_policy_lets_it_make_a_harnesss_roles_under_their_own_boundary_alone():

@@ -1,0 +1,362 @@
+{
+ "about": "What the kit's AgentCore policy must allow of a run's own things, and must never allow of yours: each limited statement with an allowed case and a denied one, the request context given explicitly (the founder, 29 October 2026). Read by scripts/policy_cases.py, in CI and in install-test.",
+ "policy": "permissions/aws-agentcore-policy.json",
+ "cases": [
+  {
+   "id": "runtime-run-delete",
+   "statement": "TheRunsRuntime",
+   "action": "bedrock-agentcore:DeleteAgentRuntime",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/arvaken_stop_test_r0a1b2c3d-AbC",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "runtime-yours-delete",
+   "statement": "TheRunsRuntime",
+   "action": "bedrock-agentcore:DeleteAgentRuntime",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/your_agent-AbC",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "runtime-yours-update",
+   "statement": "TheRunsRuntime",
+   "action": "bedrock-agentcore:UpdateAgentRuntime",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/your_agent-AbC",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "runtime-yours-policy",
+   "statement": "TheRunsRuntime",
+   "action": "bedrock-agentcore:PutResourcePolicy",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/your_agent-AbC",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "runtime-make-tagged",
+   "statement": "TheRunsRuntimeMadeWithTheRunsTag",
+   "action": "bedrock-agentcore:CreateAgentRuntime",
+   "resource": "*",
+   "context": {
+    "aws:RequestTag/arvaken-stop-test": "r0a1b2c3d"
+   },
+   "expected": "allowed"
+  },
+  {
+   "id": "runtime-make-untagged",
+   "statement": "TheRunsRuntimeMadeWithTheRunsTag",
+   "action": "bedrock-agentcore:CreateAgentRuntime",
+   "resource": "*",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "harness-runtime-run-delete",
+   "statement": "TheRuntimeAWSRequiresForAHarness",
+   "action": "bedrock-agentcore:DeleteAgentRuntime",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/harness_arvaken_stop_test_r0a1b2c3d-AbC",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "harness-runtime-yours-delete",
+   "statement": "TheRuntimeAWSRequiresForAHarness",
+   "action": "bedrock-agentcore:DeleteAgentRuntime",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/harness_your_agent-AbC",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "memory-make-tagged",
+   "statement": "TheMemoryAWSRequiresToMakeAHarnessWithTheRunsTag",
+   "action": "bedrock-agentcore:CreateMemory",
+   "resource": "*",
+   "context": {
+    "aws:RequestTag/arvaken-stop-test": "r0a1b2c3d"
+   },
+   "expected": "allowed"
+  },
+  {
+   "id": "memory-make-untagged",
+   "statement": "TheMemoryAWSRequiresToMakeAHarnessWithTheRunsTag",
+   "action": "bedrock-agentcore:CreateMemory",
+   "resource": "*",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "memory-run-delete",
+   "statement": "TheMemoryAWSRequiresForAHarnessTaggedWithARun",
+   "action": "bedrock-agentcore:DeleteMemory",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:memory/harness_arvaken_r0a1b2c3d-AbC",
+   "context": {
+    "aws:ResourceTag/arvaken-stop-test": "r0a1b2c3d"
+   },
+   "expected": "allowed"
+  },
+  {
+   "id": "memory-yours-delete",
+   "statement": "TheMemoryAWSRequiresForAHarnessTaggedWithARun",
+   "action": "bedrock-agentcore:DeleteMemory",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:memory/your_memory-AbC",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "memory-run-get",
+   "statement": "TheMemoryAWSRequiresForAHarnessTaggedWithARun",
+   "action": "bedrock-agentcore:GetMemory",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:memory/harness_arvaken_r0a1b2c3d-AbC",
+   "context": {
+    "aws:ResourceTag/arvaken-stop-test": "r0a1b2c3d"
+   },
+   "expected": "allowed"
+  },
+  {
+   "id": "memory-yours-get",
+   "statement": "TheMemoryAWSRequiresForAHarnessTaggedWithARun",
+   "action": "bedrock-agentcore:GetMemory",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:memory/your_memory-AbC",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "memory-yours-update",
+   "statement": "TheMemoryAWSRequiresForAHarnessTaggedWithARun",
+   "action": "bedrock-agentcore:UpdateMemory",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:memory/your_memory-AbC",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "memory-run-update",
+   "statement": "TheMemoryAWSRequiresForAHarnessTaggedWithARun",
+   "action": "bedrock-agentcore:UpdateMemory",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:memory/harness_arvaken_r0a1b2c3d-AbC",
+   "context": {
+    "aws:ResourceTag/arvaken-stop-test": "r0a1b2c3d"
+   },
+   "expected": "denied"
+  },
+  {
+   "id": "identity-run-delete",
+   "statement": "TheRuntimesWorkloadIdentity",
+   "action": "bedrock-agentcore:DeleteWorkloadIdentity",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:workload-identity-directory/default/workload-identity/arvaken_stop_test_r0a1b2c3d-AbC",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "identity-harness-run-delete",
+   "statement": "TheRuntimesWorkloadIdentity",
+   "action": "bedrock-agentcore:DeleteWorkloadIdentity",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:workload-identity-directory/default/workload-identity/harness_arvaken_stop_test_r0a1b2c3d-AbC",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "identity-yours-delete",
+   "statement": "TheRuntimesWorkloadIdentity",
+   "action": "bedrock-agentcore:DeleteWorkloadIdentity",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:workload-identity-directory/default/workload-identity/your_agent-AbC",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "identity-yours-update",
+   "statement": "TheRuntimesWorkloadIdentity",
+   "action": "bedrock-agentcore:UpdateWorkloadIdentity",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:workload-identity-directory/default/workload-identity/your_agent-AbC",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "logs-run-delete",
+   "statement": "TheRuntimesLogGroupsIfAny",
+   "action": "logs:DeleteLogGroup",
+   "resource": "arn:aws:logs:eu-central-1:111122223333:log-group:/aws/bedrock-agentcore/runtimes/arvaken_stop_test_r0a1b2c3d-AbC",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "logs-harness-run-delete",
+   "statement": "TheRuntimesLogGroupsIfAny",
+   "action": "logs:DeleteLogGroup",
+   "resource": "arn:aws:logs:eu-central-1:111122223333:log-group:/aws/bedrock-agentcore/runtimes/harness_arvaken_stop_test_r0a1b2c3d-AbC",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "logs-yours-delete",
+   "statement": "TheRuntimesLogGroupsIfAny",
+   "action": "logs:DeleteLogGroup",
+   "resource": "arn:aws:logs:eu-central-1:111122223333:log-group:/aws/bedrock-agentcore/runtimes/your_agent-AbC",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "logs-yours-retention",
+   "statement": "TheRuntimesLogGroupsIfAny",
+   "action": "logs:PutRetentionPolicy",
+   "resource": "arn:aws:logs:eu-central-1:111122223333:log-group:/aws/bedrock-agentcore/runtimes/your_agent-AbC",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "harness-run-delete",
+   "statement": "TheRunsHarness",
+   "action": "bedrock-agentcore:DeleteHarness",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:harness/arvaken_stop_test_r0a1b2c3d-AbC",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "harness-yours-delete",
+   "statement": "TheRunsHarness",
+   "action": "bedrock-agentcore:DeleteHarness",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:harness/your_harness-AbC",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "harness-yours-update",
+   "statement": "TheRunsHarness",
+   "action": "bedrock-agentcore:UpdateHarness",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:harness/your_harness-AbC",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "harness-yours-invoke",
+   "statement": "TheRunsHarness",
+   "action": "bedrock-agentcore:InvokeHarness",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:harness/your_harness-AbC",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "harness-make-tagged",
+   "statement": "TheRunsHarnessMadeWithTheRunsTag",
+   "action": "bedrock-agentcore:CreateHarness",
+   "resource": "*",
+   "context": {
+    "aws:RequestTag/arvaken-stop-test": "r0a1b2c3d"
+   },
+   "expected": "allowed"
+  },
+  {
+   "id": "harness-make-untagged",
+   "statement": "TheRunsHarnessMadeWithTheRunsTag",
+   "action": "bedrock-agentcore:CreateHarness",
+   "resource": "*",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "role-make-kits-boundary",
+   "statement": "TheRunsRolesEachUnderTheKitsBoundary",
+   "action": "iam:CreateRole",
+   "resource": "arn:aws:iam::111122223333:role/arvaken-stop-test-r0a1b2c3d-agent",
+   "context": {
+    "iam:PermissionsBoundary": "arn:aws:iam::111122223333:policy/arvaken-stop-test-boundary"
+   },
+   "expected": "allowed"
+  },
+  {
+   "id": "role-make-harness-boundary",
+   "statement": "TheRunsRolesEachUnderTheKitsBoundary",
+   "action": "iam:CreateRole",
+   "resource": "arn:aws:iam::111122223333:role/arvaken-stop-test-r0a1b2c3d-agent",
+   "context": {
+    "iam:PermissionsBoundary": "arn:aws:iam::111122223333:policy/arvaken-stop-test-boundary-harness"
+   },
+   "expected": "allowed"
+  },
+  {
+   "id": "role-make-no-boundary",
+   "statement": "TheRunsRolesEachUnderTheKitsBoundary",
+   "action": "iam:CreateRole",
+   "resource": "arn:aws:iam::111122223333:role/arvaken-stop-test-r0a1b2c3d-agent",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "role-make-other-boundary",
+   "statement": "TheRunsRolesEachUnderTheKitsBoundary",
+   "action": "iam:CreateRole",
+   "resource": "arn:aws:iam::111122223333:role/arvaken-stop-test-r0a1b2c3d-agent",
+   "context": {
+    "iam:PermissionsBoundary": "arn:aws:iam::111122223333:policy/AdministratorAccess"
+   },
+   "expected": "denied"
+  },
+  {
+   "id": "role-yours-under-boundary",
+   "statement": "TheRunsRolesEachUnderTheKitsBoundary",
+   "action": "iam:CreateRole",
+   "resource": "arn:aws:iam::111122223333:role/your-role",
+   "context": {
+    "iam:PermissionsBoundary": "arn:aws:iam::111122223333:policy/arvaken-stop-test-boundary"
+   },
+   "expected": "denied"
+  },
+  {
+   "id": "role-yours-put-policy",
+   "statement": "TheRunsRolesEachUnderTheKitsBoundary",
+   "action": "iam:PutRolePolicy",
+   "resource": "arn:aws:iam::111122223333:role/your-role",
+   "context": {
+    "iam:PermissionsBoundary": "arn:aws:iam::111122223333:policy/arvaken-stop-test-boundary"
+   },
+   "expected": "denied"
+  },
+  {
+   "id": "role-run-delete",
+   "statement": "TheRunsRoles",
+   "action": "iam:DeleteRole",
+   "resource": "arn:aws:iam::111122223333:role/arvaken-stop-test-r0a1b2c3d-agent",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "role-yours-delete",
+   "statement": "TheRunsRoles",
+   "action": "iam:DeleteRole",
+   "resource": "arn:aws:iam::111122223333:role/your-role",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "passrole-run-to-agentcore",
+   "statement": "TheAgentsRoleGivenToItsRuntime",
+   "action": "iam:PassRole",
+   "resource": "arn:aws:iam::111122223333:role/arvaken-stop-test-r0a1b2c3d-agent",
+   "context": {
+    "iam:PassedToService": "bedrock-agentcore.amazonaws.com"
+   },
+   "expected": "allowed"
+  },
+  {
+   "id": "passrole-run-to-lambda",
+   "statement": "TheAgentsRoleGivenToItsRuntime",
+   "action": "iam:PassRole",
+   "resource": "arn:aws:iam::111122223333:role/arvaken-stop-test-r0a1b2c3d-agent",
+   "context": {
+    "iam:PassedToService": "lambda.amazonaws.com"
+   },
+   "expected": "denied"
+  },
+  {
+   "id": "passrole-yours-to-agentcore",
+   "statement": "TheAgentsRoleGivenToItsRuntime",
+   "action": "iam:PassRole",
+   "resource": "arn:aws:iam::111122223333:role/your-role",
+   "context": {
+    "iam:PassedToService": "bedrock-agentcore.amazonaws.com"
+   },
+   "expected": "denied"
+  }
+ ]
+}
