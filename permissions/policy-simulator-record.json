@@ -1,0 +1,257 @@
+{
+ "about": "IAM's policy simulator and the kit's matcher, each case of permissions/policy-cases.json, run in Arvaken's install-test account; a release publishes only when this passed for its files",
+ "checked": "2026-10-29T18:52:06+00:00",
+ "files": {
+  "permissions/aws-agentcore-policy.json": "d21256fb591deb5fbb6653d58974ec93f6dd1df0c37af626fd3a73e1fd117d24",
+  "permissions/policy-cases.json": "51fad40120c4165dfa8da6a41ab5cfbb0e676b68a1d3eaa117f6c2c775547634"
+ },
+ "cases": [
+  {
+   "id": "runtime-run-delete",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "runtime-yours-delete",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "runtime-yours-update",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "runtime-yours-policy",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "runtime-make-tagged",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "runtime-make-untagged",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "harness-runtime-run-delete",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "harness-runtime-yours-delete",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "memory-make-tagged",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "memory-make-untagged",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "memory-run-delete",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "memory-yours-delete",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "memory-run-get",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "memory-yours-get",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "memory-yours-update",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "memory-run-update",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "identity-run-delete",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "identity-harness-run-delete",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "identity-yours-delete",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "identity-yours-update",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "logs-run-delete",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "logs-harness-run-delete",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "logs-yours-delete",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "logs-yours-retention",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "harness-run-delete",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "harness-yours-delete",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "harness-yours-update",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "harness-yours-invoke",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "harness-make-tagged",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "harness-make-untagged",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "role-make-kits-boundary",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "role-make-harness-boundary",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "role-make-no-boundary",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "role-make-other-boundary",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "role-yours-under-boundary",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "role-yours-put-policy",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "role-run-delete",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "role-yours-delete",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "passrole-run-to-agentcore",
+   "expected": "allowed",
+   "simulator": "allowed",
+   "matcher": "allowed"
+  },
+  {
+   "id": "passrole-run-to-lambda",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  },
+  {
+   "id": "passrole-yours-to-agentcore",
+   "expected": "denied",
+   "simulator": "denied",
+   "matcher": "denied"
+  }
+ ],
+ "passed": true
+}
