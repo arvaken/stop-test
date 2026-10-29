@@ -310,6 +310,7 @@ class CommandStream:
         self.c, self.r, self.session, self.seconds, self.clock = c, r, session, seconds, clock
         self.events: queue.SimpleQueue = queue.SimpleQueue()
         self.ended: tuple[float, str] | None = None
+        self.credentials_from: str | None = None    # where the probe found the role's keys, from its first line
         self.closing = False
         self.body = None
         self.thread = threading.Thread(target=self._read, daemon=True)
@@ -333,6 +334,7 @@ class CommandStream:
                 for line in lines:
                     if line.strip():
                         found = json.loads(line)
+                        self.credentials_from = found.get("credentials_from", self.credentials_from)
                         self.events.put(found)
                         if found.get("done"):
                             how = "done"
@@ -512,13 +514,6 @@ def warm_up(c: Clients, r: HarnessRun, clock: Clock) -> None:
         raise NotStarted(MODEL_DID_NOT_WORK.format(model=r.model, codes=code(e), region=r.region), r) from None
 
 
-def _take(r: HarnessRun, rep: Repeat, events: list[dict]) -> None:
-    for e in events:
-        if "credentials_from" in e:
-            r.credentials_from = {**(r.credentials_from or {}), rep.session: e.get("credentials_from")}
-    running._take(r, rep, events)
-
-
 def _working_before(rep: Repeat, p: str, found: list[tuple[float, Beat]]) -> None:
     """A path of calls is tried only where the last one sent before the stop worked; else its errors are each refusal
     of a call sent before the stop, the last's among them (as run.time_one has it for new calls)."""
@@ -539,6 +534,7 @@ def time_one(c: Clients, r: HarnessRun, clock: Clock, say: Callable[[str], None]
     seconds = READY_WAIT + LEAD + r.window + HOLD + SLACK
     stream = open_session(c, r, rep, clock, seconds)
     rep.beats[MODEL] = []
+    r.credentials_from = {**(r.credentials_from or {}), rep.session: getattr(stream, "credentials_from", None)}
     for p in SESSION_PATHS:
         if p not in rep.working:
             # CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618), as the runtime says it
@@ -550,9 +546,9 @@ def time_one(c: Clients, r: HarnessRun, clock: Clock, say: Callable[[str], None]
         while clock.now() < lead_end:
             new.tick()
             turns.tick()
-            _take(r, rep, stream.poll())
+            running._take(r, rep, stream.poll())
             clock.sleep(1.0)
-        _take(r, rep, stream.poll())
+        running._take(r, rep, stream.poll())
         for p in SESSION_PATHS:
             if p in rep.working and not rep.beats[p][-1].ok:
                 rep.working.discard(p)
@@ -568,12 +564,12 @@ def time_one(c: Clients, r: HarnessRun, clock: Clock, say: Callable[[str], None]
         while clock.now() < end:
             new.tick()
             turns.tick()
-            _take(r, rep, stream.poll())
+            running._take(r, rep, stream.poll())
             clock.sleep(1.0)
         found, turned = new.finish(), turns.finish(limit=TURN_TIMEOUT)
     finally:
         stream.close()
-    _take(r, rep, stream.poll())
+    running._take(r, rep, stream.poll())
     rep.new_calls = len(found)
     r.calls += len(found) + len(turned)
     rep.beats[NEW_CALLS] = [b for _, b in found]

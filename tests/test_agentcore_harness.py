@@ -345,7 +345,7 @@ def test_the_probes_stream_reads_lines_split_across_chunks_and_a_watch_done_is_n
                                _stdout(text[60:]), {"chunk": {"contentStop": {"exitCode": 0, "status": "COMPLETED"}}}]))
     stream = harness.CommandStream(c, r, "r0a1b2c3d-session-" + "a" * 32, 600.0, ta.Clock())
     stream.thread.join(timeout=5)
-    assert stream.poll() == lines and stream.ended[1] == "done"
+    assert stream.poll() == lines and stream.ended[1] == "done" and stream.credentials_from == "instance"
     body = c.data.asked["body"]
     assert body["timeout"] == 630 and body["command"].endswith(
         f" 600.0 r0a1b2c3d-session-{'a' * 32} {ta.REGION} arvaken-stop-test-r0a1b2c3d {ta.ENDPOINT} "
