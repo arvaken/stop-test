@@ -92,6 +92,8 @@ ROLE_WAIT = 120.0            # seconds to retry while IAM has not yet made a new
 NEW_CALL_WORKERS = 64
 NEW_CALL_WAIT = 40.0         # seconds to wait, after the window, for new calls still answering
 WRITE_GRACE = 2.0            # seconds after a stream closed in which a write still counts as before it
+WRITES_QUIET = 60.0          # seconds the bucket must go without a new write from the sessions before it is emptied
+WRITES_EVERY = 10.0          # how often the kit looks at the bucket meanwhile
 SESSION_ENDED = "SessionEnded"
 # Codes that are the kit's own credentials failing, never the stop: a run that meets one ends, as on Lambda.
 KIT_CREDENTIALS = {"ExpiredToken", "ExpiredTokenException", "UnrecognizedClientException", "InvalidClientTokenId",
@@ -180,6 +182,7 @@ class Run:
     trail_kept: dict[str, Any] | None = None
     trail_recording: float | None = None    # the kit's clock when the run's trail was seen recording the agent's calls
     trail_records: dict[str, int] = field(default_factory=dict)
+    watched_until: float | None = None      # the kit's clock when the last watch it asked for ends
 
     @property
     def stop_kind(self) -> str:
@@ -351,6 +354,7 @@ def open_session(c: Clients, r: Run, rep: Repeat, clock: Clock, seconds: float) 
     for _ in range(READY_SESSIONS):
         rep.session, rep.opened, rep.beats = _session(r, "session"), clock.now(), {p: [] for p in PATHS}
         stream = (c.stream or Stream)(c, r, rep.session, seconds, clock)
+        r.watched_until = max(r.watched_until or 0.0, clock.now() + seconds)
         end = clock.now() + READY_WAIT
         while clock.now() < end and stream.ended is None:
             _take(r, rep, stream.poll())
@@ -635,10 +639,47 @@ def runtime_id(c: Clients, r: Run) -> str | None:
             return None
 
 
+def _writes(c: Clients, bucket: str) -> tuple[int, float]:
+    """How many objects the sessions have written to the bucket, and when the newest was, by S3's clock."""
+    count, newest = 0, 0.0
+    for prefix in ("own/", "another/"):
+        token = None
+        while True:
+            page = c.s3.list_objects_v2(Bucket=bucket, Prefix=prefix,
+                                        **({"ContinuationToken": token} if token else {}))
+            for o in page.get("Contents", []):
+                modified = o["LastModified"]
+                count += 1
+                newest = max(newest, modified.timestamp() if hasattr(modified, "timestamp") else float(modified))
+            token = page.get("NextContinuationToken")
+            if not token:
+                break
+    return count, newest
+
+
+def writes_stopped(c: Clients, r: Run, clock: Clock) -> None:
+    """Before the bucket is emptied: wait until the sessions have stopped writing to it, no new object for WRITES_QUIET
+    seconds, or until the last watch the kit asked for is over (SLACK past its end). A session goes on with its watch
+    once the kit has closed its stream, and deleting the runtime does not end it at once: in rbfb0d77a and rcd4c16ca
+    (29 October 2026) the last session wrote for some two and a half minutes after DeleteAgentRuntime, into a bucket
+    the kit had emptied, and the bucket was left."""
+    if r.watched_until is None:
+        return
+    bucket, end, seen, since = names(r.run)["bucket"], r.watched_until + SLACK, None, clock.now()
+    while clock.now() < end:
+        now = _writes(c, bucket)
+        if now != seen:
+            seen, since = now, clock.now()
+        elif clock.now() - since >= WRITES_QUIET:
+            return
+        clock.sleep(WRITES_EVERY)
+
+
 def tear_down(c: Clients, r: Run, clock: Clock, trail_folder: Path | None = None,
               say: Callable[[str], None] = lambda _: None) -> None:
     """Remove the stop the kit fired and everything it made; name anything left (D532, K4). With a trail, its records
-    are kept first (trail.keep), and the trail and its bucket are deleted only once they are."""
+    are kept first (trail.keep), and the trail and its bucket are deleted only once they are. The run's bucket is
+    emptied only once the sessions have stopped writing to it (writes_stopped)."""
     n = names(r.run)
     try:
         firing.remove(c.iam, c.control, r.run, r.stop_ref, r.outputs.get("Runtime"))
@@ -668,6 +709,7 @@ def tear_down(c: Clients, r: Run, clock: Clock, trail_folder: Path | None = None
         except Exception:  # noqa: BLE001 - named below as left
             pass
     try:
+        writes_stopped(c, r, clock)
         while True:
             listed = c.s3.list_objects_v2(Bucket=n["bucket"]).get("Contents", [])
             if not listed:

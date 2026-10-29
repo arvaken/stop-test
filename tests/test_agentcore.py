@@ -3,10 +3,11 @@
 The fake holds what the run depends on, as this file's own assumptions, not AWS's behaviour: a policy on the runtime's
 role denies the session's own calls DELAY seconds after the call; the runtime's resource policy refuses new calls
 DENY_DELAY seconds after it is written and, with `linger`, still refuses one in ten of the `linger` new calls after its
-removal (in r58051bd3, 29 October 2026, a removed deny went on refusing some new calls for minutes); StopRuntimeSession
-ends the session and its stream at once; CloudTrail's event history shows a management call TRAIL_DELAY seconds after
-it, IAM's in us-east-1 and AgentCore's in the run's region; a trail delivers its data events to its bucket DELIVERY
-seconds after each.
+removal (in r58051bd3, 29 October 2026, a removed deny went on refusing some new calls for minutes); with
+`writes_after_close`, a session whose stream the kit closed goes on writing to the run's bucket until its watch ends, as
+sessions did in rbfb0d77a and rcd4c16ca; StopRuntimeSession ends the session and its stream at once; CloudTrail's event
+history shows a management call TRAIL_DELAY seconds after it, IAM's in us-east-1 and AgentCore's in the run's region; a
+trail delivers its data events to its bucket DELIVERY seconds after each.
 
 What a deny of calls does to a session already running, AWS's pages do not say (the founder, 28 October 2026: no AWS
 claim either way). It is what the run measures. The fake leaves the stream open by default, and with
@@ -123,7 +124,8 @@ class FakeStream:
         return out
 
     def close(self):
-        pass
+        if self.aws.writes_after_close and self.ended is None:
+            self.aws.writing.append(self)
 
 
 class FakeAWS:
@@ -155,6 +157,11 @@ class FakeAWS:
         self.linger = 0
         self.lingering = 0
         self.removed_at: list[float] = []
+        # a session whose stream the kit closed goes on with its watch, writing every second, until it ends
+        self.writes_after_close = False
+        self.writing: list[FakeStream] = []
+        self.last_write: float | None = None
+        self.bucket_deleted_at: float | None = None
 
     # -- what the fake decides
     def role_denied(self, t: float) -> bool:
@@ -266,10 +273,35 @@ class FakeAWS:
         self.bucket_policies.pop(Bucket, None)
 
     def _bucket(self, Bucket):
+        self._keep_writing()
         if Bucket not in self.buckets:
             raise Error("NoSuchBucket")
         self._deliver()
         return self.buckets[Bucket]
+
+    def _keep_writing(self, one_more: bool = False) -> None:
+        """What the sessions still writing have written by now; with `one_more`, the write a session still writing
+        puts in the bucket before a DeleteBucket gets there."""
+        if not self.writing:
+            return
+        bucket = self.buckets.get(stack.names(self.run)["bucket"])
+        for s in self.writing:
+            ended = self.sessions[s.session]["ended"]
+            until = min(s.end, ended if ended is not None else s.end)
+            times = []
+            while s.next <= min(until, self.clock.now()):
+                times.append(s.next)
+                s.next += 1.0
+            if one_more and self.clock.now() < until:
+                times.append(self.clock.now())
+            for t in times:
+                if bucket is None:
+                    continue
+                if not self.role_denied(t):
+                    bucket[f"own/{s.session}/{s.n}"] = (b"x", t + SKEW)
+                bucket[f"another/{s.session}/{s.n}"] = (b"x", t + SKEW)
+                s.n += 1
+                self.last_write = t
 
     def put_object(self, Bucket, Key, Body):
         self._bucket(Bucket)[Key] = (Body, self.clock.now())
@@ -299,9 +331,11 @@ class FakeAWS:
             self._bucket(Bucket).pop(o["Key"], None)
 
     def delete_bucket(self, Bucket):
+        self._keep_writing(one_more=True)
         if self._bucket(Bucket):
             raise Error("BucketNotEmpty")
         del self.buckets[Bucket]
+        self.bucket_deleted_at = self.clock.now()
 
     # -- bedrock-agentcore-control
     def create_agent_runtime(self, **req):
@@ -699,6 +733,24 @@ def test_new_calls_refused_just_before_the_stop_read_not_run_and_name_that_refus
     new = running.details(r, doc)["repeats"][1]["new_calls"]
     # the calls before it were answered: the last call sent before the stop, refused, is the path's error
     assert new["reason"] == "the path could not be set up" and new["errors"] == {"AccessDeniedException": 1}
+
+
+def test_the_bucket_is_emptied_only_once_the_sessions_have_stopped_writing_to_it():
+    clock = Clock()
+    aws = FakeAWS(clock)
+    aws.writes_after_close = True           # the session writes on after its repeat, to its watch's end
+    r, doc = a_run(aws, clock, fire.DENY)
+    assert not doc["run"]["left_anything"]
+    assert aws.last_write is not None and aws.bucket_deleted_at > aws.last_write
+
+
+def test_a_session_the_kit_ended_writes_no_more_and_the_bucket_does_not_wait_for_its_watch_to_end():
+    clock = Clock()
+    aws = FakeAWS(clock)
+    aws.writes_after_close = True
+    r, doc = a_run(aws, clock, fire.DENY_AND_END)
+    assert not doc["run"]["left_anything"]
+    assert aws.bucket_deleted_at < r.watched_until
 
 
 def test_the_kits_own_credentials_expiring_ends_the_run_and_is_never_read_as_stopped():
