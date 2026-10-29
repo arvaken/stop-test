@@ -70,14 +70,14 @@ NOT_A_BUNDLE = "--ca-bundle takes a file of PEM certificates (-----BEGIN CERTIFI
 GOOGLE_NO_VIA = ("--via is for AWS in this version of the kit: on Google Cloud, the gateway option waits for a later "
                  "version.")
 # The model option (D562, F4): its help, what is said where its ID is not one, on Google Cloud, and in the plan.
-# CUSTOMER TEXT (D562, F4): not yet approved
+# CUSTOMER TEXT: approved by the founder, by 11:09:43 UTC on 29 October 2026 (D562, F4: his five model lines)
 MODEL_HELP = ("also time a call to a model: its Bedrock model ID or inference profile ID, such as "
               "eu.amazon.nova-micro-v1:0. Each call is billed to your account")
-# CUSTOMER TEXT (D562, F4): not yet approved
+# CUSTOMER TEXT: approved by the founder, by 11:09:43 UTC on 29 October 2026 (D562, F4: his five model lines)
 NOT_A_MODEL = "--model takes a Bedrock model ID or inference profile ID, such as eu.amazon.nova-micro-v1:0."
-# CUSTOMER TEXT (D562, F4): not yet approved
+# CUSTOMER TEXT: approved by the founder, by 11:09:43 UTC on 29 October 2026 (D562, F4: his five model lines)
 GOOGLE_NO_MODEL = "--model is for AWS in this version of the kit."
-# CUSTOMER TEXT (D562, F4): not yet approved
+# CUSTOMER TEXT: approved by the founder, by 11:09:43 UTC on 29 October 2026 (D562, F4: his five model lines)
 PLAN_MODEL = ("- with each invocation, also calls the model {model} once, as the test agent's own role, asking for one "
               "token: AWS bills each call to your account;")
 # What the plan says of a run through a gateway.

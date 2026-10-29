@@ -106,7 +106,7 @@ INTERFACE_LEFT = "the network interface {id} in your subnet {subnet}"
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 INTERFACES_UNCHECKED = "the test agent's network interfaces in your subnet {subnet} (could not be checked: {code})"
 # What a run with a model says where the model's call did not work before the stop.
-# CUSTOMER TEXT (D562, F4): not yet approved
+# CUSTOMER TEXT: approved by the founder, by 11:09:43 UTC on 29 October 2026 (D562, F4: his five model lines)
 MODEL_DID_NOT_WORK = ("Before the stop, a call to the model {model} did not work ({codes}), so nothing was timed. "
                       "Check that your account can call it in {region}.")
 
