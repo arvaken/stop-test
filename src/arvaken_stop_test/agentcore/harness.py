@@ -656,6 +656,15 @@ def harness_id(c: Clients, r: Run) -> str | None:
             return None
 
 
+def _deleting(c: Clients, hid: str) -> bool:
+    """Whether the harness is still there and AgentCore still deleting it. One AgentCore failed to delete
+    (DELETE_FAILED) is not waited on: AWS has stopped trying, so it is left, and named as left."""
+    try:
+        return not c.control.get_harness(harnessId=hid)["harness"].get("status", "").endswith("FAILED")
+    except Exception:  # noqa: BLE001 - gone, or not known: either way nothing to wait on
+        return False
+
+
 def tear_down(c: Clients, r: HarnessRun, clock: Clock, say: Callable[[str], None] = lambda _: None) -> None:
     """Remove the stop the kit fired and everything it made; name anything left (D532, K4). The harness goes first,
     with the runtime it runs in; the bucket is emptied once the session has stopped writing to it."""
@@ -674,7 +683,7 @@ def tear_down(c: Clients, r: HarnessRun, clock: Clock, say: Callable[[str], None
                 r.outputs["RuntimeId"] = environment.get("agentRuntimeId", "")
             c.control.delete_harness(harnessId=hid)
             end = clock.now() + running.MAKE_WAIT
-            while _gone(lambda: c.control.get_harness(harnessId=hid)) is False and clock.now() < end:
+            while _deleting(c, hid) and clock.now() < end:
                 clock.sleep(5.0)
     except Exception:  # noqa: BLE001 - what could not be deleted is named below as left
         pass

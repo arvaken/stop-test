@@ -316,6 +316,28 @@ def test_a_harness_agentcore_did_not_make_ready_is_named_with_awss_own_reason_wh
         f": {reason}" if reason else "")
 
 
+def test_a_harness_agentcore_failed_to_delete_is_not_waited_on_and_is_named_as_left():
+    clock = ta.Clock()
+    aws = FakeHarnessAWS(clock)
+    aws._run = "r0a1b2c3d"
+    c = clients(aws)
+    r = harness.HarnessRun(run="r0a1b2c3d", stop_ref=fire.INLINE, window=0.0, region=ta.REGION, account=ta.ACCOUNT,
+                           model=MODEL)
+    harness.make(c, r, ta.ENDPOINT, clock)
+    kept = aws.harness
+
+    def delete_failed(harnessId):
+        kept["status"] = "DELETE_FAILED"
+
+    aws.delete_harness = delete_failed
+    aws.get_harness = lambda harnessId: {"harness": {"harnessId": kept["harnessId"], "arn": kept["arn"],
+                                                     "status": kept["status"]}}
+    began = clock.now()
+    harness.tear_down(c, r, clock)
+    assert clock.now() - began < running.MAKE_WAIT / 10
+    assert any(kept["arn"] in x for x in r.left_behind)
+
+
 def test_clean_finds_an_interrupted_runs_harness_by_its_name_and_takes_its_stop_off():
     clock = ta.Clock()
     aws = FakeHarnessAWS(clock)
