@@ -141,7 +141,7 @@ def test_the_page_gives_time_to_effect_as_a_range_the_successes_after_a_refusal_
     found = results(r)[0][1]["own_calls"]
     low, high = found.effect_between
     assert f"took effect {low:.1f} to {high:.1f} seconds after the stop was fired" in page
-    assert "0 successful call(s) after its first refusal" in page
+    assert "0 successful calls after its first refusal" in page
     assert "keeps working until" in page and "when its session expires" in page
     assert "CloudTrail&#x27;s record of the call, to the whole second" in page    # the page escapes what it writes
     assert "took effect" not in json.dumps(doc) and "keeps_working" not in json.dumps(doc)
@@ -191,7 +191,7 @@ def test_each_cloud_times_its_paths_for_its_own_window_by_default(capsys, monkey
     cli.main(["google", "plan", "--deny-all", "--project", "my-test-project", "--region", "europe-west3",
               "--run", "r0123abcd"])
     said = capsys.readouterr().out
-    assert "- times each path for 600 seconds after firing, 1 time(s);" in said
-    assert "- times each path for 900 seconds after firing, 1 time(s);" in said
+    assert "- times each path for 600 seconds after firing, 1 time;" in said
+    assert "- times each path for 900 seconds after firing, 1 time;" in said
     assert cli._window_help("aws") == "time after firing, e.g. 10m (default)"
     assert cli._window_help("google_cloud") == "time after firing, e.g. 15m (default)"

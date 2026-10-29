@@ -227,6 +227,54 @@ A run writes the same three files as on Lambda. If a run could not clean up, rem
 stop-test agentcore clean --run <run> --region eu-central-1
 ```
 
+### On a harness
+
+A harness is AgentCore's configured agent: AWS runs its agent loop, with the model you name.
+<!-- [source: aws-agentcore-harness-runs-the-loop] --> The kit tests a policy on a harness's role:
+
+```
+stop-test agentcore-harness plan --inline-deny --model openai.gpt-oss-20b-1:0 --region eu-central-1
+stop-test agentcore-harness run --inline-deny --model openai.gpt-oss-20b-1:0 --region eu-central-1
+```
+
+Name the stop with `--stop <ARN>` or `--inline-deny`, as on a runtime. On a harness, the kit times only a policy on its
+role. The deny-calls stops it times on a runtime aren't offered. Name its model with `--model` and its Bedrock model ID
+or inference profile ID.
+
+The kit makes, each named with the run and tagged `arvaken-stop-test=<run>`:
+
+- the test agent: an AgentCore harness, `arvaken_stop_test_<run>`, which calls your model and has no tools and no
+  memory, with a role of its own that AgentCore may take on for this harness alone. A harness runs inside AgentCore
+  Runtime, and the kit checks that the runtime it runs in is gone with the harness;
+  <!-- [source: aws-agentcore-harness-inside-runtime] -->
+- a second role and an S3 bucket, as on a runtime.
+
+Both roles carry a permissions boundary of their own, `arvaken-stop-test-boundary-harness` (see
+[The permissions it needs](#the-permissions-it-needs)): a harness's role also calls its model, takes AWS's image for the
+harness, and takes the harness's workload token.
+
+For every stop, the kit measures three things:
+
+- **A session already running.** Before each stop, the kit opens one session of the harness's and runs its own probe
+  in it, as one command. About once a second, the probe tries each of the four paths as the harness's role. A harness
+  runs a tool only when its model chooses one, so the paths are tried by the probe, not by the model.
+  <!-- [source: aws-agentcore-harness-tools-reasoning, aws-agentcore-harness-execute-command] -->
+- **Its model.** About once a second, the kit asks the harness something in that session, and the harness calls its
+  model as its role. <!-- [source: aws-agentcore-harness-bedrock-role] --> AWS bills each call to your account. A call
+  refused for a limit on your account is never counted as stopped.
+- **New calls to the agent.** About once a second, the kit runs a command that does nothing, each in a new session of
+  the harness's.
+
+`--window` and `--repeats` work as on a runtime. A window is at most 3295 seconds, just under 55 minutes: the kit
+watches the running session with one command, and AWS lets a command run for at most an hour, which also has to cover
+the time before the stop and the report after the window. <!-- [source: aws-agentcore-command-limits] --> The moment
+each stop was fired is CloudTrail's record of the IAM call. A run writes the same three files. If a run could not clean
+up, remove what it made by the run's name:
+
+```
+stop-test agentcore-harness clean --run <run> --region eu-central-1
+```
+
 ## On Google Cloud
 
 ### What it makes in your project
@@ -314,6 +362,14 @@ The kit runs with your own credentials. To give it only what a run needs, use th
 - **AgentCore:** [`permissions/aws-agentcore-policy.json`](permissions/aws-agentcore-policy.json), an IAM policy under
   the same boundary. Each statement names only what a run makes, except reading your stop policy and the reads AWS
   allows only on every resource. Its last two statements are needed only with `--trail`.
+
+  A harness's two roles carry a boundary of their own,
+  [`permissions/aws-boundary-harness.json`](permissions/aws-boundary-harness.json): the kit's boundary, and calling a
+  model, taking AWS's image for a harness and taking a harness's workload token. Create it once, as the kit's:
+
+  ```
+  aws iam create-policy --policy-name arvaken-stop-test-boundary-harness --policy-document file://permissions/aws-boundary-harness.json
+  ```
 - **Google Cloud:** [`permissions/google-role.yaml`](permissions/google-role.yaml), a custom role for your test project:
 
   ```

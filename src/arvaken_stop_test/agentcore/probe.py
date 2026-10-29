@@ -8,9 +8,9 @@ The microVM runs as the harness's execution role [source: aws-agentcore-harness-
 to AWS are that role's, as the runtime's agent's are its role's (agent.py).
 
 The commands' environment includes Python and bash [source: aws-agentcore-harness-base-environment], and nothing more
-is promised of it, boto3 among it, so the script uses Python's standard library alone. It takes the role's credentials as the microVM gives them
-(CREDENTIAL_ORDER) and signs its own calls to AWS with Signature Version 4 (sign), which the kit's tests check against
-botocore's signer.
+is promised of it, boto3 among it, so the script uses Python's standard library alone. It takes the role's credentials
+as the microVM gives them (CREDENTIAL_ORDER) and signs its own calls to AWS with Signature Version 4 (sign), which the
+kit's tests check against botocore's signer.
 
 It tries the runtime agent's four paths about once a second, each as the runtime's agent tries it:
 - own_calls: writes and reads one small object in the run's bucket, as the harness's role;

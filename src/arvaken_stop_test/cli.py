@@ -26,6 +26,11 @@ def write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
+def times(n: int) -> str:
+    """How many times, in words: "1 time", "5 times". The kit writes no "(s)" (the founder, 29 October 2026)."""
+    return "1 time" if n == 1 else f"{n} times"
+
+
 def _duration(text: str) -> float:
     text = text.strip().lower()
     if text.endswith("m"):
@@ -74,7 +79,7 @@ def _plan(args, run_name: str) -> str:
               "run, by AWS's own policy (AWSRevokeOlderSessions);" if args.revoke_sessions else
               "- writes a policy denying every action on the test agent's role alone;" if args.inline_deny else
               f"- attaches your stop, {args.stop}, to the test agent's role alone;"),
-             f"- times each path for {int(args.window)} seconds after firing, {args.repeats} time(s);",
+             f"- times each path for {int(args.window)} seconds after firing, {times(args.repeats)};",
              f"- invokes the test agent about {calls_for(args.window, args.repeats)} times;",
              "- then removes the stop it fired and everything it made, and names anything left."]
     if reason:
@@ -107,7 +112,7 @@ def _google_plan(args, run_name: str) -> str:
               f"- makes a deny policy, {n['deny_policy']}, naming the test agent's account alone and denying "
               + ("what its paths use (Cloud Storage and IAM);" if args.deny_all else
                  f"what your deny policy {args.stop} denies; yours is read, never changed;")),
-             f"- times each path for {int(args.window)} seconds after firing, {args.repeats} time(s);",
+             f"- times each path for {int(args.window)} seconds after firing, {times(args.repeats)};",
              f"- calls the test agent about {calls_for(args.window, args.repeats)} times;",
              "- then removes the stop it fired and everything it made, and names anything left."]
     if reason:
@@ -175,7 +180,7 @@ AGENTCORE_PLAN = (
     "{stop}\n"
     "- before each stop, opens a session of the test agent's and watches what it can reach, and calls the test agent "
     "about once a second, each call starting a session of its own;\n"
-    "- times each path for {window} seconds after firing, {repeats} time(s);\n"
+    "- times each path for {window} seconds after firing, {repeats};\n"
     "- calls the test agent about {calls} times. AWS bills each session's use to your account;\n"
     "- then removes the stop it fired and everything it made, and names anything left.")
 # CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
@@ -196,19 +201,28 @@ AGENTCORE_HELP = {
 }
 
 
-# CUSTOMER TEXT: for the founder's approval, word for word, with the harness module
+# CUSTOMER TEXT: approved by the founder, with his edits, 29 October 2026 (the harness module's words, ruling 1)
 HARNESS_PLAN = (
     "Run {run} in {region}, on an AgentCore harness:\n"
-    "- creates a test agent, the AgentCore harness {harness}, which calls the model {model} and has no tools; its role "
-    "and a second role; and a bucket of its own, {bucket}, each tagged with the run;\n"
-    "{stop}\n"
-    "- before each stop, opens a session of the test agent's, watches what it can reach, and asks its model about once "
-    "a second; and about once a second runs a command that does nothing in a new session of the test agent's;\n"
-    "- times each path for {window} seconds after firing, {repeats} time(s);\n"
+    "- creates a test agent, the AgentCore harness {harness}, which calls the model {model} and has no tools; its "
+    "role; a second role it is allowed to take on, to time work done under another identity; and a bucket of its own, "
+    "{bucket}, for its test calls; each tagged with the run;\n"
+    "- {stop}\n"
+    "- from before each stop until its timing ends, keeps a session of the test agent's open and tries each path it "
+    "has about once a second, including asking its model; and starts a new session about once a second, running a "
+    "command that does nothing, to time when new sessions are refused;\n"
+    "- times each path for {window} seconds after firing, {repeats};\n"
     "- calls the model about {turns} times and starts about {sessions} sessions. AWS bills each call to the model and "
-    "each session's use to your account;\n"
-    "- then removes the stop it fired and everything it made, and names anything left.")
-# CUSTOMER TEXT: for the founder's approval, word for word, with the harness module
+    "each session's use to your account. A call refused for a limit on your account is never counted as stopped;\n"
+    "- changes nothing else in your account;\n"
+    "- then takes the stop off the test agent's role, removes everything it made, and names anything left.")
+# What the plan says is fired, and where (his ruling 1, condition c).
+# CUSTOMER TEXT: "attached" approved by the founder, 29 October 2026 (ruling 1, condition c); "inline" for his approval
+HARNESS_STOPS = {
+    "attached": "attaches your stop {stop} to the test agent's role, and to nothing else;",
+    "inline": "writes a policy denying every action on the test agent's role, and on nothing else;",
+}
+# CUSTOMER TEXT: approved by the founder, 29 October 2026 (the harness module's words, ruling 1)
 HARNESS_HELP = {
     "command": "the stop test on a harness in Amazon Bedrock AgentCore",
     "model": "the harness's model: a Bedrock model ID or inference profile ID",
@@ -232,8 +246,8 @@ def _harness_plan(args, run_name: str) -> str:
     watched = args.repeats * (args.window + HOLD + LEAD)
     plan = HARNESS_PLAN.format(
         run=run_name, region=args.region, harness=n["harness"], model=args.model, bucket=n["bucket"],
-        stop=AGENTCORE_STOPS["inline" if stop == fire.INLINE else "attached"].format(stop=stop),
-        window=int(args.window), repeats=args.repeats,
+        stop=HARNESS_STOPS["inline" if stop == fire.INLINE else "attached"].format(stop=stop),
+        window=int(args.window), repeats=times(args.repeats),
         turns=int(watched / harness.TURN_EVERY + (args.repeats - 1) * RECOVERED + 1),
         sessions=int(watched + args.repeats + 2))
     return plan + (f"\nIt will not run: {reason}." if reason else "")
@@ -244,8 +258,8 @@ def _harness(args, p) -> int:
     from arvaken_stop_test.agentcore import harness
     from arvaken_stop_test.aws.stack import new_run
     if args.action in ("plan", "run") and sum((bool(args.stop), args.inline_deny)) != 1:
-        # CUSTOMER TEXT: for the founder's approval, word for word, with the harness module
-        p.error("give one of --stop or --inline-deny")
+        # CUSTOMER TEXT: approved by the founder, with his edit, 29 October 2026 (ruling 1)
+        p.error("give one of --stop or --inline-deny, not both")
     run_name = args.run_name or new_run()
     if args.action == "plan":
         print(_harness_plan(args, run_name))
@@ -314,7 +328,7 @@ def _agentcore_plan(args, run_name: str) -> str:
     plan = AGENTCORE_PLAN.format(
         run=run_name, region=args.region, runtime=n["runtime"], bucket=n["bucket"],
         trail=AGENTCORE_PLAN_TRAIL.format(trail=t["trail"], bucket=t["bucket"]) if args.trail else "",
-        stop=AGENTCORE_STOPS[which].format(stop=stop), window=int(args.window), repeats=args.repeats,
+        stop=AGENTCORE_STOPS[which].format(stop=stop), window=int(args.window), repeats=times(args.repeats),
         calls=int(args.repeats * (args.window + HOLD + LEAD)))
     return plan + (f"\nIt will not run: {reason}." if reason else "")
 

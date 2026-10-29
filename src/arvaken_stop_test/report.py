@@ -27,7 +27,8 @@ def _found(f: PathResult) -> str:
         low, high = f.effect_between
         said.append(f"took effect {low:.1f} to {high:.1f} seconds after the stop was fired")
     if f.first_failure_after is not None:
-        said.append(f"{f.successes_after_first_refusal} successful call(s) after its first refusal"
+        n = f.successes_after_first_refusal
+        said.append(("1 successful call" if n == 1 else f"{n} successful calls") + " after its first refusal"
                     + ("" if not f.successes_after_first_refusal else ": not yet stopped at its first refusal"))
     if f.keeps_working_until:
         said.append(f"keeps working until {_clock(f.keeps_working_until)}, when its session expires")
@@ -56,8 +57,10 @@ AGENTCORE: dict[str, dict[str, str | None]] = {
     "deny calls to an AgentCore agent and end its sessions": {"own_calls": "stopped", "another_identity": "stopped",
                                                               "outside_key": "stopped", "open_internet": "stopped",
                                                               "new_calls": "stopped"},
-    # a harness calls its model with its role (agentcore/harness.py), so a policy on the role reaches it as on Lambda
-    "policy on an AgentCore harness's role": {**EXPECTED, "new_calls": None},
+    # A harness's model calls are not expected to stop with a policy on its role until a harness is measured: a deny on
+    # a Lambda agent's role left model calls succeeding for up to about 10 minutes (r47b181d2; the founder, 29 October
+    # 2026).
+    "policy on an AgentCore harness's role": {**EXPECTED, "model": None, "new_calls": None},
 }
 # CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
 EXPECTED_HEADING = {False: "A stop on its role would be expected", True: "This kind of stop would be expected"}

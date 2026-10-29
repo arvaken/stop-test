@@ -137,6 +137,30 @@
    "sentence": "Command execution doesn't block agent invocations.",
    "about": "InvokeAgentRuntimeCommand, and invocations of the same session",
    "read": "2026-10-29"
+  },
+  "aws-iam-sts-aws-service-name": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_iam-condition-keys.html",
+   "page": "IAM and AWS STS condition context keys - AWS Identity and Access Management",
+   "sentence": "Use this key to specify a service where a bearer token can be used.",
+   "about": "sts:AWSServiceName",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-harness-runs-the-loop": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-vs-runtime.html",
+   "page": "AgentCore harness vs. Runtime - Amazon Bedrock AgentCore",
+   "sentence": "You declare what the agent is (model, system prompt, tools, memory, limits) as configuration, and AgentCore runs the loop.",
+   "about": "AgentCore harness",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-harness-inside-runtime": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-vs-runtime.html",
+   "page": "AgentCore harness vs. Runtime - Amazon Bedrock AgentCore",
+   "sentence": "The harness is a managed abstraction that runs inside Runtime - CloudTrail records harness operations under AWS::BedrockAgentCore::Runtime.",
+   "about": "AgentCore harness, and AgentCore Runtime",
+   "read": "2026-10-29"
   }
  },
  "owed": {

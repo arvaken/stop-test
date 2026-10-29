@@ -31,11 +31,19 @@
   {
    "Sid": "TheHarnessesManagedImage",
    "Effect": "Allow",
-   "Action": [
-    "ecr-public:GetAuthorizationToken",
-    "sts:GetServiceBearerToken"
-   ],
+   "Action": "ecr-public:GetAuthorizationToken",
    "Resource": "*"
+  },
+  {
+   "Sid": "TheHarnessesManagedImageBearerToken",
+   "Effect": "Allow",
+   "Action": "sts:GetServiceBearerToken",
+   "Resource": "*",
+   "Condition": {
+    "StringEquals": {
+     "sts:AWSServiceName": "ecr-public.amazonaws.com"
+    }
+   }
   },
   {
    "Sid": "TheHarnessesWorkloadToken",

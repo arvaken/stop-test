@@ -17,6 +17,7 @@ import json
 import sys
 import urllib.error
 import urllib.parse
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -40,6 +41,18 @@ class FakeHarnessAWS(ta.FakeAWS):
         self.turns: list[tuple[float, bool]] = []
         self.commands: list[tuple[float, str]] = []
         self.removed: list[float] = []
+        self.profiles_asked: list[str] = []
+        self.refused_by = "AccessDeniedException"     # the code a stopped model call's message names
+        self.others = []                                # harnesses of yours the kit did not make
+
+    # -- bedrock: an inference profile, and the models it routes to
+    def get_inference_profile(self, inferenceProfileIdentifier):
+        self.profiles_asked.append(inferenceProfileIdentifier)
+        base = inferenceProfileIdentifier.split(".", 1)[1]
+        return {"inferenceProfileArn": f"arn:aws:bedrock:{ta.REGION}:{ta.ACCOUNT}:inference-profile/"
+                                       f"{inferenceProfileIdentifier}",
+                "models": [{"modelArn": f"arn:aws:bedrock:{r}::foundation-model/{base}"}
+                           for r in ("eu-west-1", "eu-central-1")]}
 
     # -- iam: the harness's boundary beside the kit's own
     def get_policy(self, PolicyArn):
@@ -90,9 +103,9 @@ class FakeHarnessAWS(ta.FakeAWS):
         self.harness = None
 
     def list_harnesses(self, nextToken=None):
-        return {"harnesses": [] if self.harness is None else [
+        return {"harnesses": self.others + ([] if self.harness is None else [
             {"harnessId": self.harness["harnessId"], "harnessName": self.harness["harnessName"],
-             "arn": self.harness["arn"]}]}
+             "arn": self.harness["arn"]}])}
 
     def get_agent_runtime(self, agentRuntimeId):
         if agentRuntimeId.startswith("harness_"):
@@ -111,7 +124,7 @@ class FakeHarnessAWS(ta.FakeAWS):
         self.turns.append((now, answers))
         if not answers:     # botocore raises a stream's error event as the call's error, by the event's name
             return {"stream": _raising([{"messageStart": {"role": "assistant"}}], ta.Error(
-                "runtimeClientError", "An error occurred (AccessDeniedException) when calling the ConverseStream "
+                "runtimeClientError", f"An error occurred ({self.refused_by}) when calling the ConverseStream "
                 "operation: User: arn:aws:sts::111122223333:assumed-role/r/s is not authorized"))}
         return {"stream": [{"messageStart": {"role": "assistant"}},
                            {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": "pong"}}},
@@ -133,10 +146,14 @@ def _raising(events, error):
     raise error
 
 
+def clients(aws) -> running.Clients:
+    return replace(ta.clients(aws), bedrock=aws)
+
+
 def a_run(aws, clock, stop, **over):
     run_name = over.pop("run_name", "r0a1b2c3d")
     aws._run = run_name
-    return harness.run(ta.clients(aws), stop, endpoint=ta.ENDPOINT, model=over.pop("model", MODEL),
+    return harness.run(clients(aws), stop, endpoint=ta.ENDPOINT, model=over.pop("model", MODEL),
                        window=over.pop("window", 120.0), clock=clock, run_name=run_name, **over)
 
 
@@ -160,7 +177,7 @@ def test_a_policy_on_the_harness_role_stops_its_own_calls_and_its_model_and_new_
     assert rep["model"]["errors"] == {"AccessDeniedException": rep["model"]["failures_after"]}
     assert not doc["run"]["left_anything"] and stop not in str(aws.roles) and aws.harness is None
     page = report.page(doc, [d for _, d in harness.results(r)])
-    assert page.count(report.NOT_KNOWN) == 2 and 'class="differs"' not in page     # new calls, each repeat
+    assert page.count(report.NOT_KNOWN) == 4      # its model and new calls, each repeat
 
 
 def test_the_harness_calls_its_model_and_nothing_else_and_its_role_trusts_agentcore_for_this_run_alone():
@@ -194,10 +211,32 @@ def test_the_harness_calls_its_model_and_nothing_else_and_its_role_trusts_agentc
     assert model["Resource"] == [f"arn:aws:bedrock:{ta.REGION}::foundation-model/{MODEL}"]
 
 
-def test_an_inference_profile_is_called_in_the_runs_region_and_the_model_it_names_in_every_region():
-    assert harness.model_arns("eu.amazon.nova-micro-v1:0", "eu-central-1", "111122223333") == [
-        "arn:aws:bedrock:eu-central-1:111122223333:inference-profile/eu.amazon.nova-micro-v1:0",
-        "arn:aws:bedrock:*::foundation-model/amazon.nova-micro-v1:0"]
+def _role_model_arns(aws, run) -> list[str]:
+    own = aws.roles[harness.harness_names(run)["agent_role"]]["inline"]["own-calls"]["Statement"]
+    [model] = [s for s in own if s["Action"] == list(harness.MODEL_CALLS)]
+    return model["Resource"]
+
+
+def test_the_role_may_call_the_runs_model_alone_or_its_profile_and_the_models_the_profile_routes_to():
+    # the boundary allows any model, as an outer limit only (the founder, 29 October 2026, ruling 3, 12a)
+    clock = ta.Clock()
+    aws = FakeHarnessAWS(clock)
+    seen = {}
+    real = aws.create_harness
+
+    def keep(**req):
+        seen["arns"] = _role_model_arns(aws, aws.run)
+        return real(**req)
+    aws.create_harness = keep
+    a_run(aws, clock, fire.INLINE)
+    assert seen["arns"] == [f"arn:aws:bedrock:{ta.REGION}::foundation-model/{MODEL}"]
+    profile = "eu.amazon.nova-micro-v1:0"
+    a_run(aws, clock, fire.INLINE, model=profile, run_name="r1b2c3d4e")
+    assert seen["arns"] == [
+        f"arn:aws:bedrock:{ta.REGION}:{ta.ACCOUNT}:inference-profile/{profile}",
+        "arn:aws:bedrock:eu-central-1::foundation-model/amazon.nova-micro-v1:0",
+        "arn:aws:bedrock:eu-west-1::foundation-model/amazon.nova-micro-v1:0"]
+    assert aws.profiles_asked == [profile]
 
 
 @pytest.mark.parametrize("stop, model", [(fire.DENY, MODEL), (fire.DENY_AND_END, MODEL), (fire.INLINE, "not a model"),
@@ -256,7 +295,7 @@ def test_clean_finds_an_interrupted_runs_harness_by_its_name_and_takes_its_stop_
     clock = ta.Clock()
     aws = FakeHarnessAWS(clock)
     aws._run = "r0a1b2c3d"
-    c = ta.clients(aws)
+    c = clients(aws)
     r = harness.HarnessRun(run="r0a1b2c3d", stop_ref=fire.INLINE, window=0.0, region=ta.REGION, account=ta.ACCOUNT,
                            model=MODEL)
     harness.make(c, r, ta.ENDPOINT, clock)
@@ -469,8 +508,132 @@ def test_the_harness_boundary_is_the_kits_boundary_and_what_a_harness_needs_besi
     kits = json.loads((ROOT / "permissions" / "aws-boundary.json").read_text(encoding="utf-8"))
     assert packaged == shipped
     assert shipped["Statement"][:len(kits["Statement"])] == kits["Statement"]
-    beside = {a for s in shipped["Statement"][len(kits["Statement"]):] for a in s["Action"]}
-    assert beside == set(harness.MODEL_CALLS) | set(harness.IMAGE_PULL) | set(harness.WORKLOAD_TOKEN)
+    beside = {s["Sid"]: s for s in shipped["Statement"][len(kits["Statement"]):]}
+    actions = {a for s in beside.values() for a in (s["Action"] if isinstance(s["Action"], list) else [s["Action"]])}
+    assert actions == {*harness.MODEL_CALLS, harness.IMAGE_TOKEN, harness.BEARER_TOKEN, *harness.WORKLOAD_TOKEN}
+    # the bearer token for Amazon ECR Public alone (the founder, 29 October 2026, ruling 3, 12b)
+    assert beside["TheHarnessesManagedImageBearerToken"]["Condition"] == harness.BEARER_FOR
+    assert "Condition" not in beside["TheHarnessesManagedImage"]
+
+
+def test_with_your_own_stop_the_kit_only_attaches_it_to_the_test_agents_role_and_detaches_it():
+    # it never edits or deletes your policy (the founder, 29 October 2026, ruling 1, b)
+    clock = ta.Clock()
+    aws = FakeHarnessAWS(clock)
+    import inspect
+    asked = []
+    for name, _ in inspect.getmembers(type(aws), inspect.isfunction):
+        if not name.startswith("_"):
+            method = getattr(aws, name)
+
+            def watch(*a, _name=name, _method=method, **kw):
+                if ta.DENY_ALL in json.dumps([a, kw], default=str):
+                    asked.append((_name, kw.get("RoleName")))
+                return _method(*a, **kw)
+            setattr(aws, name, watch)
+    r, _ = a_run(aws, clock, ta.DENY_ALL, repeats=2)
+    role = harness.harness_names(r.run)["agent_role"]
+    assert {n for n, _ in asked} <= {"attach_role_policy", "detach_role_policy", "get_policy", "get_policy_version",
+                                     "simulate_custom_policy", "list_attached_role_policies"}
+    assert {who for n, who in asked if n in ("attach_role_policy", "detach_role_policy")} == {role}
+    assert sum(n == "attach_role_policy" for n, _ in asked) == sum(n == "detach_role_policy" for n, _ in asked) == 2
+
+
+def test_a_model_call_refused_for_a_limit_on_your_account_is_never_counted_as_stopped():
+    clock = ta.Clock()
+    aws = FakeHarnessAWS(clock)
+    aws.refused_by = "ThrottlingException"      # the fake refuses the role's model calls under the stop, as throttled
+    r, doc = a_run(aws, clock, fire.INLINE)
+    assert ta.outcomes(doc)["model"] != "stopped" and ta.outcomes(doc)["own_calls"] == "stopped"
+    model = harness.details(r, doc)["repeats"][0]["model"]
+    assert model["errors"].get("ThrottlingException", 0) > 0 and model["failures_after"] == 0
+
+
+def test_no_other_harness_of_yours_is_named_in_the_result_the_page_or_what_the_kit_says():
+    clock = ta.Clock()
+    aws = FakeHarnessAWS(clock)
+    aws.others = [{"harnessId": "your_own_harness-AbC", "harnessName": "your_own_harness",
+                   "arn": f"arn:aws:bedrock-agentcore:{ta.REGION}:{ta.ACCOUNT}:harness/your_own_harness-AbC"}]
+    said = []
+    r, doc = a_run(aws, clock, fire.INLINE, say=said.append)
+    found = harness.HarnessRun(run=r.run, stop_ref=fire.INLINE, window=0.0, region=ta.REGION, account=ta.ACCOUNT)
+    harness.tear_down(clients(aws), found, clock, say=said.append)      # clean, which lists your harnesses
+    written = json.dumps([doc, harness.details(r, doc), found.left_behind, found.checked_gone, said])
+    written += report.page(doc, [d for _, d in harness.results(r)])
+    assert "your_own_harness" not in written
+
+
+def _harness_section() -> str:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    return readme[readme.index("### On a harness"):readme.index("## On Google Cloud")]
+
+
+def test_the_readme_and_the_policy_agree_on_what_a_harness_run_makes():
+    policy = json.loads((ROOT / "permissions" / "aws-agentcore-policy.json").read_text(encoding="utf-8"))
+    granted = {r for s in policy["Statement"] for r in (s["Resource"] if isinstance(s["Resource"], list)
+                                                        else [s["Resource"]]) if "harness_arvaken_stop_test_" in r}
+    section = " ".join(_harness_section().split())
+    # no memory is made for a harness with memory disabled (r84285f18, r9e60a621, r5a570e9d: no CreateMemory)
+    assert not any(":memory/" in r for r in granted) and "has no tools and no memory" in section
+    assert any(":runtime/harness_arvaken_stop_test_" in r for r in granted) and "Runtime" in section
+
+
+# What a run's policy must never reach: an AgentCore runtime, memory, workload identity or log group, or a harness, that
+# the run did not make (the founder, 29 October 2026, ruling 3, 13a and 13b).
+AC = "arn:aws:bedrock-agentcore:eu-central-1:111122223333:"
+IDENTITY = AC + "workload-identity-directory/default/workload-identity/"
+LOGS = "arn:aws:logs:eu-central-1:111122223333:log-group:/aws/bedrock-agentcore/runtimes/"
+YOURS = [
+    ("bedrock-agentcore:DeleteAgentRuntime", AC + "runtime/your_agent-AbC"),
+    ("bedrock-agentcore:UpdateAgentRuntime", AC + "runtime/your_agent-AbC"),
+    ("bedrock-agentcore:DeleteMemory", AC + "memory/your_memory-AbC"),
+    ("bedrock-agentcore:UpdateMemory", AC + "memory/your_memory-AbC"),
+    ("bedrock-agentcore:DeleteWorkloadIdentity", IDENTITY + "your_agent-AbC"),
+    ("bedrock-agentcore:UpdateWorkloadIdentity", IDENTITY + "your_agent-AbC"),
+    ("logs:DeleteLogGroup", LOGS + "your_agent-AbC"),
+    ("logs:PutRetentionPolicy", LOGS + "your_agent-AbC"),
+    ("bedrock-agentcore:DeleteHarness", AC + "harness/your_harness-AbC"),
+    ("bedrock-agentcore:UpdateHarness", AC + "harness/your_harness-AbC"),
+]
+OURS = [
+    ("bedrock-agentcore:DeleteAgentRuntime", AC + "runtime/harness_arvaken_stop_test_r0a1b2c3d-AbC"),
+    ("bedrock-agentcore:DeleteHarness", AC + "harness/arvaken_stop_test_r0a1b2c3d-AbC"),
+    ("bedrock-agentcore:DeleteWorkloadIdentity", IDENTITY + "harness_arvaken_stop_test_r0a1b2c3d-AbC"),
+    ("logs:DeleteLogGroup", LOGS + "harness_arvaken_stop_test_r0a1b2c3d-AbC"),
+]
+
+
+def _allows(policy: dict, action: str, resource: str) -> bool:
+    """Whether any statement allows the action on the resource, matched as IAM matches them: `*` and `?` in an action
+    or an ARN, case-sensitively for an ARN. A statement with a condition the request does not meet allows nothing."""
+    import fnmatch
+    listed = lambda x: x if isinstance(x, list) else [x]  # noqa: E731
+    for s in policy["Statement"]:
+        if s["Effect"] != "Allow" or "Condition" in s:
+            continue
+        if any(fnmatch.fnmatch(action.lower(), a.lower()) for a in listed(s["Action"])) and \
+                any(fnmatch.fnmatchcase(resource, r) for r in listed(s["Resource"])):
+            return True
+    return False
+
+
+def test_the_kits_agentcore_policy_reaches_nothing_of_yours_and_does_reach_what_a_run_makes():
+    policy = json.loads((ROOT / "permissions" / "aws-agentcore-policy.json").read_text(encoding="utf-8"))
+    assert [(a, r) for a, r in YOURS if _allows(policy, a, r)] == []
+    assert all(_allows(policy, a, r) for a, r in OURS)
+
+
+@pytest.mark.skipif(not __import__("os").environ.get("STOP_TEST_IAM_SIMULATOR"),
+                    reason="calls IAM's policy simulator in your account: set STOP_TEST_IAM_SIMULATOR=1 to run it")
+def test_iams_policy_simulator_denies_the_kits_agentcore_policy_anything_of_yours():
+    import boto3
+    policy = (ROOT / "permissions" / "aws-agentcore-policy.json").read_text(encoding="utf-8")
+    iam = boto3.client("iam")
+    for wanted, cases in (("implicitDeny", YOURS), ("allowed", OURS)):
+        for action, resource in cases:
+            found = iam.simulate_custom_policy(PolicyInputList=[policy], ActionNames=[action],
+                                               ResourceArns=[resource])["EvaluationResults"]
+            assert [r["EvalDecision"] for r in found] == [wanted], (action, resource)
 
 
 def test_the_kits_agentcore_policy_lets_it_make_a_harnesss_roles_under_their_own_boundary_alone():

@@ -993,7 +993,7 @@ POLICY = json.loads((Path(__file__).resolve().parents[1] / "permissions" / "aws-
                     .read_text(encoding="utf-8"))
 SOURCE = Path(__file__).resolve().parents[1] / "src" / "arvaken_stop_test" / "agentcore"
 PREFIX = {"iam": "iam", "s3": "s3", "control": "bedrock-agentcore", "data": "bedrock-agentcore",
-          "cloudtrail": "cloudtrail", "lookups": "cloudtrail", "tagging": "tag", "logs": "logs"}
+          "cloudtrail": "cloudtrail", "lookups": "cloudtrail", "tagging": "tag", "logs": "logs", "bedrock": "bedrock"}
 # a boto3 method whose IAM action is not its own name
 ACTION_OF = {("s3", "head_bucket"): "s3:ListBucket", ("s3", "list_objects_v2"): "s3:ListBucket",
              ("s3", "delete_objects"): "s3:DeleteObject", ("s3", "head_object"): "s3:GetObject",
@@ -1004,20 +1004,17 @@ FROM_AWS_FIRE = {"iam:ListRoleTags", "iam:PutRolePolicy", "iam:AttachRolePolicy"
                  "iam:DeleteRolePolicy", "iam:ListAttachedRolePolicies", "iam:DetachRolePolicy", "iam:GetPolicy",
                  "iam:GetPolicyVersion"}
 # what AWS asks of the caller beside each call's own action: passing the role, and the tags given when a thing is made
-BESIDE = {"iam:PassRole", "iam:TagRole", "bedrock-agentcore:TagResource", "cloudtrail:AddTags",
-          # a harness's calls are allowed on its runtime and its memory too, as AWS's table of them has it
-          # (harness-security.html, "Required IAM permissions for callers", read 29 October 2026)
-          "bedrock-agentcore:CreateMemory", "bedrock-agentcore:DeleteMemory"}
+BESIDE = {"iam:PassRole", "iam:TagRole", "bedrock-agentcore:TagResource", "cloudtrail:AddTags"}
 
 
 def _calls() -> set[str]:
     import re
     found = set()
     for path in SOURCE.glob("*.py"):
-        if path.name == "agent.py":             # the test agent's own calls are its role's, not yours
+        if path.name in ("agent.py", "probe.py"):   # the test agent's own calls are its role's, not yours
             continue
-        for client, method in re.findall(r"\b(iam|s3|control|data|cloudtrail|lookups|tagging|logs)\.([a-z0-9_]+)\(",
-                                         path.read_text(encoding="utf-8")):
+        for client, method in re.findall(r"\b(iam|s3|control|data|cloudtrail|lookups|tagging|logs|bedrock)\."
+                                         r"([a-z0-9_]+)\(", path.read_text(encoding="utf-8")):
             camel = "".join(w.capitalize() for w in method.split("_"))
             found.add(ACTION_OF.get((client, method), f"{PREFIX[client]}:{camel}"))
     return found
@@ -1038,8 +1035,10 @@ def test_the_policy_reaches_only_the_runs_own_things():
     for s in POLICY["Statement"]:
         resources = s["Resource"] if isinstance(s["Resource"], list) else [s["Resource"]]
         for resource in resources:
+            reads = {("arn:aws:iam::*:policy/*", "YourStopReadAndChecked"),
+                     ("arn:aws:bedrock:*:*:inference-profile/*", "YourModelsInferenceProfileRead")}
             assert resource == "*" or "arvaken-stop-test-" in resource or "arvaken_stop_test_" in resource or \
-                resource == "arn:aws:iam::*:policy/*", resource
+                (resource, s["Sid"]) in reads, resource
         if resources == ["*"]:
             assert s["Sid"] in ("ReadsAwsTakesOnEveryResourceOnly", "TheRunsRuntimeMadeWithTheRunsTag",
                                 "TheRunsHarnessMadeWithTheRunsTag")

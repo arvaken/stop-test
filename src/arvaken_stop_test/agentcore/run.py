@@ -131,6 +131,7 @@ class Clients:
     region: str
     logs: Any = None
     sts: Any = None
+    bedrock: Any = None                 # bedrock: an inference profile's models, for a harness (harness.py)
     stream: Callable[..., Any] | None = None            # the running session's stream: Stream, unless a test's
     executor: Callable[[], Any] | None = None           # where new calls are made: threads, unless a test's
 

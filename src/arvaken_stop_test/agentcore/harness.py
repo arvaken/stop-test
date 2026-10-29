@@ -91,19 +91,35 @@ ERROR_EVENTS = ("accessDeniedException", "internalServerException", "resourceNot
 # An error's code, where AgentCore gives a model's failure as an event's message: the code alone is kept.
 ERROR_CODE = re.compile(r"\b((?:[A-Z][a-z]+)+(?:Exception|Error)|AccessDenied|ExpiredToken)\b")
 MODEL_ID = re.compile(r"[a-z0-9-]{1,63}(\.[a-z0-9-]{1,63}){1,2}(:[a-z0-9-]{1,63}){0,2}")
-# Where the role takes AWS's managed image from, on the public network [source: aws-agentcore-harness-ecr-public].
-IMAGE_PULL = ("ecr-public:GetAuthorizationToken", "sts:GetServiceBearerToken")
+# Where the role takes AWS's managed image from, on the public network [source: aws-agentcore-harness-ecr-public]: a
+# token from Amazon ECR Public, and the bearer token beneath it, for ECR Public alone
+# [source: aws-iam-sts-aws-service-name]. In Arvaken's runs of 29 October 2026 the role took one as each new session
+# started, and when a stop refused it, the session started all the same.
+IMAGE_TOKEN = "ecr-public:GetAuthorizationToken"
+BEARER_TOKEN = "sts:GetServiceBearerToken"
+BEARER_FOR = {"StringEquals": {"sts:AWSServiceName": "ecr-public.amazonaws.com"}}
 WORKLOAD_TOKEN = ("bedrock-agentcore:GetWorkloadAccessToken", "bedrock-agentcore:GetWorkloadAccessTokenForJWT")
 MODEL_CALLS = ("bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream")
+# A limit on your account, never the stop: "A call refused for a limit on your account is never counted as stopped"
+# (the founder, 29 October 2026). Such a try is set aside, neither a success nor a refusal, and named among the errors.
+LIMIT_CODES = frozenset({"ThrottlingException", "Throttling", "ThrottledException", "TooManyRequestsException",
+                         "ServiceQuotaExceededException", "LimitExceededException", "RequestLimitExceeded",
+                         "ProvisionedThroughputExceededException", "SlowDown", "HTTP429"})
 
-# CUSTOMER TEXT: for the founder's approval, word for word, with the harness module
-NO_HARNESS_BOUNDARY = (f"Your account has no policy {HARNESS_BOUNDARY}, the permissions boundary the kit puts on a "
-                       "harness's roles. Create it once from permissions/aws-boundary-harness.json, as the README's "
-                       "\"The permissions it needs\" says.")
-# CUSTOMER TEXT: for the founder's approval, word for word, with the harness module
+
+def limited(b: Beat) -> bool:
+    return not b.ok and b.error in LIMIT_CODES
+
+# CUSTOMER TEXT: approved by the founder, with his edit, 29 October 2026 (the harness's messages, ruling 2)
+NO_HARNESS_BOUNDARY = (f"Your account has no policy {HARNESS_BOUNDARY}, the permissions boundary the kit puts on the "
+                       "roles it makes for a harness test. Create it once from permissions/aws-boundary-harness.json, "
+                       "as the README's \"The permissions it needs\" says.")
+# CUSTOMER TEXT: approved by the founder, with his edit, 29 October 2026 (the harness's messages, ruling 2)
 NOT_THE_HARNESS_BOUNDARY = (f"Your account's policy {HARNESS_BOUNDARY} is not the kit's permissions boundary for a "
-                            "harness: its default version differs from permissions/aws-boundary-harness.json.")
-# CUSTOMER TEXT: for the founder's approval, word for word, with the harness module
+                            "harness: its default version differs from permissions/aws-boundary-harness.json, so the "
+                            "kit won't use it. Make that file's contents the policy's default version, then run again.")
+# CUSTOMER TEXT: approved by the founder, 29 October 2026 (the harness's messages, ruling 2); its model is on demand in
+# eu-central-1, where the README's examples run it (r5a570e9d, 29 October 2026)
 NOT_A_MODEL = "give the model as a Bedrock model ID or inference profile ID, such as openai.gpt-oss-20b-1:0"
 # CUSTOMER TEXT: approved by the founder, by 11:09:43 UTC on 29 October 2026 (D562, F4: his five model lines), as the
 # AWS module's MODEL_DID_NOT_WORK says it on its branch (model-row 613b18f)
@@ -133,13 +149,16 @@ def is_profile(model: str) -> bool:
     return model.count(".") == 2
 
 
-def model_arns(model: str, region: str, account: str, partition: str = "aws") -> list[str]:
-    """What the harness's role may call: for a model ID, that model in the run's region; for an inference profile ID,
-    the profile in the run's region and the model it names in every region, as a profile may send a call to another."""
+def model_arns(model: str, region: str, account: str, partition: str = "aws",
+               profile: dict[str, Any] | None = None) -> list[str]:
+    """What the harness's role may call, and nothing more (the founder, 29 October 2026): for a model ID, that model in
+    the run's region; for an inference profile ID, the profile and the foundation models it routes to, as Bedrock's
+    GetInferenceProfile names them (`profile`). The harness's boundary allows any model, as an outer limit only."""
     if not is_profile(model):
         return [f"arn:{partition}:bedrock:{region}::foundation-model/{model}"]
-    return [f"arn:{partition}:bedrock:{region}:{account}:inference-profile/{model}",
-            f"arn:{partition}:bedrock:*::foundation-model/{model.split('.', 1)[1]}"]
+    if not profile:
+        raise ValueError(f"the models the inference profile {model} routes to are not known")
+    return [profile["inferenceProfileArn"], *sorted({m["modelArn"] for m in profile.get("models", [])})]
 
 
 def harness_arn_patterns(run: str, region: str, account: str, partition: str = "aws") -> list[str]:
@@ -157,7 +176,8 @@ def harness_trust(run: str, region: str, account: str, partition: str = "aws") -
                       "ArnLike": {"aws:SourceArn": harness_arn_patterns(run, region, account, partition)}}}]}
 
 
-def harness_policy(run: str, region: str, account: str, model: str, partition: str = "aws") -> dict[str, Any]:
+def harness_policy(run: str, region: str, account: str, model: str, partition: str = "aws",
+                   profile: dict[str, Any] | None = None) -> dict[str, Any]:
     """The harness's own calls: its objects in the run's bucket, assuming the run's second role, its model, AWS's
     managed image, and its workload token."""
     n = harness_names(run)
@@ -167,8 +187,10 @@ def harness_policy(run: str, region: str, account: str, model: str, partition: s
          "Resource": f"arn:{partition}:s3:::{n['bucket']}/own/*"},
         {"Effect": "Allow", "Action": "sts:AssumeRole",
          "Resource": f"arn:{partition}:iam::{account}:role/{n['second_role']}"},
-        {"Effect": "Allow", "Action": list(MODEL_CALLS), "Resource": model_arns(model, region, account, partition)},
-        {"Effect": "Allow", "Action": list(IMAGE_PULL), "Resource": "*"},
+        {"Effect": "Allow", "Action": list(MODEL_CALLS),
+         "Resource": model_arns(model, region, account, partition, profile)},
+        {"Effect": "Allow", "Action": IMAGE_TOKEN, "Resource": "*"},
+        {"Effect": "Allow", "Action": BEARER_TOKEN, "Resource": "*", "Condition": BEARER_FOR},
         {"Effect": "Allow", "Action": list(WORKLOAD_TOKEN),
          "Resource": [directory, f"{directory}/workload-identity/{n['harness_runtime']}-*"]}]}
 
@@ -445,11 +467,13 @@ def make(c: Clients, r: HarnessRun, endpoint: str, clock: Clock) -> None:
     n = harness_names(r.run)
     tags = [{"Key": TAG, "Value": r.run}]
     boundary = harness_boundary_arn(r.account, r.partition)
+    profile = c.bedrock.get_inference_profile(inferenceProfileIdentifier=r.model) if is_profile(r.model) else None
     r.outputs["AgentRole"] = c.iam.create_role(
         RoleName=n["agent_role"], PermissionsBoundary=boundary, Tags=tags,
         AssumeRolePolicyDocument=to_json(harness_trust(r.run, r.region, r.account, r.partition)))["Role"]["Arn"]
     c.iam.put_role_policy(RoleName=n["agent_role"], PolicyName="own-calls",
-                          PolicyDocument=to_json(harness_policy(r.run, r.region, r.account, r.model, r.partition)))
+                          PolicyDocument=to_json(harness_policy(r.run, r.region, r.account, r.model, r.partition,
+                                                                profile)))
     r.outputs["SecondRole"] = _retrying(lambda: c.iam.create_role(
         RoleName=n["second_role"], AssumeRolePolicyDocument=to_json(second_trust(r.outputs["AgentRole"])),
         PermissionsBoundary=boundary, Tags=tags), {"MalformedPolicyDocument"}, clock)["Role"]["Arn"]
@@ -516,8 +540,9 @@ def warm_up(c: Clients, r: HarnessRun, clock: Clock) -> None:
 
 def _working_before(rep: Repeat, p: str, found: list[tuple[float, Beat]]) -> None:
     """A path of calls is tried only where the last one sent before the stop worked; else its errors are each refusal
-    of a call sent before the stop, the last's among them (as run.time_one has it for new calls)."""
-    before = [b for sent, b in found if sent < rep.fired_before]
+    of a call sent before the stop, the last's among them (as run.time_one has it for new calls). A call refused for a
+    limit on your account decides nothing."""
+    before = [b for sent, b in found if sent < rep.fired_before and not limited(b)]
     if before and before[-1].ok:
         rep.working.add(p)
         return
@@ -550,10 +575,12 @@ def time_one(c: Clients, r: HarnessRun, clock: Clock, say: Callable[[str], None]
             clock.sleep(1.0)
         running._take(r, rep, stream.poll())
         for p in SESSION_PATHS:
-            if p in rep.working and not rep.beats[p][-1].ok:
+            last = next((b for b in reversed(rep.beats[p]) if not limited(b)), None)
+            if p in rep.working and (last is None or not last.ok):
                 rep.working.discard(p)
                 errors = rep.setup_errors.setdefault(p, {})
-                errors[rep.beats[p][-1].error or "unknown"] = errors.get(rep.beats[p][-1].error or "unknown", 0) + 1
+                found = (last.error if last else None) or "unknown"
+                errors[found] = errors.get(found, 0) + 1
         if stream.ended is not None:
             for p in SESSION_PATHS:
                 if p in rep.working:
@@ -749,9 +776,23 @@ def check_gone(c: Clients, r: HarnessRun) -> tuple[list[str], list[str]]:
     return left, gone
 
 
+def _judged(r: HarnessRun, rep: Repeat, p: str):
+    """A path judged from the stop's moment, its tries refused for a limit on your account set aside: never counted as
+    stopped, nor as working, and each named among the errors seen after the stop."""
+    beats = rep.beats.get(p, [])
+    found = running._one(r, replace(rep, beats={**rep.beats, p: [b for b in beats if not limited(b)]}), p)
+    after = [b.error for b in beats if limited(b) and rep.fired_at is not None and b.at >= rep.fired_at]
+    if not after:
+        return found
+    errors = dict(found.errors)
+    for error in after:
+        errors[error] = errors.get(error, 0) + 1
+    return replace(found, errors=errors)
+
+
 def results(r: HarnessRun) -> list[tuple[float | None, dict]]:
     """Each repeat's paths, each judged from the stop's moment."""
-    return [(rep.fired_at, {p: running._one(r, rep, p) for p in PATHS}) for rep in r.repeats]
+    return [(rep.fired_at, {p: _judged(r, rep, p) for p in PATHS}) for rep in r.repeats]
 
 
 def details(r: HarnessRun, doc: dict) -> dict:
@@ -803,8 +844,8 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, model: str, window: float =
     from arvaken_stop_test.aws.stack import new_run
     clock = clock or Clock()
     if not firing.on_the_role(stop_ref):
-        # CUSTOMER TEXT: for the founder's approval, word for word, with the harness module
-        raise firing.Refused(f"a harness takes a policy on its role alone, not {stop_ref}")
+        # CUSTOMER TEXT: approved by the founder, with his edit, 29 October 2026 (the harness's messages, ruling 2)
+        raise firing.Refused(f"on a harness, the kit can time only a policy on its role, not {stop_ref}")
     reason = firing.why_not(stop_ref)
     if reason:
         raise firing.Refused(reason)                # before anything is made
@@ -813,9 +854,12 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, model: str, window: float =
     if not 1 <= repeats <= 5:
         raise ValueError("a run repeats one to five times")
     if READY_WAIT + LEAD + window + HOLD + SLACK > LONGEST:
-        # CUSTOMER TEXT: for the founder's approval, word for word, with the harness module
+        # CUSTOMER TEXT: approved by the founder, with his edit, 29 October 2026 (the harness's messages, ruling 2);
+        # source: aws-agentcore-command-limits
         raise ValueError(f"a window on a harness is at most {int(LONGEST - READY_WAIT - LEAD - HOLD - SLACK)} "
-                         "seconds: the running session's probe is one command, which AWS lets run up to an hour")
+                         "seconds: the kit watches the running session with one command, and AWS lets a command run "
+                         "for at most an hour, which also has to cover the time before the stop and the report after "
+                         "the window")
     the_name = run_name or new_run()
     if stop_ref != firing.INLINE and not firing.covers(c.iam, stop_ref, the_name):
         raise firing.Refused(aws_fire.NOT_COVERED)  # before anything is made

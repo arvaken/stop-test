@@ -27,4 +27,5 @@ def clients_for(region: str) -> Clients:
     return Clients(iam=make("iam"), s3=make("s3"), control=make("bedrock-agentcore-control"),
                    data=session.client("bedrock-agentcore", config=once), cloudtrail=make("cloudtrail"),
                    iam_trail=session.client("cloudtrail", region_name=trail_region(region), config=config),
-                   tagging=make("resourcegroupstaggingapi"), region=region, logs=make("logs"), sts=make("sts"))
+                   tagging=make("resourcegroupstaggingapi"), region=region, logs=make("logs"), sts=make("sts"),
+                   bedrock=make("bedrock"))
