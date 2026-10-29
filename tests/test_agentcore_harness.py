@@ -45,6 +45,12 @@ class FakeHarnessAWS(ta.FakeAWS):
         self.refused_by = "AccessDeniedException"     # the code a stopped model call's message names
         self.others = []                                # harnesses of yours the kit did not make
         self.memories = []                              # memories, as ListMemories gives them
+        self.at_once = False                            # the model's calls fail from the stop's own moment
+
+    def stop_on(self, t: float) -> bool:
+        role = self.roles.get(ta.stack.names(self.run)["agent_role"])
+        return bool(role) and any(at <= t for at in [*role["inline_at"].values(), *role["attached_at"].values()]
+                                  if at != role["inline_at"].get("own-calls"))
 
     # -- bedrock: an inference profile, and the models it routes to
     def get_inference_profile(self, inferenceProfileIdentifier):
@@ -124,7 +130,7 @@ class FakeHarnessAWS(ta.FakeAWS):
     def invoke_harness(self, harnessArn, runtimeSessionId, messages):
         now = self.clock.now()
         assert harnessArn == self.harness["arn"] and len(runtimeSessionId) >= 33
-        answers = self.model_answers and not self.role_denied(now)
+        answers = self.model_answers and not self.role_denied(now) and not (self.at_once and self.stop_on(now))
         self.turns.append((now, answers))
         if not answers:     # botocore raises a stream's error event as the call's error, by the event's name
             return {"stream": _raising([{"messageStart": {"role": "assistant"}}], ta.Error(
@@ -543,14 +549,39 @@ def test_with_your_own_stop_the_kit_only_attaches_it_to_the_test_agents_role_and
     assert sum(n == "attach_role_policy" for n, _ in asked) == sum(n == "detach_role_policy" for n, _ in asked) == 2
 
 
-def test_a_model_call_refused_for_a_limit_on_your_account_is_never_counted_as_stopped():
+@pytest.mark.parametrize("refused_by, recorded", [
+    ("ThrottlingException", "ThrottlingException"), ("ServiceQuotaExceededException", "ServiceQuotaExceededException"),
+    ("InternalServerException", "InternalServerException"), ("ModelTimeoutException", "ModelTimeoutException"),
+    ("a network failure", "runtimeClientError")])       # a message naming no code: the event's own name
+def test_only_the_stops_own_refusal_counts_as_stopped_and_every_other_failure_is_not_counted(refused_by, recorded):
+    # the founder, 29 October 2026: throttles, limits and quotas, server errors, timeouts and network failures never
+    # count as stopped; for a policy on a role, access denied does
     clock = ta.Clock()
     aws = FakeHarnessAWS(clock)
-    aws.refused_by = "ThrottlingException"      # the fake refuses the role's model calls under the stop, as throttled
+    aws.refused_by, aws.at_once = refused_by, True     # every model call after the stop fails with this
     r, doc = a_run(aws, clock, fire.INLINE)
-    assert ta.outcomes(doc)["model"] != "stopped" and ta.outcomes(doc)["own_calls"] == "stopped"
+    assert ta.outcomes(doc)["model"] == "not run" and ta.outcomes(doc)["own_calls"] == "stopped"
     model = harness.details(r, doc)["repeats"][0]["model"]
-    assert model["errors"].get("ThrottlingException", 0) > 0 and model["failures_after"] == 0
+    assert model["errors"].get(recorded, 0) > 0 and model["failures_after"] == 0
+    assert model["reason"] == harness.ALL_NOT_COUNTED
+
+
+def test_access_denied_counts_and_calls_not_counted_between_do_not_move_the_stopped_time():
+    clock = ta.Clock()
+    aws = FakeHarnessAWS(clock)
+    real = aws.invoke_harness
+    seen = {"n": 0}
+
+    def some_throttled(**kw):           # every third call under the stop throttled, the rest refused by the stop
+        seen["n"] += 1
+        aws.refused_by = "ThrottlingException" if seen["n"] % 3 == 0 else "AccessDeniedException"
+        return real(**kw)
+    aws.invoke_harness = some_throttled
+    r, doc = a_run(aws, clock, fire.INLINE)
+    model = harness.details(r, doc)["repeats"][0]["model"]
+    assert ta.outcomes(doc)["model"] == "stopped" and model["errors"]["ThrottlingException"] > 0
+    low, high = model["effect_between_seconds"]
+    assert low <= ta.DELAY <= high
 
 
 def test_no_other_harness_of_yours_is_named_in_the_result_the_page_or_what_the_kit_says():

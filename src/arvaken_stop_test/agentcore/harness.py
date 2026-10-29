@@ -100,15 +100,17 @@ BEARER_TOKEN = "sts:GetServiceBearerToken"
 BEARER_FOR = {"StringEquals": {"sts:AWSServiceName": "ecr-public.amazonaws.com"}}
 WORKLOAD_TOKEN = ("bedrock-agentcore:GetWorkloadAccessToken", "bedrock-agentcore:GetWorkloadAccessTokenForJWT")
 MODEL_CALLS = ("bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream")
-# A limit on your account, never the stop: "A call refused for a limit on your account is never counted as stopped"
-# (the founder, 29 October 2026). Such a try is set aside, neither a success nor a refusal, and named among the errors.
-LIMIT_CODES = frozenset({"ThrottlingException", "Throttling", "ThrottledException", "TooManyRequestsException",
-                         "ServiceQuotaExceededException", "LimitExceededException", "RequestLimitExceeded",
-                         "ProvisionedThroughputExceededException", "SlowDown", "HTTP429"})
+# What counts as stopped: a call refused by the stop's own refusal, and nothing else (the founder, 29 October 2026,
+# superseding D561 and F4 on this). For a policy on a role, the harness's one kind, that is access denied, by its code.
+# Throttles, limits and quotas, server errors, timeouts and network failures never count: such a try is "not counted",
+# neither stopped nor succeeded, and is named among the errors seen.
+REFUSALS = frozenset({"AccessDenied", "AccessDeniedException"})
+# CUSTOMER TEXT: for the founder's approval, with the classifier
+ALL_NOT_COUNTED = "every call after the stop was not counted"
 
 
-def limited(b: Beat) -> bool:
-    return not b.ok and b.error in LIMIT_CODES
+def not_counted(b: Beat) -> bool:
+    return not b.ok and b.error not in REFUSALS
 
 # CUSTOMER TEXT: approved by the founder, with his edit, 29 October 2026 (the harness's messages, ruling 2)
 NO_HARNESS_BOUNDARY = (f"Your account has no policy {HARNESS_BOUNDARY}, the permissions boundary the kit puts on the "
@@ -540,9 +542,9 @@ def warm_up(c: Clients, r: HarnessRun, clock: Clock) -> None:
 
 def _working_before(rep: Repeat, p: str, found: list[tuple[float, Beat]]) -> None:
     """A path of calls is tried only where the last one sent before the stop worked; else its errors are each refusal
-    of a call sent before the stop, the last's among them (as run.time_one has it for new calls). A call refused for a
-    limit on your account decides nothing."""
-    before = [b for sent, b in found if sent < rep.fired_before and not limited(b)]
+    of a call sent before the stop, the last's among them (as run.time_one has it for new calls). A call not counted
+    decides nothing."""
+    before = [b for sent, b in found if sent < rep.fired_before and not not_counted(b)]
     if before and before[-1].ok:
         rep.working.add(p)
         return
@@ -575,7 +577,7 @@ def time_one(c: Clients, r: HarnessRun, clock: Clock, say: Callable[[str], None]
             clock.sleep(1.0)
         running._take(r, rep, stream.poll())
         for p in SESSION_PATHS:
-            last = next((b for b in reversed(rep.beats[p]) if not limited(b)), None)
+            last = next((b for b in reversed(rep.beats[p]) if not not_counted(b)), None)
             if p in rep.working and (last is None or not last.ok):
                 rep.working.discard(p)
                 errors = rep.setup_errors.setdefault(p, {})
@@ -792,17 +794,23 @@ def check_gone(c: Clients, r: HarnessRun) -> tuple[list[str], list[str]]:
 
 
 def _judged(r: HarnessRun, rep: Repeat, p: str):
-    """A path judged from the stop's moment, its tries refused for a limit on your account set aside: never counted as
-    stopped, nor as working, and each named among the errors seen after the stop."""
+    """A path judged from the stop's moment, its tries not counted set aside: never counted as stopped, nor as
+    working, and each named among the errors seen after the stop. The stopped time is the first refusal with no
+    success after it, whatever was not counted between. Where every call after the stop was not counted, the path was
+    not measured."""
     beats = rep.beats.get(p, [])
-    found = running._one(r, replace(rep, beats={**rep.beats, p: [b for b in beats if not limited(b)]}), p)
-    after = [b.error for b in beats if limited(b) and rep.fired_at is not None and b.at >= rep.fired_at]
-    if not after:
+    found = running._one(r, replace(rep, beats={**rep.beats, p: [b for b in beats if not not_counted(b)]}), p)
+    after = [b for b in beats if rep.fired_at is not None and b.at >= rep.fired_at]
+    set_aside = [b.error for b in after if not_counted(b)]
+    if not set_aside:
         return found
     errors = dict(found.errors)
-    for error in after:
+    for error in set_aside:
         errors[error] = errors.get(error, 0) + 1
-    return replace(found, errors=errors)
+    found = replace(found, errors=errors)
+    if len(set_aside) == len(after):
+        found = replace(found, reason=ALL_NOT_COUNTED)
+    return found
 
 
 def results(r: HarnessRun) -> list[tuple[float | None, dict]]:
