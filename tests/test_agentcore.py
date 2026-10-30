@@ -1179,3 +1179,17 @@ def test_botocore_errors_whose_response_is_none_are_read_by_their_name():
             lambda: {"Account": "123456789012", "Arn": "arn:aws:sts::123456789012:assumed-role/runner/you"})})()
         with pytest.raises(type(e)):
             aws_fire.why_no_boundary(iam, sts)
+
+
+def test_confirming_a_sessions_end_that_timed_out_is_named_by_its_error():
+    """confirm_end names how StopRuntimeSession answered when the kit confirms a session's end: a ReadTimeoutError or
+    ConnectionClosedError, whose `response` is None, is named by its name, never raising AttributeError (the reading
+    the merged test above covers elsewhere)."""
+    import botocore.exceptions as b
+    from arvaken_stop_test.agentcore import fire as agentcore_fire
+    url = "https://bedrock-agentcore.eu-central-1.amazonaws.com/"
+    for e in (b.ReadTimeoutError(endpoint_url=url), b.ConnectionClosedError(endpoint_url=url)):
+        def raising(*_, e=e, **__):
+            raise e
+        data = type("Data", (), {"stop_runtime_session": staticmethod(raising)})()
+        assert agentcore_fire.confirm_end(data, "arn:aws:bedrock-agentcore:x", "s") == type(e).__name__
