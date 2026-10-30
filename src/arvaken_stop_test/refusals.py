@@ -29,8 +29,16 @@ Arvaken's run r9bc29057, where a 404 on the write or the read would mean a missi
 **Your own trigger** (item 5): the kit identifies the kind of stop from the cloud's audit record of your own action, and
 uses that kind's refusals. Where it cannot identify one, nothing counts as stopped (`counts` with kind None).
 
-The gateway option (`--via`) is outside these: until the founder's ruling on a gateway's refusal (30 October 2026) is
-built, nothing through a gateway counts (aws/run.py, Run.counted_kind).
+**Through your gateway** (`--via`; the founder's ruling on a gateway's refusal, D655, 30 October 2026, and his answers
+of the same day): a call through the gateway counts as stopped only where the gateway itself refused the kit's CONNECT
+with 403 (`gateway_counts`), read strictly from the error beneath botocore's ProxyConnectionError (aws/agent.py), after
+the mark, on a path that went through the gateway before it; a 407 the same way, only where the gateway's address
+carries a user name and password, so that calls went through signed in before the mark. A gateway that does not answer,
+refuses the connection, times out or answers anything else is not counted; switched off, it reads "not measured". A
+refusal from inside the tunnel, as from a gateway that inspects TLS, never reaches this rule, and through an https://
+gateway nothing counts (aws/run.py), both until a test shows the kit can tell them from AWS's own. And a failure counts
+only where the Python, botocore and urllib3 the agent ran on are a combination the parse was tested on (TESTED; his
+answer: "Count only tested versions").
 """
 from __future__ import annotations
 
@@ -44,6 +52,11 @@ AWS_POLICY, AWS_INLINE, AWS_REVOKE = "policy on a role", "policy written on the 
 GOOGLE_DENY, GOOGLE_DISABLE = "deny policy on its identity", "disable its service account"
 
 LAMBDA_REFUSED = "Lambda refused: "      # the prefix of a beat the kit makes where Lambda refused to run the agent
+PRODUCT_CONTROL = "a product's control"    # the kind of stop a gateway's is (result.PRODUCT_CONTROL)
+PROXY_REFUSED = "ProxyConnectionError"     # botocore's error where the gateway refused, or never answered, the CONNECT
+# Each combination of the agent's Python, botocore and urllib3 the gateway's status was read on in a test, against a
+# gateway answering as tinyproxy does (tests/test_gateway_refusal.py and Arvaken's test in Lambda's own python3.12).
+TESTED: frozenset[tuple[str, str, str]] = frozenset()
 LAMBDA_KMS = LAMBDA_REFUSED + "KMSAccessDeniedException"
 
 
@@ -82,6 +95,13 @@ COUNTED: dict[str, dict[str, tuple[Refusal, ...]]] = {
 }
 # Where Lambda's KMSAccessDeniedException counts, on every path
 LAMBDA_KINDS = (AWS_POLICY, AWS_INLINE, AWS_REVOKE)
+
+
+def gateway_counts(through: bool, signed_in: bool, b: Beat) -> bool:
+    """Whether a failed call is your gateway's own refusal (D655, (a)): on a path through the gateway, the gateway's
+    403 to the CONNECT, or its 407 where its address carries a user name and password, from a tested combination."""
+    return (through and not b.ok and b.error == PROXY_REFUSED and b.status in ({403, 407} if signed_in else {403})
+            and b.versions in TESTED)
 
 
 def counts(kind: str | None, path: str, b: Beat, before: Sequence[Beat]) -> bool:

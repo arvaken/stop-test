@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import json
 import time
+import urllib.parse
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -231,10 +232,16 @@ class Run:
     @property
     def counted_kind(self) -> str | None:
         """The kind of stop whose refusals count: the kit's own; for your own trigger, the one identified, or None; and
-        through a gateway None, until the founder's ruling on a gateway's refusal (30 October 2026) is built."""
+        through a gateway, a product's control, whose refusal is the gateway's own (refusals.gateway_counts), except
+        through an https:// gateway, where nothing counts until a test shows the kit can read its refusal (D655, (c))."""
         if self.via:
-            return None
+            return None if self.via.lower().startswith("https://") else refusals.PRODUCT_CONTROL
         return self.trigger_kind if self.fired_by == "your own trigger" else firing.kind_of(self.stop_ref)
+
+    @property
+    def signed_in(self) -> bool:
+        """Whether the gateway's address carries a user name and password, so its calls go through signed in."""
+        return bool(self.via and urllib.parse.urlsplit(self.via).username)
 
 
 def _wait_for_stack(cf: Any, stack: str, clock: Clock, want: str, limit: float = 900.0) -> dict | None:
@@ -353,20 +360,23 @@ def heartbeat(c: Clients, r: Run, n: int, session: dict,
         status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
         return {p: Beat(at, False, REFUSED + code, status=status, reason=response.get("Reason"))
                 for p in r.paths}, sent, received, None
-    beats = {p: _beat(p, b, session) for p, b in (body.get("beats") or {}).items()}
+    versions = tuple(str(v) for v in body["v"]) if isinstance(body.get("v"), list) else None
+    beats = {p: _beat(p, b, session, versions) for p, b in (body.get("beats") or {}).items()}
     if body.get("key") and "own_calls" in beats:
         r.own_keys[beats["own_calls"].at] = str(body["key"])
     r.calls += len(beats)
     return beats, sent, received, float(body["at"])
 
 
-def _beat(path: str, b: dict, session: dict) -> Beat:
-    """A path's heartbeat from the agent's reply, with its failure record; under another identity, with the times of
-    the session it used."""
+def _beat(path: str, b: dict, session: dict, versions: tuple[str, ...] | None = None) -> Beat:
+    """A path's heartbeat from the agent's reply, with its failure record, when its client was made and what the agent
+    ran on; under another identity, with the times of the session it used."""
     timed = path == "another_identity" and bool(session)
+    made = b.get("client_at")
     return Beat(float(b["at"]), bool(b["ok"]), b.get("error"), status=b.get("status"), reason=b.get("reason"),
                 token_issued=session.get("issued") if timed else None,
-                token_expires=session.get("expires") if timed else None)
+                token_expires=session.get("expires") if timed else None,
+                client_at=float(made) if made is not None else None, versions=versions)
 
 
 def warm_up(c: Clients, r: Run, session: dict, clock: Clock) -> None:
@@ -785,12 +795,30 @@ def _moment(rep: Repeat, p: str) -> tuple[float | None, float]:
     return rep.fired_at, rep.fired_precision
 
 
+def new_connections_only(r: Run, rep: Repeat, p: str) -> list[Beat]:
+    """Through a gateway, a path's tries made with a client made after the mark, as when Lambda gave the agent a new
+    environment: "new connections only", which never set the path's result (D655, open tunnels 2; the founder's answer
+    of 30 October 2026)."""
+    at = _moment(rep, p)[0]
+    if p not in r.through or at is None:
+        return []
+    return [b for b in rep.beats.get(p, []) if b.client_at is not None and b.client_at > at]
+
+
+def _counts(r: Run, kind: str | None, p: str) -> Callable[[Beat, list[Beat]], bool]:
+    if kind == refusals.PRODUCT_CONTROL:
+        return lambda b, before: refusals.gateway_counts(p in r.through, r.signed_in, b)
+    return lambda b, before: refusals.counts(kind, p, b, before)
+
+
 def _one(r: Run, rep: Repeat, p: str) -> PathResult:
     at, precision = _moment(rep, p)
     kind = r.counted_kind
+    fresh = {id(b) for b in new_connections_only(r, rep, p)}
     found = judge(rep.beats.get(p, []), at, window=r.window, tried=p in r.working, setup_errors=r.setup_errors.get(p),
-                  fired_precision=precision, counts=lambda b, before: refusals.counts(kind, p, b, before),
-                  untried=NOT_MEASURED if p in r.through else NOT_RUN, refused_at_mark=NOT_MEASURED if r.via else None)
+                  fired_precision=precision, counts=_counts(r, kind, p),
+                  untried=NOT_MEASURED if p in r.through else NOT_RUN, refused_at_mark=NOT_MEASURED if r.via else None,
+                  set_aside=lambda b: id(b) in fresh)
     if r.via:
         if found.outcome == NOT_MEASURED and p not in r.working:
             found = replace(found, reason=NOT_MEASURED_REASON)
@@ -828,7 +856,8 @@ def details(r: Run, doc: dict) -> dict:
             "first_refused": _iso(f.first_failure_after), "stopped_from": _iso(f.stopped_at),
             "last_success": _iso(f.last_success_after), "tries_after": f.tries_after, "failures_after": f.failures_after,
             "errors": f.errors, "not_counted": f.not_counted, "reason": f.reason,
-            "keeps_working_until": _iso(f.keeps_working_until), "failures": result.failure_records(f)}
+            "keeps_working_until": _iso(f.keeps_working_until), "failures": result.failure_records(f),
+            **({"client": client_mode(r, rep, p)} if p in r.through else {})}
             for p, f in found.items()})
     # each repeat's refusals by Lambda to run the agent at all, after the stop, by Lambda's code
     refused = []
@@ -848,6 +877,19 @@ def details(r: Run, doc: dict) -> dict:
     if r.model:     # the model the fifth path called, as given
         out["model"] = r.model
     return out
+
+
+def client_mode(r: Run, rep: Repeat, p: str) -> dict[str, Any]:
+    """Which client a path through the gateway was timed with (D655, open tunnels 3): one kept from before the mark, its
+    connection and tunnel reused; and the tries made with a client made after the mark, "new connections only", shown
+    beside it and never setting the result."""
+    at = _moment(rep, p)[0]
+    made = sorted({b.client_at for b in rep.beats.get(p, []) if b.client_at is not None and (at is None or
+                                                                                          b.client_at <= at)})
+    fresh = new_connections_only(r, rep, p)
+    return {"mode": "kept from before the mark", "made": [_iso(m) for m in made],
+            "new_connections_only": {"tries": len(fresh), "failures": dict(Counter(b.error or "unknown"
+                                                                                    for b in fresh if not b.ok))}}
 
 
 def network(r: Run) -> dict[str, Any]:

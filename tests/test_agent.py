@@ -90,7 +90,8 @@ def an_agent(monkeypatch, tmp_path):
     """The agent's handler with boto3's clients and its endpoint calls faked: what each is made with, and given."""
     made, gets = [], []
     monkeypatch.setattr(agent.boto3, "client", lambda name, **kw: made.append((name, kw)) or FakeClient())
-    monkeypatch.setattr(agent, "_get", lambda url, headers, gw=({}, None): gets.append((url, gw)))
+    monkeypatch.setattr(agent, "_get", lambda url, headers, gw=({}, None), ctx=None: gets.append((url, gw)))
+    monkeypatch.setattr(agent, "_MADE", {})        # each test's agent a new environment, its clients not yet made
     monkeypatch.setattr(agent, "CA", str(tmp_path / "ca.pem"))
     monkeypatch.setattr(FakeClient, "conversed", [])
     monkeypatch.setattr(FakeClient, "refuse_with", None)
@@ -113,7 +114,8 @@ def test_with_a_model_each_invocation_also_calls_it_once_as_the_agent_and_keeps_
     monkeypatch.setenv("MODEL", MODEL)
     out = agent.handler({"n": 3, "session": SESSION}, None)
     assert list(out["beats"]) == ["own_calls", "another_identity", "outside_key", "open_internet", "model"]
-    assert out["beats"]["model"] == {"at": out["beats"]["model"]["at"], "ok": True}
+    model = out["beats"]["model"]
+    assert model == {"at": model["at"], "ok": True, "client_at": model["client_at"]}
     assert FakeClient.conversed == [{"modelId": MODEL, "inferenceConfig": {"maxTokens": 1},
                                      "messages": [{"role": "user", "content": [{"text": "1"}]}]}]
     (bedrock,) = [kw for name, kw in made if name == "bedrock-runtime"]
@@ -129,7 +131,7 @@ def test_a_refused_model_call_is_its_code_and_status_never_its_message(an_agent,
         FakeClient.refuse_with = code
         beat = agent.handler({"n": 3, "session": SESSION}, None)["beats"]["model"]
         assert beat == {"at": beat["at"], "ok": False, "error": code, "status": FakeClient.STATUS[code],
-                        "reason": None}
+                        "reason": None, "client_at": beat["client_at"]}
 
 
 def test_without_a_model_the_agent_calls_none_and_its_reply_is_as_before(an_agent, monkeypatch):
@@ -280,6 +282,7 @@ def test_a_real_gateway_carries_the_agents_calls_and_only_the_customers_bundle_l
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("no_proxy", "nothing.invalid")      # so neither the environment nor Windows' settings bypass it
     monkeypatch.setattr(agent, "CA", str(tmp_path / "ca.pem"))
+    monkeypatch.setattr(agent, "_MADE", {})
     pem, cert, key = _certificates(tmp_path)
     reached = []
 
@@ -304,10 +307,10 @@ def test_a_real_gateway_carries_the_agents_calls_and_only_the_customers_bundle_l
     url = f"https://127.0.0.1:{endpoint.server_port}/open"
     via = f"http://user:pass@127.0.0.1:{gateway.server_address[1]}"
     try:
-        through = agent._try(lambda: agent._get(url, {}, agent._gateway({"via": via, "ca": pem})))
-        unbundled = agent._try(lambda: agent._get(url, {}, agent._gateway({"via": via})))
+        through = agent._try(lambda ctx: agent._get(url, {}, agent._gateway({"via": via, "ca": pem}), ctx))
+        unbundled = agent._try(lambda ctx: agent._get(url, {}, agent._gateway({"via": via}), ctx))
         tunnels = len(seen)
-        direct = agent._try(lambda: agent._get(url, {}))
+        direct = agent._try(lambda ctx: agent._get(url, {}, ctx=ctx))
     finally:
         endpoint.shutdown()
         gateway.shutdown()
@@ -317,7 +320,8 @@ def test_a_real_gateway_carries_the_agents_calls_and_only_the_customers_bundle_l
                        "Basic " + base64.b64encode(b"user:pass").decode("ascii"))
     assert reached[0][0] == "/open" and reached[0][1].startswith("arvaken-stop-test-agent")
     # through it without the bundle: refused as the certificate is not one the default bundle trusts
-    assert unbundled == {"at": unbundled["at"], "ok": False, "error": "SSLError", "status": None, "reason": None}
+    assert unbundled == {"at": unbundled["at"], "ok": False, "error": "SSLError", "status": None, "reason": None,
+                         "client_at": unbundled["client_at"]}
     # and without a gateway, the call goes straight there, never through it, and no bundle of the customer's is used
     assert len(seen) == tunnels == 2 and direct["ok"] is False and direct["error"] == "Unreachable"
     assert len(reached) == 1

@@ -87,6 +87,8 @@ class Beat:
     step: str | None = None         # the step of the path that failed, where it has steps: "token", "write" or "read"
     token_issued: float | None = None       # the token the call used: when it was issued and when it expires, by the
     token_expires: float | None = None      # agent's clock, or for a token taken from AWS or Google, by theirs
+    client_at: float | None = None          # when the client the call used was made, by the agent's clock
+    versions: tuple[str, ...] | None = None     # the agent's Python, botocore and urllib3, where it names them
 
 
 @dataclass(frozen=True)
@@ -165,12 +167,14 @@ def _clock(t: float) -> str:
 def judge(beats: Iterable[Beat], fired_at: float | None, window: float, hold: float = HOLD,
           tried: bool = True, setup_errors: dict[str, int] | None = None, fired_precision: float = 0.0, *,
           counts: Callable[[Beat, Sequence[Beat]], bool], untried: str = NOT_RUN,
-          refused_at_mark: str | None = None) -> PathResult:
+          refused_at_mark: str | None = None, set_aside: Callable[[Beat], bool] | None = None) -> PathResult:
     """What the test found on one path, from its heartbeats, before the stop and after it, and the moment the stop was
     fired. `counts` says whether a failed call is the stop's own refusal (refusals.py), given the path's heartbeats
     before the firing moment; a refusal counts only where the path succeeded before it. A path that could not be set up
     reads `untried`: "not run", or through a gateway "not measured" (D561). Where `refused_at_mark` is given (through a
-    gateway, "not measured"), a path whose first heartbeat after the mark was refused reads it."""
+    gateway, "not measured"), a path whose first heartbeat after the mark was refused reads it. A try `set_aside` says
+    to set aside (through a gateway, one made with a client made after the mark: "new connections only", D655) is
+    neither a success nor a refusal: it moves nothing, sets nothing, and where it fails it is named, not counted."""
     if not tried:
         return PathResult(untried, window, errors=dict(setup_errors or {}), reason="the path could not be set up")
     if fired_at is None:
@@ -189,7 +193,10 @@ def judge(beats: Iterable[Beat], fired_at: float | None, window: float, hold: fl
     # the successes and counted refusals, in order: a refusal counts only on a path that succeeded before it
     kept: list[Beat] = []
     succeeded = any(b.ok for b in before)
+    aside = {id(b) for b in after if set_aside is not None and set_aside(b)}
     for b in after:
+        if id(b) in aside:
+            continue
         if b.ok or (succeeded and counts(b, before)):
             kept.append(b)
             succeeded = succeeded or b.ok
@@ -197,7 +204,7 @@ def judge(beats: Iterable[Beat], fired_at: float | None, window: float, hold: fl
     refusals = [b for b in kept if not b.ok]
     counted = {id(b) for b in refusals}
     refused = [i for i, b in enumerate(failures) if id(b) in counted]
-    successes = [b.at for b in after if b.ok]
+    successes = [b.at for b in after if b.ok and id(b) not in aside]
     first_refusal = refusals[0].at if refusals else None
     common = dict(window=window, last_success_after=max(successes, default=None), first_failure_after=first_refusal,
                   tries_after=len(after), failures_after=len(failures),

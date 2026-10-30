@@ -276,11 +276,11 @@ def test_a_failure_record_holds_every_field_or_this_test_fails():
         record = r.failure_record(b, counted)
         assert tuple(record) == r.FAILURE_RECORD and set(record) == {
             "at", "step", "code", "status", "reason", "reason_given", "provider_status", "token_issued",
-            "token_expires", "counted"}
+            "token_expires", "versions", "counted"}
     assert r.failure_record(google, True) == {
         "at": "2025-10-23T11:46:49.000Z", "step": "write", "code": "HTTP401", "status": 401, "reason": "authError",
         "reason_given": True, "provider_status": None, "token_issued": "2025-10-23T11:36:40.000Z",
-        "token_expires": "2025-10-23T12:36:40.000Z", "counted": True}
+        "token_expires": "2025-10-23T12:36:40.000Z", "versions": None, "counted": True}
     # S3's errors give no reason: the reason is empty, and the record says none was given
     assert (r.failure_record(aws, False)["reason"], r.failure_record(aws, False)["reason_given"]) == (None, False)
     found = judge([Beat(FIRED - 1, True), aws, google], FIRED, window=60, counts=lambda b, before: b.error == "HTTP401")

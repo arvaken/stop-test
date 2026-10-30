@@ -147,17 +147,19 @@ def path_part(r: PathResult, fired_at: float | None) -> dict[str, Any]:
 
 
 FAILURE_RECORD = ("at", "step", "code", "status", "reason", "reason_given", "provider_status", "token_issued",
-                  "token_expires", "counted")
+                  "token_expires", "versions", "counted")
 
 
 def failure_record(b: Beat, counted: bool) -> dict[str, Any]:
     """One failed call's record, for the details beside the result, never the result itself (D532: the result holds no
     error codes), with every field of FAILURE_RECORD (D646, item 4: the founder, 29 October 2026). Where the provider's
     error gave no reason, the reason is empty and the record says none was given (his answer of 30 October 2026). Where
-    there is no status, nothing answered; where no token's times, the call used none, or the agent is not told them."""
+    there is no status, nothing answered; where no token's times, the call used none, or the agent is not told them.
+    Its versions are the Python, botocore and urllib3 the agent ran on, where it names them (D655, (a))."""
     return {"at": iso(b.at), "step": b.step, "code": b.error or "unknown", "status": b.status, "reason": b.reason,
             "reason_given": b.reason is not None, "provider_status": b.provider_status,
-            "token_issued": iso(b.token_issued), "token_expires": iso(b.token_expires), "counted": counted}
+            "token_issued": iso(b.token_issued), "token_expires": iso(b.token_expires),
+            "versions": list(b.versions) if b.versions else None, "counted": counted}
 
 
 def failure_records(r: PathResult) -> list[dict[str, Any]]:

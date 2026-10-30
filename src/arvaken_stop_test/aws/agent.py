@@ -44,20 +44,37 @@ gateway; else none.
 `_code` gives an error's code alone, never its message: the message can name resources and principals. `_try` catches
 every failure, as each is a heartbeat's result, by its code.
 
+**The gateway's own refusal** (the founder's ruling on a gateway's refusal, D655, 30 October 2026). Where a gateway
+refuses the CONNECT for a call through it, botocore raises ProxyConnectionError, and the gateway's status is only in the
+text of the error beneath it: "Tunnel connection failed: <three digits>", the reason phrase after them the gateway's
+own. `_tunnel` reads the three digits from that text, strictly (TUNNEL, the whole text or nothing), and keeps the status
+alone, never the phrase; any other text reads as no status. Each reply names the Python, botocore and urllib3 the agent
+ran on (VERSIONS), so a failure's record holds what read it.
+
+**Its clients are kept** (D655, open tunnels 1 to 3): one client a path, made the first time the path is tried and kept
+for as long as Lambda keeps the agent's environment, with the connection reuse the SDK gives by default, as a real
+agent's are; through a gateway, its tunnel is reused too. Each try names when its client was made (`client_at`), so the
+kit can tell a client made before the mark from one made after it, as when Lambda gave the agent a new environment.
+
 This file is shipped as the function's code, so it uses only what Lambda's Python runtime has: the standard library
-and boto3 (with botocore). CloudFormation takes a function's inline code to 8,192 characters as the kit holds it (stack.INLINE_LIMIT): what explains
-it is here, in the docstring, which is not shipped, nor are the comments; the code is shipped indented two spaces a
-level, the same program (stack.agent_code).
+and boto3 (with botocore, and urllib3 beneath it). CloudFormation takes a function's inline code to 8,192 characters as
+the kit holds it (stack.INLINE_LIMIT): what explains it is here, in the docstring, which is not shipped, nor are the
+comments; the code is shipped indented two spaces a level, the same program (stack.agent_code).
 """
+import json
 import os
+import re
+import sys
 import tempfile
 import time
 import urllib.error
 import urllib.request
 
 import boto3
+import botocore
 import botocore.config
 import botocore.exceptions
+import urllib3
 from botocore.awsrequest import AWSRequest
 from botocore.httpsession import URLLib3Session, get_cert_path
 
@@ -65,6 +82,9 @@ CONFIG = botocore.config.Config(connect_timeout=2, read_timeout=2, retries={"max
 TIMEOUT = 2.0
 AGENT ="arvaken-stop-test-agent (+https://github.com/arvaken/stop-test)"
 CA = os.path.join(tempfile.gettempdir(), "arvaken-stop-test-ca.pem")
+VERSIONS = [sys.version.split()[0], botocore.__version__, urllib3.__version__]
+TUNNEL = re.compile(r"Tunnel connection failed: (\d{3})(?: .*)?")
+_MADE = {}
 
 
 def _code(e):
@@ -77,9 +97,26 @@ def _code(e):
     return type(e).__name__[:64]
 
 
+def _tunnel(e):
+    seen, todo = set(), [e]
+    while todo:
+        x = todo.pop()
+        if x is None or id(x) in seen:
+            continue
+        seen.add(id(x))
+        found = isinstance(x, OSError) and TUNNEL.fullmatch(str(x))
+        if found:
+            return int(found.group(1))
+        todo += [getattr(x, "kwargs", {}).get("error"), x.__cause__, x.__context__]
+        todo += [a for a in getattr(x, "args", ()) if isinstance(a, BaseException)]
+    return None
+
+
 def _record(e):
     status = reason = None
-    if isinstance(e, botocore.exceptions.ClientError):
+    if isinstance(e, botocore.exceptions.ProxyConnectionError):
+        status = _tunnel(e)
+    elif isinstance(e, botocore.exceptions.ClientError):
         status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
         reason = e.response.get("Reason") or e.response.get("reason")
     elif isinstance(e, urllib.error.HTTPError):
@@ -90,12 +127,12 @@ def _record(e):
 
 
 def _try(fn):
-    at = time.time()
+    at, ctx = time.time(), {}
     try:
-        fn()
-        return {"at": at, "ok": True}
+        fn(ctx)
+        return {"at": at, "ok": True, **ctx}
     except Exception as e:  # noqa: BLE001 - every failure is a heartbeat's result, by its record
-        return {"at": at, "ok": False, **_record(e)}
+        return {"at": at, "ok": False, **_record(e), **ctx}
 
 
 def _gateway(event):
@@ -109,16 +146,27 @@ def _gateway(event):
     return {"proxies": {"http": via, "https": via}, "proxies_config": {"proxy_ca_bundle": ca} if ca else None}, ca
 
 
-def _client(name, gw, **kw):
+def _kept(key, make, ctx):
+    if key not in _MADE:
+        _MADE[key] = (make(), time.time())
+    if ctx is not None:
+        ctx["client_at"] = _MADE[key][1]
+    return _MADE[key][0]
+
+
+def _client(name, gw, ctx=None, **kw):
     proxies, ca = gw
-    return boto3.client(name, config=CONFIG.merge(botocore.config.Config(**proxies)), verify=ca, **kw)
+    key = ("client", name, json.dumps(proxies, sort_keys=True), ca, kw.get("aws_access_key_id"))
+    return _kept(key, lambda: boto3.client(name, config=CONFIG.merge(botocore.config.Config(**proxies)), verify=ca,
+                                           **kw), ctx)
 
 
-def _get(url, headers, gw=({}, None)):
+def _get(url, headers, gw=({}, None), ctx=None):
     proxies, ca = gw
     headers = {"User-Agent": AGENT, **headers}
     if proxies:
-        session = URLLib3Session(verify=ca or True, timeout=TIMEOUT, **proxies)
+        key = ("session", json.dumps(proxies, sort_keys=True), ca)
+        session = _kept(key, lambda: URLLib3Session(verify=ca or True, timeout=TIMEOUT, **proxies), ctx)
         answer = session.send(AWSRequest("GET", url, headers=headers).prepare())
         if answer.status_code >= 400:
             raise urllib.error.HTTPError(url, answer.status_code, "", None, None)
@@ -138,34 +186,34 @@ def handler(event, context):
                             DurationSeconds=3600)["Credentials"]
         return {"at": time.time(), "session": {"key": c["AccessKeyId"], "secret": c["SecretAccessKey"],
                                                "token": c["SessionToken"], "expires": c["Expiration"].timestamp()}}
-    s3 = _client("s3", g("own_calls"))
     n = str(event.get("n", 0))
 
-    def own_calls():
+    def own_calls(ctx):
+        s3 = _client("s3", g("own_calls"), ctx)
         s3.put_object(Bucket=bucket, Key=f"own/{n}", Body=b"x")
         s3.get_object(Bucket=bucket, Key=f"own/{n}")["Body"].read()
 
-    def another_identity():
+    def another_identity(ctx):
         session = event.get("session")
         if not session:
             raise RuntimeError("NoSession")
-        other = _client("s3", g("another_identity"), aws_access_key_id=session["key"],
+        other = _client("s3", g("another_identity"), ctx, aws_access_key_id=session["key"],
                         aws_secret_access_key=session["secret"], aws_session_token=session["token"])
         other.put_object(Bucket=bucket, Key=f"another/{n}", Body=b"x")
 
-    def outside_key():
-        _get(f"{endpoint}/key", {"Authorization": "Bearer " + os.environ["OUTSIDE_KEY"]}, g("outside_key"))
+    def outside_key(ctx):
+        _get(f"{endpoint}/key", {"Authorization": "Bearer " + os.environ["OUTSIDE_KEY"]}, g("outside_key"), ctx)
 
-    def open_internet():
-        _get(f"{endpoint}/open", {}, g("open_internet"))
+    def open_internet(ctx):
+        _get(f"{endpoint}/open", {}, g("open_internet"), ctx)
 
-    def model():
-        _client("bedrock-runtime", g("model")).converse(modelId=os.environ["MODEL"],
-                                                        inferenceConfig={"maxTokens": 1},
-                                                        messages=[{"role": "user", "content": [{"text": "1"}]}])
+    def model(ctx):
+        _client("bedrock-runtime", g("model"), ctx).converse(modelId=os.environ["MODEL"],
+                                                             inferenceConfig={"maxTokens": 1},
+                                                             messages=[{"role": "user", "content": [{"text": "1"}]}])
 
     beats = {"own_calls": _try(own_calls), "another_identity": _try(another_identity),
              "outside_key": _try(outside_key), "open_internet": _try(open_internet)}
     if os.environ.get("MODEL"):
         beats["model"] = _try(model)
-    return {"at": time.time(), "beats": beats, "key": os.environ.get("AWS_ACCESS_KEY_ID")}
+    return {"at": time.time(), "beats": beats, "key": os.environ.get("AWS_ACCESS_KEY_ID"), "v": VERSIONS}

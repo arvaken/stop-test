@@ -70,7 +70,8 @@ class FakeAWS:
                  endpoint_error=None, log_group=False, bucket_stays=False, cold_after=None, invoke_error=None,
                  stop_denies=("s3:PutObject", "s3:GetObject"), boundary="the kit's", boundary_via="the kit's",
                  boundary_model="the kit's", boundary_via_model="the kit's", gateway_refuses=(), gateway_breaks=None,
-                 gw_delay=3.0, eni_after=600.0, eni_described=True, subnet_has=(), stack_stays=False, model_error=None):
+                 gw_delay=3.0, eni_after=600.0, eni_described=True, subnet_has=(), stack_stays=False, model_error=None,
+                 gw_status=None, agent_versions=("3.12.15", "1.42.97", "2.8.0"), new_environment_after=None):
         self.clock, self.delay, self.trail_delay, self.skew = clock, delay, trail_delay, skew
         self.left, self.role_tagged, self.endpoint_error = list(left), role_tagged, endpoint_error
         self.stack = None
@@ -101,6 +102,14 @@ class FakeAWS:
         # switch was turned on; and every invocation's payload, as the kit sent it
         self.gateway_refuses, self.gateway_breaks = set(gateway_refuses), dict(gateway_breaks or {})
         self.gw_delay, self.switch_at = gw_delay, None
+        # what the gateway answers the CONNECT with once the switch is on: None, as a gateway switched off answers
+        # nothing; or a status of its own, as a rule refusing calls does (the agent reads it, aws/agent.py's _tunnel)
+        self.gw_status = gw_status
+        # what the agent runs on, as each reply names it; when its clients were made; and, with
+        # `new_environment_after`, Lambda giving it a new environment that many seconds after the switch, its clients
+        # then made anew
+        self.agent_versions, self.new_environment_after = list(agent_versions), new_environment_after
+        self.clients_made: float | None = None
         self.payloads: list[dict] = []
         # a subnet of the customer's: its network interfaces, by ID; when the function was deleted; the EC2 calls made
         self.eni_after, self.eni_described = eni_after, eni_described
@@ -263,12 +272,20 @@ class FakeAWS:
             return not (p in self.gateway_refuses or self.invocations >= self.gateway_breaks.get(p, 10 ** 9) or
                         (self.switch_at is not None and self.clock.now() >= self.switch_at + self.gw_delay))
 
+        if self.clients_made is None or (self.new_environment_after is not None and self.switch_at is not None and
+                                         self.clients_made < self.switch_at + self.new_environment_after <= agent_now):
+            self.clients_made = agent_now
+
         def beat(p: str, ok: bool, error: str | None, status: int | None = None) -> dict:
             """A path's beat, each failure with its record as the agent gives it: the code, the status, and no reason
-            where the service gives none."""
+            where the service gives none; and when its client was made."""
+            made = {"client_at": self.clients_made}
             if not through(p):
-                return {"at": agent_now, "ok": False, "error": "ProxyConnectionError", "status": None, "reason": None}
-            return {"at": agent_now, "ok": ok, **({} if ok else {"error": error, "status": status, "reason": None})}
+                switched = self.switch_at is not None and self.clock.now() >= self.switch_at + self.gw_delay
+                return {"at": agent_now, "ok": False, "error": "ProxyConnectionError",
+                        "status": self.gw_status if switched else None, "reason": None, **made}
+            return {"at": agent_now, "ok": ok, **({} if ok else {"error": error, "status": status, "reason": None}),
+                    **made}
         if event.get("action") == "assume":
             if self.stopped():
                 raise RuntimeError("AccessDenied on sts:AssumeRole")
@@ -293,6 +310,7 @@ class FakeAWS:
                 code = self.model_error or "AccessDeniedException"
                 body["beats"]["model"] = beat("model", own and not self.model_error, code, MODEL_STATUS.get(code))
             body["key"] = OWN_KEY                 # the access key ID of the role's credentials Lambda gave it
+            body["v"] = self.agent_versions
             if body["beats"]["own_calls"]["ok"]:
                 self.objects.add(f"own/{event['n']}")
         self.clock.t += 0.1
