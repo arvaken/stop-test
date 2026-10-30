@@ -15,7 +15,10 @@ gateway refuses fails by ProxyConnectionError, and so does every path once the c
 seconds after they turn it on (3 here). The session for the other identity is taken through it too: where the gateway
 refuses it, the agent answers with Lambda's error payload, and no session. In a subnet: Lambda makes one network
 interface for the function, in the subnet with its security groups, described by the function's name; AWS removes it
-`eni_after` seconds after the function is deleted (10 minutes here), or never.
+`eni_after` seconds after the function is deleted (10 minutes here), or never. With `stack_after_eni`, CloudFormation
+finishes deleting the stack that many seconds after AWS removes that interface, as it does for a function in a subnet:
+until then the stack reads DELETE_IN_PROGRESS and its roles and bucket are still there, though Lambda already answers
+that the function is gone.
 
 With a model (--model): where the stack's function names one (MODEL), each heartbeat also has the model's call, made as
 the agent's own role, so it is refused (AccessDeniedException) once its own calls are; `model_error` is a code the call
@@ -71,7 +74,8 @@ class FakeAWS:
                  stop_denies=("s3:PutObject", "s3:GetObject"), boundary="the kit's", boundary_via="the kit's",
                  boundary_model="the kit's", boundary_via_model="the kit's", gateway_refuses=(), gateway_breaks=None,
                  gw_delay=3.0, eni_after=600.0, eni_described=True, subnet_has=(), stack_stays=False, model_error=None,
-                 gw_status=None, agent_versions=("3.12.15", "1.42.97", "2.8.0"), new_environment_after=None):
+                 gw_status=None, agent_versions=("3.12.15", "1.42.97", "2.8.0"), new_environment_after=None,
+                 stack_after_eni=None):
         self.clock, self.delay, self.trail_delay, self.skew = clock, delay, trail_delay, skew
         self.left, self.role_tagged, self.endpoint_error = list(left), role_tagged, endpoint_error
         self.stack = None
@@ -116,7 +120,7 @@ class FakeAWS:
         self.enis: dict[str, dict] = {i["NetworkInterfaceId"]: dict(i) for i in subnet_has}
         self.function_deleted_at: float | None = None
         self.ec2_calls: list[str] = []
-        self.stack_stays = stack_stays
+        self.stack_stays, self.stack_after_eni = stack_stays, stack_after_eni
         self.model_error = model_error
         # the customer's own actions on the agent's role, as CloudTrail records them: (call, when, policy's name)
         self.customer_calls: list[tuple[str, float, str]] = []
@@ -134,6 +138,8 @@ class FakeAWS:
                 "Groups": [{"GroupId": g} for g in network["SecurityGroupIds"]], "InterfaceType": "lambda"}
 
     def gone(self) -> bool:
+        if self.stack and self.stack["status"] == "DELETE_IN_PROGRESS" and self.eni_after is not None and                 self.clock.now() >= self.function_deleted_at + self.eni_after + self.stack_after_eni:
+            self.stack["status"] = "DELETED"             # CloudFormation saw the interface gone, then deleted the rest
         return not self.stack or self.stack["status"] == "DELETED"
 
     def describe_stacks(self, StackName):
@@ -148,7 +154,8 @@ class FakeAWS:
     def delete_stack(self, StackName):
         if self.stack_stays:
             return
-        self.stack["status"] = "DELETED"
+        waits = self.stack_after_eni is not None and "eni-0aaa1111" in self.enis
+        self.stack["status"] = "DELETE_IN_PROGRESS" if waits else "DELETED"
         self.function_deleted_at = self.clock.now()
 
     # ec2, read only
@@ -317,7 +324,7 @@ class FakeAWS:
         return {"Payload": io.BytesIO(json.dumps(body).encode())}
 
     def get_function(self, FunctionName):
-        if self.gone():
+        if self.gone() or self.function_deleted_at is not None:
             raise ClientError("ResourceNotFoundException", f"Function not found: {FunctionName}")
         return {"Configuration": {"State": "Active"},
                 **({"Concurrency": {"ReservedConcurrentExecutions": self.concurrency}}

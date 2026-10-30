@@ -30,7 +30,9 @@ there, which the kit finds after the stack is made: those in the subnet whose de
 any that appeared in it, with exactly the run's security groups, while the stack was made. AWS removes them some time
 after the function is deleted, so the teardown waits for them, up to ENI_WAIT, saying why, before it names any as
 left: an interface still there during that wait is waited for, not left. Ctrl-C ends the wait early; the interfaces
-still there are then named as left.
+still there are then named as left. CloudFormation finishes deleting the function only once AWS has removed them, and
+deletes the roles and the bucket after it, so where the stack was still being deleted when its own wait ended, the kit
+waits for it again once the interfaces are gone, before it checks anything gone (D561's run r6e758a49).
 
 **A call to a model (`--model`; the design's section 4, its optional fifth row).** A run given a model has a fifth
 path, "model" (Run.paths): the agent's one call to it with each heartbeat, as its own role (agent.py). It is timed,
@@ -637,7 +639,8 @@ def own_tokens(c: Clients, r: Run) -> None:
 def tear_down(c: Clients, r: Run, clock: Clock, eni_wait: float = ENI_WAIT,
               say: Callable[[str], None] = lambda _: None) -> None:
     """Remove the stop the kit fired and everything it made; name anything left (D532, K4). In a subnet of yours, wait
-    for the function's network interfaces to be removed first (wait_for_interfaces)."""
+    for the function's network interfaces to be removed first (wait_for_interfaces), then, where the stack was still
+    being deleted, for the stack again: CloudFormation deletes the rest only once those are gone."""
     n = names(r.run)
     try:
         firing.remove(c.iam, r.run, r.stop_ref)
@@ -653,15 +656,31 @@ def tear_down(c: Clients, r: Run, clock: Clock, eni_wait: float = ENI_WAIT,
                 c.s3.delete_objects(Bucket=bucket, Delete={"Objects": [{"Key": o["Key"]} for o in listed]})
         except Exception:  # noqa: BLE001 - what cannot be emptied is named below as left
             pass
+    deleted = False
     try:
         c.cloudformation.delete_stack(StackName=n["stack"])
-        _wait_for_stack(c.cloudformation, n["stack"], clock, "DELETE_COMPLETE")
+        deleted = _stack_deleted(c, n["stack"], clock)
     except Exception:  # noqa: BLE001 - what the stack could not delete is named below as left
         pass
     gone, left = wait_for_interfaces(c, r, clock, eni_wait, say) if r.subnet else ([], [])
+    if r.subnet and not deleted and not left:
+        try:
+            _stack_deleted(c, n["stack"], clock)
+        except KeyboardInterrupt:
+            pass                                # Ctrl-C ends this wait too: what is still there is named below
     r.left_behind, r.checked_gone = check_gone(c, r)
     r.left_behind += left
     r.checked_gone += gone
+
+
+def _stack_deleted(c: Clients, stack: str, clock: Clock) -> bool:
+    """Whether the stack's wait saw it deleted: False where it was still being deleted when the wait ended, or its
+    delete failed."""
+    try:
+        _wait_for_stack(c.cloudformation, stack, clock, "DELETE_COMPLETE")
+    except (RuntimeError, TimeoutError):
+        return False
+    return True
 
 
 def _code(e: Exception) -> str:
