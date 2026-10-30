@@ -338,6 +338,28 @@ If a run could not clean up, remove what it made by the run's name:
 stop-test google clean --run <run> --project my-test-project --region europe-west3
 ```
 
+## What counts as stopped
+
+<!-- CUSTOMER TEXT: approved by the founder, word for word, 30 October 2026 (his refusal ruling of 29 October 2026,
+GENERAL: "the README lists, per stop kind, which refusals count") -->
+
+After the stop, a call counts as stopped only where the stop itself refused it. Any other failure, such as a throttle,
+a server error, a timeout or a lost connection, is not counted: it is neither stopped nor a success, and the page shows
+it by its code. A refusal counts only on a path that worked before it.
+
+| Stop | What counts as its refusal |
+|---|---|
+| `--stop`, `--inline-deny` or `--revoke-sessions`, on AWS | `AccessDenied` from Amazon S3, on the test agent's own calls and its work under another identity; and on every path, Lambda refusing to run the test agent with `KMSAccessDeniedException`, where the agent ran before the stop |
+| `--stop` or `--deny-all`, on Google Cloud | a `403` from Cloud Storage whose reason is `forbidden` or `insufficientPermissions` |
+| `--disable-account` | those, a `401` whose reason is `authError` from a token not yet expired, and a `404` when the test agent asks for its own token |
+| `--own-trigger` | those of the kind of stop the cloud's record of your action shows: CloudTrail's on AWS, Cloud Audit Logs' on Google Cloud. If it shows none of these, nothing counts as stopped |
+
+<!-- [source: aws-s3-access-denied-example, aws-lambda-invoke-kms-access-denied, google-storage-403-forbidden,
+google-storage-403-insufficient-permissions, google-storage-401-auth-error] -->
+
+A path whose calls after the stop were all not counted, or that was answered after the stop and then had nothing counted
+until the window ended, reads "not measured": the kit cannot say whether the stop stopped it.
+
 ## The permissions it needs
 
 The kit runs with your own credentials. To give it only what a run needs, use the ready-made policy for your cloud in

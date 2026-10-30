@@ -109,6 +109,29 @@ def test_the_page_shows_expected_beside_found_and_keeps_error_codes_off_the_resu
     assert result.check(doc)
 
 
+def test_the_page_says_what_was_not_counted_and_why_a_path_was_not_measured():
+    """The founder's refusal ruling of 29 October 2026: not-counted calls are shown by their codes, and a path whose
+    calls after the stop were all not counted reads "not measured", with why."""
+    from arvaken_stop_test.timing import ALL_NOT_COUNTED, Beat, judge
+    fired = 1_761_220_000.0
+    counts = lambda b, before: b.error == "AccessDenied"  # noqa: E731 - a policy on a role refuses so
+    slowed = judge([Beat(fired - 1, True)] + [Beat(fired + 1 + i, False, "SlowDown", status=503) for i in range(90)],
+                   fired, window=60, counts=counts)
+    mixed = judge([Beat(fired - 1, True)] + [Beat(fired + 1 + i, False, "SlowDown" if i == 3 else "AccessDenied")
+                                             for i in range(90)], fired, window=60, counts=counts)
+    doc = result.sign(result.build(
+        kit_version="0.2.1", cloud="aws", region="eu-central-1", began_at=fired - 60, ended_at=fired + 120, window=60,
+        clock_gap_ms=3, calls=180, left_behind=[], stop_kind="policy on a role", fired_by="the kit",
+        stop_ref="arn:aws:iam::111122223333:policy/p", agent={"kind": "aws-lambda-function", "runtime": "python3.12",
+                                                             "memory_mb": 128, "private_network": False, "ref": "a",
+                                                             "role_ref": "b"},
+        repeats=[(fired, {"own_calls": slowed, "another_identity": mixed})]), result.new_key())
+    page = report.page(doc, [{"own_calls": slowed, "another_identity": mixed}])
+    assert f"{ALL_NOT_COUNTED}: not counted: SlowDown 90" in page and "not measured" in page
+    assert "AccessDenied 89; not counted: SlowDown 1" in page
+    assert result.check(doc) and "SlowDown" not in json.dumps(doc)
+
+
 def test_cloudtrail_is_asked_where_iams_calls_are_recorded(monkeypatch):
     """IAM's calls are in us-east-1's event history whatever region the run is in (read in install-test, 23 October
     2026); the fake in test_aws_run.py answers from one account and cannot hold this, so it is held here."""

@@ -42,6 +42,8 @@ def test_the_readme_never_says_the_address_keeps_nothing():
     assert "keeps nothing" not in flat(README)
     assert "never your account's own" not in flat(README)
     assert "on AWS, Lambda's default network" not in flat(README)
+
+
 # The section on Amazon Bedrock AgentCore and its two smaller changes, as the founder approved them word for word at
 # 04:44 UTC on 28 October 2026 (arvaken/mark D618).
 AGENTCORE = (
@@ -93,3 +95,28 @@ AGENTCORE = (
 def test_the_readme_says_what_the_agentcore_module_does_in_the_approved_words():
     for words in AGENTCORE:
         assert words in flat(README), words[:80]
+
+
+# The founder's approval, word for word, 30 October 2026: what counts as stopped, per kind of stop (his refusal ruling of
+# 29 October 2026, GENERAL)
+WHAT_COUNTS = (
+    "After the stop, a call counts as stopped only where the stop itself refused it. Any other failure, such as a "
+    "throttle, a server error, a timeout or a lost connection, is not counted: it is neither stopped nor a success, and "
+    "the page shows it by its code. A refusal counts only on a path that worked before it.",
+    "| `--stop`, `--inline-deny` or `--revoke-sessions`, on AWS | `AccessDenied` from Amazon S3, on the test agent's own "
+    "calls and its work under another identity; and on every path, Lambda refusing to run the test agent with "
+    "`KMSAccessDeniedException`, where the agent ran before the stop |",
+    "| `--stop` or `--deny-all`, on Google Cloud | a `403` from Cloud Storage whose reason is `forbidden` or "
+    "`insufficientPermissions` |",
+    "| `--disable-account` | those, a `401` whose reason is `authError` from a token not yet expired, and a `404` when "
+    "the test agent asks for its own token |",
+    "| `--own-trigger` | those of the kind of stop the cloud's record of your action shows: CloudTrail's on AWS, Cloud "
+    "Audit Logs' on Google Cloud. If it shows none of these, nothing counts as stopped |",
+    'A path whose calls after the stop were all not counted, or that was answered after the stop and then had nothing '
+    'counted until the window ended, reads "not measured": the kit cannot say whether the stop stopped it.',
+)
+
+
+def test_the_readme_says_what_counts_as_stopped_as_the_founder_approved_it():
+    for words in WHAT_COUNTS:
+        assert words in flat(README), words[:60]

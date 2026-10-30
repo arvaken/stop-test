@@ -89,8 +89,11 @@ def _refused(details: list[Mapping[str, PathResult]] | None) -> str:
                     if code.startswith(REFUSED)})
     if not codes:
         return ""
+    # CUSTOMER TEXT: approved by the founder, word for word, 30 October 2026 (his refusal ruling of 29 October
+    # changed what counts)
     said = (f"Lambda refused to run the test agent ({', '.join(codes)}). While it refused, the agent made no call on "
-            "any path, and each path counts each refusal as refused.")
+            "any path. Each path counts KMSAccessDeniedException as refused where it first came after the stop and the "
+            "agent ran before it, and no other refusal of Lambda's.")
     if "KMSAccessDeniedException" in codes:
         said += (" Lambda gives KMSAccessDeniedException when it cannot decrypt the agent's environment as the agent's "
                  "role, as when a stop on the role denies it while Lambda starts a new environment for the agent.")
@@ -108,8 +111,13 @@ def page(doc: Mapping[str, Any], details: list[Mapping[str, PathResult]] | None 
             errors = ""
             if details and i < len(details) and path in details[i]:
                 found = details[i][path]
-                errors = ", ".join(f"{code} {n}" for code, n in sorted(found.errors.items()))
-                if found.reason and part["outcome"] == "not run":
+                counted = {code: n - found.not_counted.get(code, 0) for code, n in found.errors.items()}
+                errors = ", ".join(f"{code} {n}" for code, n in sorted(counted.items()) if n)
+                if found.not_counted:
+                    # CUSTOMER TEXT: approved by the founder, word for word, 30 October 2026
+                    rest = ", ".join(f"{code} {n}" for code, n in sorted(found.not_counted.items()))
+                    errors = f"{errors}; not counted: {rest}" if errors else f"not counted: {rest}"
+                if found.reason and part["outcome"] in ("not run", "not measured"):
                     errors = f"{found.reason}: {errors}" if errors else found.reason
             mark = "" if expectation in (None, part["outcome"]) else ' class="differs"'
             if details and i < len(details) and path in details[i] and _found(details[i][path]):

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 
 import pytest
 
 from arvaken_stop_test import result as r
-from arvaken_stop_test.timing import Beat, judge
+from arvaken_stop_test.timing import NOT_MEASURED, Beat, judge
 
 FIRED = 1_761_220_000.0
 AGENT = {"kind": "aws-lambda-function", "runtime": "python3.12", "memory_mb": 128, "private_network": False,
@@ -19,7 +20,9 @@ AGENT = {"kind": "aws-lambda-function", "runtime": "python3.12", "memory_mb": 12
 def a_result(**over) -> dict:
     stopped = [Beat(FIRED + 1 + i, i < 5, None if i < 5 else "AccessDenied") for i in range(120)]
     open_net = [Beat(FIRED + 1 + i, True) for i in range(120)]
-    paths = {"own_calls": judge(stopped, FIRED, window=60), "open_internet": judge(open_net, FIRED, window=60)}
+    counts = lambda b, before: b.error == "AccessDenied"  # noqa: E731 - a policy on a role refuses so
+    paths = {"own_calls": judge(stopped, FIRED, window=60, counts=counts),
+             "open_internet": judge(open_net, FIRED, window=60, counts=counts)}
     fields = dict(kit_version="0.1.0", cloud="aws", region="eu-central-1", began_at=FIRED - 60, ended_at=FIRED + 200,
                   window=60, clock_gap_ms=12, calls=240, left_behind=[], stop_kind="policy on a role",
                   fired_by="the kit", stop_ref="arn:aws:iam::111122223333:policy/agent-stop", agent=AGENT,
@@ -91,3 +94,43 @@ def test_every_field_is_a_phrase_of_the_terms_or_an_identifying_part_and_nothing
     named = set().union(*TERMS_READABLE.values()) | set(r.IDENTIFYING)
     assert fields == named, (sorted(fields - named), sorted(named - fields))
     assert not set().union(*TERMS_READABLE.values()) & set(r.IDENTIFYING)
+
+
+def test_not_measured_is_an_outcome_a_result_may_give():
+    doc = r.sign(a_result(), r.new_key())
+    bad = copy.deepcopy(doc)
+    bad["repeats"][0]["own_calls"]["outcome"] = NOT_MEASURED
+    with pytest.raises(r.NotAResult, match="signature"):             # an outcome the rule gives: only the signature
+        r.check(bad)
+
+
+@pytest.mark.skipif(not os.environ.get("STOP_TEST_RELEASE"), reason="checked when a release is made (release.yml)")
+def test_a_release_never_writes_not_measured_in_a_stop_test_result_1():
+    """No kit to 0.2.1 gave "not measured", and Arvaken's record refuses it in a stop-test-result/1 (the console's 0185):
+    a release that gives it writes a later format."""
+    assert NOT_MEASURED not in r.OUTCOMES or r.FORMAT != r.FORMAT_V1, \
+        "this kit gives 'not measured' but writes stop-test-result/1: release it with a later format"
+
+
+# -- the failure record (D646, item 4: the founder, 29 October 2026) ---------------------------------------------------
+
+def test_a_failure_record_holds_every_field_or_this_test_fails():
+    """The founder's words: "Every failed call in every run records its full error code, the provider's status and
+    reason fields, and the token's issue and expiry times where a token is used. Add a test that fails if any of these
+    is missing from a failure record." """
+    google = Beat(FIRED + 9, False, "HTTP401", status=401, reason="authError", step="write", token_issued=FIRED - 600,
+                  token_expires=FIRED + 3000)
+    aws = Beat(FIRED + 9, False, "AccessDenied", status=403)
+    for b, counted in ((google, True), (aws, False)):
+        record = r.failure_record(b, counted)
+        assert tuple(record) == r.FAILURE_RECORD and set(record) == {
+            "at", "step", "code", "status", "reason", "reason_given", "provider_status", "token_issued",
+            "token_expires", "counted"}
+    assert r.failure_record(google, True) == {
+        "at": "2025-10-23T11:46:49.000Z", "step": "write", "code": "HTTP401", "status": 401, "reason": "authError",
+        "reason_given": True, "provider_status": None, "token_issued": "2025-10-23T11:36:40.000Z",
+        "token_expires": "2025-10-23T12:36:40.000Z", "counted": True}
+    # S3's errors give no reason: the reason is empty, and the record says none was given
+    assert (r.failure_record(aws, False)["reason"], r.failure_record(aws, False)["reason_given"]) == (None, False)
+    found = judge([Beat(FIRED - 1, True), aws, google], FIRED, window=60, counts=lambda b, before: b.error == "HTTP401")
+    assert [x["counted"] for x in r.failure_records(found)] == [False, True]
