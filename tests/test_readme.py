@@ -50,9 +50,11 @@ WHAT_COUNTS = (
     "After the stop, a call counts as stopped only where the stop itself refused it. Any other failure, such as a "
     "throttle, a server error, a timeout or a lost connection, is not counted: it is neither stopped nor a success, and "
     "the page shows it by its code. A refusal counts only on a path that worked before it.",
+    # the AWS row, with its model path as the founder approved it word for word, 30 October 2026
     "| `--stop`, `--inline-deny` or `--revoke-sessions`, on AWS | `AccessDenied` from Amazon S3, on the test agent's own "
-    "calls and its work under another identity; and on every path, Lambda refusing to run the test agent with "
-    "`KMSAccessDeniedException`, where the agent ran before the stop |",
+    "calls and its work under another identity; `AccessDeniedException` from Amazon Bedrock, on its call to a model; "
+    "and on every path, Lambda refusing to run the test agent with `KMSAccessDeniedException`, where the agent ran "
+    "before the stop |",
     "| `--stop` or `--deny-all`, on Google Cloud | a `403` from Cloud Storage whose reason is `forbidden` or "
     "`insufficientPermissions` |",
     "| `--disable-account` | those, a `401` whose reason is `authError` from a token not yet expired, and a `404` when "

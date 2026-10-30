@@ -45,7 +45,7 @@ gateway; else none.
 every failure, as each is a heartbeat's result, by its code.
 
 This file is shipped as the function's code, so it uses only what Lambda's Python runtime has: the standard library
-and boto3 (with botocore). CloudFormation takes a function's inline code to 4096 characters (stack.py): what explains
+and boto3 (with botocore). CloudFormation takes a function's inline code to 8,192 characters as the kit holds it (stack.INLINE_LIMIT): what explains
 it is here, in the docstring, which is not shipped, nor are the comments; the code is shipped indented two spaces a
 level, the same program (stack.agent_code).
 """

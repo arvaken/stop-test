@@ -61,7 +61,12 @@ PREFIX = "arvaken-stop-test"
 TAG = "arvaken-stop-test"
 BOUNDARY = f"{PREFIX}-boundary"
 RUNTIME, MEMORY_MB, TIMEOUT_S = "python3.12", 128, 15
-INLINE_LIMIT = 4096          # CloudFormation's limit on a function's inline code, in characters
+# CloudFormation's limit on a function's inline code, in characters, as the kit holds it. AWS's page gives no limit in
+# characters, only that the zip CloudFormation makes of it "cannot exceed 4MB"
+# [source: aws-cloudformation-lambda-inline-code]; the founder's check in install-test (30 October 2026, the stack
+# arvaken-inline-limit-check-4f37226b, made and deleted) deployed and ran a function of exactly 8,192 characters, so the
+# kit holds to that, never past what was tried.
+INLINE_LIMIT = 8192
 # What Lambda needs of a function's role to make its network interfaces in a subnet: AWSLambdaVPCAccessExecutionRole's
 # EC2 actions, each on "*" as AWS's Lambda guide asks [source: aws-lambda-vpc-permissions].
 NETWORK_ACTIONS = ("ec2:CreateNetworkInterface", "ec2:DescribeNetworkInterfaces", "ec2:DescribeSubnets",

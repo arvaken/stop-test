@@ -113,6 +113,14 @@
    "sentence": "AccessDeniedException The request is denied because you do not have sufficient permissions to perform the requested action. For troubleshooting this error, see AccessDeniedException in the Amazon Bedrock User Guide HTTP Status Code: 403",
    "about": "Converse's error AccessDeniedException",
    "read": "2026-10-30"
+  },
+  "aws-cloudformation-lambda-inline-code": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-properties-lambda-function-code.html",
+   "page": "AWS::Lambda::Function Code - AWS CloudFormation",
+   "sentence": "(Node.js and Python) The source code of your Lambda function. If you include your function source inline with this parameter, CloudFormation places it in a file named index and zips it to create a deployment package. This zip file cannot exceed 4MB.",
+   "about": "AWS::Lambda::Function Code's ZipFile, a function's inline code",
+   "read": "2026-10-30"
   }
  },
  "owed": {

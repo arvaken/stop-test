@@ -238,13 +238,14 @@ it by its code. A refusal counts only on a path that worked before it.
 
 | Stop | What counts as its refusal |
 |---|---|
-| `--stop`, `--inline-deny` or `--revoke-sessions`, on AWS | `AccessDenied` from Amazon S3, on the test agent's own calls and its work under another identity; and on every path, Lambda refusing to run the test agent with `KMSAccessDeniedException`, where the agent ran before the stop |
+| `--stop`, `--inline-deny` or `--revoke-sessions`, on AWS | `AccessDenied` from Amazon S3, on the test agent's own calls and its work under another identity; `AccessDeniedException` from Amazon Bedrock, on its call to a model; and on every path, Lambda refusing to run the test agent with `KMSAccessDeniedException`, where the agent ran before the stop |
 | `--stop` or `--deny-all`, on Google Cloud | a `403` from Cloud Storage whose reason is `forbidden` or `insufficientPermissions` |
 | `--disable-account` | those, a `401` whose reason is `authError` from a token not yet expired, and a `404` when the test agent asks for its own token |
 | `--own-trigger` | those of the kind of stop the cloud's record of your action shows: CloudTrail's on AWS, Cloud Audit Logs' on Google Cloud. If it shows none of these, nothing counts as stopped |
 
 <!-- [source: aws-s3-access-denied-example, aws-lambda-invoke-kms-access-denied, google-storage-403-forbidden,
-google-storage-403-insufficient-permissions, google-storage-401-auth-error] -->
+google-storage-403-insufficient-permissions, google-storage-401-auth-error, aws-bedrock-converse-access-denied] -->
+<!-- CUSTOMER TEXT: the AWS row's model path approved by the founder, word for word, 30 October 2026 -->
 
 A path whose calls after the stop were all not counted, or that was answered after the stop and then had nothing counted
 until the window ended, reads "not measured": the kit cannot say whether the stop stopped it.

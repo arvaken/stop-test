@@ -610,7 +610,8 @@ def own_tokens(c: Clients, r: Run) -> None:
             for e in page.get("Events", []):
                 detail = json.loads(e.get("CloudTrailEvent") or "{}")
                 made = (detail.get("responseElements") or {}).get("credentials") or {}
-                if made.get("accessKeyId") in keys and                         str((detail.get("requestParameters") or {}).get("roleArn", "")).endswith(f":role/{role}"):
+                if made.get("accessKeyId") in keys and \
+                        str((detail.get("requestParameters") or {}).get("roleArn", "")).endswith(f":role/{role}"):
                     found[made["accessKeyId"]] = (_seconds_of(e["EventTime"]), _expiry(made.get("expiration")))
             token = page.get("NextToken")
             if not token:
