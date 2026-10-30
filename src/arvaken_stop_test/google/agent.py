@@ -1,7 +1,11 @@
 """The test agent on Google Cloud: the code of the Cloud Run service the kit deploys (the design's sections 3 and 4).
 
 The kit calls it once a second, with the kit's own identity. Each call tries each path once and returns, for each, when
-(by its own clock), whether it succeeded, and if not the error's code. It prints nothing and writes no logs of its own
+(by its own clock), whether it succeeded, and if not its failure record (D646): the error's code, the step of the path
+that failed (its own token, the write or the read), the HTTP status, Google's own reason and status where the error's
+body has them (Cloud Storage's give a reason, errors[0].reason, and no status), and the token the call used: when it was
+issued and when it expires. Never a message: it can name resources and principals. It prints nothing and writes no logs
+of its own
 (Cloud Run's request logs and Cloud Audit Logs still record the kit's calls and acts), and a stop that denies the agent
 everything cannot stop its report: the reply goes back to the kit through Cloud Run, not through anything the agent's identity reaches.
 
@@ -22,6 +26,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 TIMEOUT = 2.0
@@ -29,7 +34,8 @@ AGENT = "arvaken-stop-test-agent (+https://github.com/arvaken/stop-test)"
 METADATA = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
 STORAGE = "https://storage.googleapis.com"
 REFRESH = 225.0          # seconds before expiry a token is fetched again, as Google's Python client does
-_own = {"token": None, "until": 0.0}
+_own = {"token": None, "until": 0.0, "issued": 0.0}
+WORD = 64                # a reason or a status is a word of Google's, at most this long; anything else is not kept
 
 
 def _code(e):
@@ -41,13 +47,35 @@ def _code(e):
     return type(e).__name__[:64]
 
 
+def _word(v):
+    return v if isinstance(v, str) and 0 < len(v) <= WORD and v.replace("_", "").isalnum() else None
+
+
+def _record(e):
+    """A failure's record: its code, its HTTP status, and Google's reason and status from the error's body, where it
+    has them."""
+    status = reason = google = None
+    if isinstance(e, urllib.error.HTTPError):
+        status = e.code
+        try:
+            error = json.loads(e.read(4096) or b"{}").get("error") or {}
+        except Exception:  # noqa: BLE001 - a body that is not Google's JSON error has no reason or status
+            error = {}
+        if isinstance(error, dict):
+            # Storage's reason is its errors[0].reason; an API's in Google's newer format, its ErrorInfo's
+            found = [x for x in (error.get("errors") or []) + (error.get("details") or []) if isinstance(x, dict)
+                     and ("@type" not in x or x["@type"].endswith("google.rpc.ErrorInfo"))]
+            reason, google = _word(found[0].get("reason") if found else None), _word(error.get("status"))
+    return {"error": _code(e), "status": status, "reason": reason, "provider_status": google}
+
+
 def _try(fn):
-    at = time.time()
+    at, ctx = time.time(), {}
     try:
-        fn()
+        fn(ctx)
         return {"at": at, "ok": True}
-    except Exception as e:  # noqa: BLE001 - every failure is a heartbeat's result, by its code
-        return {"at": at, "ok": False, "error": _code(e)}
+    except Exception as e:  # noqa: BLE001 - every failure is a heartbeat's result, by its record
+        return {"at": at, "ok": False, **_record(e), **ctx}
 
 
 def _call(url, headers=None, data=None, method="GET"):
@@ -59,7 +87,8 @@ def _call(url, headers=None, data=None, method="GET"):
 def own_token():
     if _own["token"] is None or time.time() >= _own["until"] - REFRESH:
         body = json.loads(_call(METADATA, {"Metadata-Flavor": "Google"}))
-        _own["token"], _own["until"] = body["access_token"], time.time() + float(body["expires_in"])
+        now = time.time()
+        _own["token"], _own["until"], _own["issued"] = body["access_token"], now + float(body["expires_in"]), now
     return _own["token"]
 
 
@@ -82,28 +111,33 @@ def take_second_identity():
     body = json.dumps({"scope": ["https://www.googleapis.com/auth/devstorage.read_write"], "lifetime": "3600s"})
     answer = json.loads(_call(url, {"Authorization": f"Bearer {own_token()}", "Content-Type": "application/json"},
                               body.encode(), "POST"))
-    return {"token": answer["accessToken"], "expires": answer["expireTime"]}
+    return {"token": answer["accessToken"], "expires": answer["expireTime"], "issued": time.time()}
 
 
 def beat(event):
     endpoint = os.environ["ENDPOINT"].rstrip("/")
     n = str(event.get("n", 0))
 
-    def own_calls():
+    def own_calls(ctx):
+        ctx["step"] = "token"
         token = own_token()
+        ctx.update(step="write", token_issued=_own["issued"], token_expires=_own["until"])
         _put(token, f"own/{n}")
+        ctx["step"] = "read"
         _get(token, f"own/{n}")
 
-    def another_identity():
+    def another_identity(ctx):
         session = event.get("session") or {}
         if not session.get("token"):
             raise RuntimeError("NoSession")
+        expires = datetime.fromisoformat(session["expires"].replace("Z", "+00:00")).timestamp()
+        ctx.update(step="write", token_issued=session.get("issued"), token_expires=expires)
         _put(session["token"], f"another/{n}")
 
-    def outside_key():
+    def outside_key(ctx):
         _call(f"{endpoint}/key", {"Authorization": "Bearer " + os.environ["OUTSIDE_KEY"]})
 
-    def open_internet():
+    def open_internet(ctx):
         _call(f"{endpoint}/open")
 
     return {"own_calls": _try(own_calls), "another_identity": _try(another_identity),

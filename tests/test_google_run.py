@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import urllib.parse
 from datetime import datetime, timezone
 
@@ -66,6 +67,8 @@ class FakeGoogle:
             "deniedPrincipals": ["principal://goog/subject/someone@acme.test"],
             "deniedPermissions": ["storage.googleapis.com/objects.create", "storage.googleapis.com/objects.get"]}}]
         self.bodies: list[dict] = []
+        self.customer = None                           # the customer's own trigger, pulled at any call once set
+        self.agent_calls, self.pulling = 0, False
 
     # what stops the agent's own calls, and since when
     def stopped_since(self) -> float | None:
@@ -77,6 +80,7 @@ class FakeGoogle:
         return min(moments) + self.delay if moments else None
 
     def agent(self, payload: dict) -> dict:
+        self.agent_calls += 1
         at = self.clock.now() + self.skew
         if payload.get("action") == "assume":
             return {"at": at, "session": {"token": "second-token", "expires": iso(self.clock.now() + 3600)}}
@@ -84,11 +88,20 @@ class FakeGoogle:
         own_ok = since is None or self.clock.now() < since
         another_ok = bool((payload.get("session") or {}).get("token"))
         return {"at": at, "beats": {
-            "own_calls": {"at": at, "ok": own_ok, **({} if own_ok else {"error": "HTTP403"})},
+            # Storage's refusal on the write, with its reason, as the agent records it, and the token it used
+            "own_calls": {"at": at, "ok": own_ok, **({} if own_ok else {
+                "error": "HTTP403", "status": 403, "reason": "forbidden", "provider_status": None, "step": "write",
+                "token_issued": T0, "token_expires": T0 + 3600})},
             "another_identity": {"at": at, "ok": another_ok, **({} if another_ok else {"error": "NoSession"})},
             "outside_key": {"at": at, "ok": True}, "open_internet": {"at": at, "ok": True}}}
 
     def call(self, method: str, url: str, body=None, *, identity: bool = False, raw=None):
+        if self.customer and not self.pulling:
+            self.pulling = True
+            try:
+                self.customer(self)
+            finally:
+                self.pulling = False
         self.calls.append((method, url))
         if body is not None:
             self.bodies.append({"method": method, "url": url, "body": body})
@@ -178,6 +191,21 @@ class FakeGoogle:
             if method == "DELETE":
                 del self.deny[pid]
             return {"name": pid}
+        if url == running.LOGGING and "methodName=(" in body["filter"]:
+            # the kit's search for your own trigger's record: each record of the methods it names, with its payload
+            f = body["filter"]
+            methods = re.findall(r'"([^"]+)"', f.split("methodName=(")[1].split(")")[0])
+            since = datetime.fromisoformat(f.split('timestamp>="')[1].split('"')[0].replace("Z", "+00:00")).timestamp()
+            until = datetime.fromisoformat(f.split('timestamp<="')[1].split('"')[0].replace("Z", "+00:00")).timestamp()
+            entries = []
+            for i, (m, clause, when) in enumerate(self.audit):
+                if m in methods and since <= when <= until and self.clock.now() >= when + self.log_delay:
+                    key, value = clause.split("=", 1)
+                    payload = ({"resourceName": value.strip('"')} if key.endswith("resourceName")
+                               else {"request": {"policyId": value.strip('"')}})
+                    entries.append({"insertId": f"i{i}", "timestamp": iso(when),
+                                    "protoPayload": {"methodName": m, **payload}})
+            return {"entries": entries}
         if url == running.LOGGING:
             f = body["filter"]
             method_name = f.split('protoPayload.methodName="')[1].split('"')[0]
@@ -280,7 +308,7 @@ def test_the_agent_is_pythons_own_image_by_digest_and_its_code_the_standard_libr
     assert len(code.encode()) <= CODE_LIMIT and not code.lstrip().startswith('"""')
     imported = {a.name.split(".")[0] for n in ast.walk(ast.parse(code)) if isinstance(n, ast.Import) for a in n.names}
     imported |= {n.module.split(".")[0] for n in ast.walk(ast.parse(code)) if isinstance(n, ast.ImportFrom)}
-    assert imported <= {"json", "os", "time", "urllib", "http"}, imported
+    assert imported <= {"datetime", "json", "os", "time", "urllib", "http"}, imported
     assert LABEL == "arvaken-stop-test"
     assert json.loads(json.dumps({"code": code}))["code"] == code
 
@@ -330,3 +358,65 @@ def test_a_check_google_cannot_answer_just_then_is_asked_again_before_anything_i
     left, _ = running.check_gone(fake, r, running.Clock(clock.now, clock.sleep))
     assert left == [f"the deny policy {N['deny_policy']} (could not be checked: 503 UNAVAILABLE)"]
 
+
+
+def after_the_warm_up(g) -> bool:
+    return g.agent_calls >= running.WARM_UP + 2 and g.clock.now() >= T0 + 60
+
+
+def test_your_own_trigger_is_counted_as_the_kind_cloud_audit_logs_record_of_it_shows():
+    """The founder's ruling of 29 October 2026, item 5: the kit identifies the kind of stop from the cloud's audit
+    record of your own action, records it and its source record, and counts that kind's refusals."""
+    for action, kind in ((":disable", firing.DISABLE_KIND), ("deny", firing.DENY_KIND)):
+        clock = Clock()
+        fake = FakeGoogle(clock)
+        pulled = []
+
+        def the_customer(g, action=action, pulled=pulled):
+            if not pulled and after_the_warm_up(g):
+                pulled.append(g.clock.now())
+                if action == ":disable":
+                    g.call("POST", f"https://iam.googleapis.com/v1/projects/-/serviceAccounts/{N['agent_account']}"
+                           ":disable", {})
+                else:
+                    attachment = "cloudresourcemanager.googleapis.com%2Fprojects%2F" + PROJECT
+                    principal = f"principal://iam.googleapis.com/projects/-/serviceAccounts/{N['agent_account']}"
+                    g.call("POST", f"https://iam.googleapis.com/v2/policies/{attachment}/denypolicies?policyId=yours",
+                           {"rules": [{"denyRule": {"deniedPrincipals": [principal], "deniedPermissions": ["x"]}}]})
+        fake.customer = the_customer
+        r, doc = a_run(fake, DECLARED, fired_by="your own trigger")
+        assert (r.trigger_kind, doc["stop"]["kind"]) == (kind, kind), action
+        assert r.trigger_record["source"] == "Cloud Audit Logs" and r.trigger_record["insert_id"]
+        assert doc["repeats"][0]["own_calls"]["outcome"] == "stopped", action
+        assert running.details(r, doc)["trigger"]["kind"] == kind
+
+
+def test_your_own_trigger_with_no_audit_record_counts_nothing_as_stopped_and_says_so():
+    clock = Clock()
+    fake = FakeGoogle(clock, log_delay=10_000.0)                 # Cloud Audit Logs never record it in time
+
+    def the_customer(g):
+        if not g.disabled and after_the_warm_up(g):
+            g.call("POST", f"https://iam.googleapis.com/v1/projects/-/serviceAccounts/{N['agent_account']}:disable", {})
+    fake.customer = the_customer
+    r, doc = a_run(fake, DECLARED, fired_by="your own trigger", log_wait=60.0)
+    assert r.trigger_kind is None and doc["repeats"][0]["own_calls"]["outcome"] == "not measured"
+    assert running.results(r)[0][1]["own_calls"].reason == running.NOT_IDENTIFIED
+
+
+def test_cloud_runs_refusals_are_recorded_on_every_path_and_never_counted():
+    """A 429 or a 5xx from Cloud Run is a throttle or a server error, never the stop's refusal (the founder, 29
+    October 2026), however long it lasts."""
+    clock = Clock()
+    fake = FakeGoogle(clock)
+    real = fake.agent
+
+    def refusing(payload):
+        if payload.get("action") != "assume" and fake.stopped_since() is not None:
+            raise GoogleError(503, "UNAVAILABLE")
+        return real(payload)
+    fake.agent = refusing
+    r, doc = a_run(fake, firing.DENY_ALL)
+    assert {p: v["outcome"] for p, v in doc["repeats"][0].items()} == {p: "not measured" for p in running.GOOGLE_PATHS}
+    found = running.results(r)[0][1]["own_calls"]
+    assert found.not_counted == {"Cloud Run refused: HTTP503": found.failures_after} and found.failures[0].status == 503

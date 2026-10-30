@@ -96,7 +96,8 @@ def test_a_run_with_a_model_times_it_as_a_fifth_path_as_its_own_calls_are():
     assert details["model"] == MODEL
     assert "AccessDeniedException" in page and "AccessDeniedException" not in json.dumps(doc)
     assert MODEL not in json.dumps(doc)                    # the result's format holds no model, as before (result.py)
-    assert doc["run"]["calls"] == sum(len(b) for b in r.repeats[0].beats.values()) + 5 * running.WARM_UP
+    assert doc["run"]["calls"] == sum(len(b) for b in r.repeats[0].beats.values())     # the warm-up's among them
+    assert len(r.repeats[0].beats["model"]) > running.WARM_UP and len(r.warm_beats["model"]) == running.WARM_UP
 
 
 def test_without_a_model_a_run_is_as_before():
@@ -159,10 +160,11 @@ def test_through_a_gateway_a_model_call_that_did_not_work_asks_for_no_mark_and_a
     assert running.NOTHING_THROUGH_THE_GATEWAY in said and not marks
     assert {v["outcome"] for v in doc["repeats"][0].values()} == {"not measured"}
     assert list(doc["repeats"][0]) == list(FIVE)
-    # and where the gateway carries it, the model's call is timed from the mark as every other path is
+    # and where the gateway carries it, the model's call is timed from the mark as every other path is; the switch's
+    # failures count as no refusal (D655), so it reads "not measured" as they do
     clock = Clock()
     r, doc, marks = through(FakeAWS(clock), clock, model=MODEL)
-    assert {p: v["outcome"] for p, v in doc["repeats"][0].items()} == {p: "stopped" for p in FIVE}
+    assert {p: v["outcome"] for p, v in doc["repeats"][0].items()} == {p: "not measured" for p in FIVE}
     assert {f.fired_source for f in running.results(r)[0][1].values()} == {running.FROM_THE_MARK} and len(marks) == 1
 
 
@@ -305,8 +307,8 @@ def test_a_gateway_attached_to_its_calls_to_a_model_carries_the_model_call_alone
     assert result.check(doc) == doc and r.through == {"model"}
     assert aws.payloads and all(p["through"] == ["model"] for p in aws.payloads)
     assert {p: v["outcome"] for p, v in doc["repeats"][0].items()} == {
-        **{p: "not stopped" for p in running.AWS_PATHS}, "model": "stopped"}
-    assert 'class="differs"' not in report.page(doc, [d for _, d in running.results(r)])
+        **{p: "not stopped" for p in running.AWS_PATHS}, "model": "not measured"}
+    assert report.page(doc, [d for _, d in running.results(r)]).count('class="differs"') == 1     # the model's call
     clock = Clock()
     aws = FakeAWS(clock)
     with pytest.raises(ValueError):

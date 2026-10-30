@@ -111,6 +111,29 @@ def test_the_page_shows_expected_beside_found_and_keeps_error_codes_off_the_resu
     assert result.check(doc)
 
 
+def test_the_page_says_what_was_not_counted_and_why_a_path_was_not_measured():
+    """The founder's refusal ruling of 29 October 2026: not-counted calls are shown by their codes, and a path whose
+    calls after the stop were all not counted reads "not measured", with why."""
+    from arvaken_stop_test.timing import ALL_NOT_COUNTED, Beat, judge
+    fired = 1_761_220_000.0
+    counts = lambda b, before: b.error == "AccessDenied"  # noqa: E731 - a policy on a role refuses so
+    slowed = judge([Beat(fired - 1, True)] + [Beat(fired + 1 + i, False, "SlowDown", status=503) for i in range(90)],
+                   fired, window=60, counts=counts)
+    mixed = judge([Beat(fired - 1, True)] + [Beat(fired + 1 + i, False, "SlowDown" if i == 3 else "AccessDenied")
+                                             for i in range(90)], fired, window=60, counts=counts)
+    doc = result.sign(result.build(
+        kit_version="0.2.1", cloud="aws", region="eu-central-1", began_at=fired - 60, ended_at=fired + 120, window=60,
+        clock_gap_ms=3, calls=180, left_behind=[], stop_kind="policy on a role", fired_by="the kit",
+        stop_ref="arn:aws:iam::111122223333:policy/p", agent={"kind": "aws-lambda-function", "runtime": "python3.12",
+                                                             "memory_mb": 128, "private_network": False, "ref": "a",
+                                                             "role_ref": "b"},
+        repeats=[(fired, {"own_calls": slowed, "another_identity": mixed})]), result.new_key())
+    page = report.page(doc, [{"own_calls": slowed, "another_identity": mixed}])
+    assert f"{ALL_NOT_COUNTED}: not counted: SlowDown 90" in page and "not measured" in page
+    assert "AccessDenied 89; not counted: SlowDown 1" in page
+    assert result.check(doc) and "SlowDown" not in json.dumps(doc)
+
+
 def test_cloudtrail_is_asked_where_iams_calls_are_recorded(monkeypatch):
     """IAM's calls are in us-east-1's event history whatever region the run is in (read in install-test, 23 October
     2026); the fake in test_aws_run.py answers from one account and cannot hold this, so it is held here."""
@@ -255,7 +278,7 @@ def test_a_run_through_a_gateway_warns_strongly_asks_the_runs_name_then_your_mar
     assert prompts == ["Type r0123abcd to go on: ", "Press Enter, then fire your stop."]
     # the founder's condition d: nothing it printed or wrote holds the address's user name, password, path or query
     for text in (out, *(f.read_text(encoding="utf-8") for f in tmp_path.iterdir() if f.is_file())):
-        assert all(s not in text for s in ("secret", "user:", "token", "/p?")), text[:200]
+        assert all(s not in text for s in ("secret", "user:", "token=x", "/p?")), text[:200]
     assert fire.GATEWAY_WARNING in out and fire.OWN_TRIGGER_WARNING not in out
     assert "every agent behind it" in fire.GATEWAY_WARNING and fire.GATEWAY_WARNING.endswith(
         "Type the run's name to go on.")
@@ -264,9 +287,9 @@ def test_a_run_through_a_gateway_warns_strongly_asks_the_runs_name_then_your_mar
     assert result.check(written)["run"]["via"] == "https://gw.example:8443"
     assert written["stop"]["product"] == {"kind": "gateway", "attachment": "all its outbound traffic",
                                           "name": "Our egress gateway"}
-    assert {v["outcome"] for v in written["repeats"][0].values()} == {"stopped"}
-    assert all(s not in out for s in ("secret", "token"))
-    assert all(b"secret" not in f.read_bytes() and b"token" not in f.read_bytes() for f in tmp_path.iterdir())
+    assert {v["outcome"] for v in written["repeats"][0].values()} == {"not measured"}     # switched off: D655 (b)
+    assert all(s not in out for s in ("secret", "token=x"))
+    assert all(b"secret" not in f.read_bytes() and b"token=x" not in f.read_bytes() for f in tmp_path.iterdir())
     assert all(p["via"] == VIA for p in aws.payloads)            # the agent signs in to the gateway as given
     # what was sent to Arvaken, through a gateway: the two calls, from the gateway's address, which is the customer's
     assert cli.WROTE_THROUGH_A_GATEWAY.format(out="stop-test-r0123abcd.json") in out

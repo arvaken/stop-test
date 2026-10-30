@@ -72,14 +72,15 @@ class FakeClient:
 
     conversed: list = []            # each Converse call's request, across clients
     refuse_with: str | None = None  # a Bedrock error code the call fails with, if any
+    STATUS = {"AccessDeniedException": 403, "ValidationException": 400, "ThrottlingException": 429}   # Converse's
 
     def converse(self, **kw):
         FakeClient.conversed.append(kw)
         if FakeClient.refuse_with:
             import botocore.exceptions
             raise botocore.exceptions.ClientError(
-                {"Error": {"Code": FakeClient.refuse_with, "Message": "the model arn:aws:bedrock:... is secret"}},
-                "Converse")
+                {"Error": {"Code": FakeClient.refuse_with, "Message": "the model arn:aws:bedrock:... is secret"},
+                 "ResponseMetadata": {"HTTPStatusCode": FakeClient.STATUS[FakeClient.refuse_with]}}, "Converse")
         return {"output": {"message": {"role": "assistant", "content": [{"text": "THE MODEL'S OWN WORDS"}]}},
                 "stopReason": "max_tokens", "usage": {"inputTokens": 8, "outputTokens": 1, "totalTokens": 9}}
 
@@ -122,12 +123,13 @@ def test_with_a_model_each_invocation_also_calls_it_once_as_the_agent_and_keeps_
     assert "WORDS" not in repr(out) and "Tokens" not in repr(out)
 
 
-def test_a_refused_model_call_is_its_code_alone(an_agent, monkeypatch):
+def test_a_refused_model_call_is_its_code_and_status_never_its_message(an_agent, monkeypatch):
     monkeypatch.setenv("MODEL", MODEL)
     for code in ("AccessDeniedException", "ValidationException", "ThrottlingException"):
         FakeClient.refuse_with = code
         beat = agent.handler({"n": 3, "session": SESSION}, None)["beats"]["model"]
-        assert beat == {"at": beat["at"], "ok": False, "error": code}
+        assert beat == {"at": beat["at"], "ok": False, "error": code, "status": FakeClient.STATUS[code],
+                        "reason": None}
 
 
 def test_without_a_model_the_agent_calls_none_and_its_reply_is_as_before(an_agent, monkeypatch):
@@ -315,7 +317,7 @@ def test_a_real_gateway_carries_the_agents_calls_and_only_the_customers_bundle_l
                        "Basic " + base64.b64encode(b"user:pass").decode("ascii"))
     assert reached[0][0] == "/open" and reached[0][1].startswith("arvaken-stop-test-agent")
     # through it without the bundle: refused as the certificate is not one the default bundle trusts
-    assert unbundled == {"at": unbundled["at"], "ok": False, "error": "SSLError"}
+    assert unbundled == {"at": unbundled["at"], "ok": False, "error": "SSLError", "status": None, "reason": None}
     # and without a gateway, the call goes straight there, never through it, and no bundle of the customer's is used
     assert len(seen) == tunnels == 2 and direct["ok"] is False and direct["error"] == "Unreachable"
     assert len(reached) == 1

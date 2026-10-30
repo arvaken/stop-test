@@ -15,7 +15,8 @@ those terms add, for a declared stop that is a product's control: the product's 
 clear as kinds of stop are; and the product's name and the gateway's address, which identify and are sealed when
 submitted. Nothing else: where the timing starts follows from the stop (a product's control is always timed from the
 customer's mark, so a time errs toward slower, never faster), and a path that did not work through the gateway before
-the stop is its outcome, "not measured" (never "stopped"), which only a product's control gives.
+the stop is its outcome, "not measured" (never "stopped"). Version 2 carries "not measured" on a path of any kind of
+stop (the founder, 29 October 2026), as version 1 never does.
 
 **A gateway's address is written as its scheme, host and port alone** (port as given, or none): any user name,
 password, path, query and fragment are dropped before it is written or printed (the founder, D595, and the legal
@@ -38,10 +39,14 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from arvaken_stop_test.timing import FLAPPED, NOT_MEASURED, NOT_RUN, NOT_STOPPED, PATHS, STOPPED, PathResult
+from arvaken_stop_test.timing import FLAPPED, NOT_MEASURED, NOT_RUN, NOT_STOPPED, PATHS, STOPPED, Beat, PathResult
 
 FORMAT = "stop-test-result/2"
 FORMAT_V1 = "stop-test-result/1"
+# "Not measured" on a path of any kind of stop (the founder, 29 October 2026). The kit's terms keep each path's outcome
+# without listing the outcomes (4.4), which the founder ruled is enough (30 October 2026). A stop-test-result/1 never
+# carries it, as no kit to 0.2.1 gave it and Arvaken's record refuses it there: a release writes it only in a later
+# format (tests/test_result.py, under STOP_TEST_RELEASE), and `check` refuses it in a /1.
 OUTCOMES = (STOPPED, FLAPPED, NOT_STOPPED, NOT_RUN, NOT_MEASURED)
 OUTCOMES_V1 = (STOPPED, FLAPPED, NOT_STOPPED, NOT_RUN)
 FIRED_BY = ("the kit", "your own trigger")
@@ -98,7 +103,6 @@ REFUSALS = {
     "product_control": ("a stop is a product's control exactly where it names a product, and is fired by your own "
                         "trigger"),
     "via": "a gateway's address is given only for a gateway, as its scheme, host and port alone",
-    "not_measured": "a path is not measured only through a product's control",
 }
 
 
@@ -140,6 +144,26 @@ def path_part(r: PathResult, fired_at: float | None) -> dict[str, Any]:
     return {"fired_at": iso(r.fired_at if r.fired_at is not None else fired_at),
             "last_success_after": iso(r.last_success_after),
             "first_refused_after": iso(r.first_failure_after), "outcome": r.outcome}
+
+
+FAILURE_RECORD = ("at", "step", "code", "status", "reason", "reason_given", "provider_status", "token_issued",
+                  "token_expires", "counted")
+
+
+def failure_record(b: Beat, counted: bool) -> dict[str, Any]:
+    """One failed call's record, for the details beside the result, never the result itself (D532: the result holds no
+    error codes), with every field of FAILURE_RECORD (D646, item 4: the founder, 29 October 2026). Where the provider's
+    error gave no reason, the reason is empty and the record says none was given (his answer of 30 October 2026). Where
+    there is no status, nothing answered; where no token's times, the call used none, or the agent is not told them."""
+    return {"at": iso(b.at), "step": b.step, "code": b.error or "unknown", "status": b.status, "reason": b.reason,
+            "reason_given": b.reason is not None, "provider_status": b.provider_status,
+            "token_issued": iso(b.token_issued), "token_expires": iso(b.token_expires), "counted": counted}
+
+
+def failure_records(r: PathResult) -> list[dict[str, Any]]:
+    """Each failure after the stop on a path, in order, with whether it counted as the stop's refusal."""
+    refused = set(r.refused)
+    return [failure_record(b, i in refused) for i, b in enumerate(r.failures)]
 
 
 def build(*, kit_version: str, cloud: str, region: str, began_at: float, ended_at: float, window: float,
@@ -194,8 +218,7 @@ def _exactly(d: Any, where: str, shape: Mapping[str, tuple[str, ...]] = SHAPE) -
 
 
 def _check_v2(doc: dict[str, Any]) -> None:
-    """What version 2 adds, each part consistent with the rest: the product, the gateway's address, and the outcome
-    only a product's control gives."""
+    """What version 2 adds, each part consistent with the rest: the product and the gateway's address."""
     stop, run = doc["stop"], doc["run"]
     product = stop["product"]
     if product is not None:
@@ -210,9 +233,6 @@ def _check_v2(doc: dict[str, Any]) -> None:
     via = run["via"]
     if via is not None and (product is None or product["kind"] != GATEWAY or not is_gateway_address(via)):
         raise NotAResult(REFUSALS["via"])
-    outcomes = {part["outcome"] for repeat in doc["repeats"] for part in repeat.values()}
-    if product is None and NOT_MEASURED in outcomes:
-        raise NotAResult(REFUSALS["not_measured"])
 
 
 def check(doc: Any) -> dict[str, Any]:

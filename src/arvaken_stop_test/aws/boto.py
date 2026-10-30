@@ -24,4 +24,5 @@ def clients_for(region: str) -> Clients:
     return Clients(cloudformation=make("cloudformation"), iam=make("iam"), lambda_=make("lambda"), s3=make("s3"),
                    cloudtrail=session.client("cloudtrail", region_name=trail_region(region), config=config),
                    tagging=make("resourcegroupstaggingapi"), region=region, logs=make("logs"), sts=make("sts"),
-                   ec2=make("ec2"))
+                   ec2=make("ec2"),
+                   cloudtrail_here=make("cloudtrail") if trail_region(region) != region else None)

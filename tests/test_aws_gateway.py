@@ -3,12 +3,15 @@ test_aws_run.py's fake AWS on its virtual clock.
 
 Through a gateway the stop is a product's control: the customer presses Enter, then fires their gateway's own switch,
 and each path is timed from that mark. Here the customer turns their switch on `after` seconds after the mark (7), and
-the gateway stops carrying calls 3 seconds after that, so each time from the mark is at least 10 seconds: slower than
-the switch's own 3, never faster."""
+the gateway stops carrying calls 3 seconds after that, so each path's first failure from the mark is at least 10
+seconds after it: slower than the switch's own 3, never faster. A gateway that stops carrying calls looks to the kit
+like a broken network (ProxyConnectionError), which counts as no refusal: each path through it reads "not measured",
+never "stopped" (the founder's ruling on a gateway's refusal, 30 October 2026, (b))."""
 from __future__ import annotations
 
 import html
 import json
+import re
 
 import pytest
 
@@ -16,7 +19,7 @@ from arvaken_stop_test import report, result
 from arvaken_stop_test.aws import fire as firing
 from arvaken_stop_test.aws import run as running
 from arvaken_stop_test.aws.stack import template
-from arvaken_stop_test.timing import GATEWAY_WINDOW, PATH_WORDS
+from arvaken_stop_test.timing import GATEWAY_WINDOW, NOTHING_COUNTED_AFTER, PATH_WORDS
 from test_aws_run import STOP, Clock, FakeAWS, a_run
 
 VIA = "https://user:pass@gw.example:8443/p?token=x#f"      # as the customer gives it
@@ -45,6 +48,11 @@ def through(aws: FakeAWS, clock: Clock, *, after: float | None = 7.0, said: list
     return r, doc, marks
 
 
+def not_counted_after(reason: str | None) -> bool:
+    """Whether a path's reason is that nothing after its last success was counted."""
+    return bool(reason and re.fullmatch(NOTHING_COUNTED_AFTER.format(time=r"\d\d:\d\d:\d\d UTC"), reason))
+
+
 def test_through_a_gateway_each_path_is_timed_from_your_mark_and_the_result_says_so():
     clock, said = Clock(), []
     aws = FakeAWS(clock)
@@ -52,15 +60,17 @@ def test_through_a_gateway_each_path_is_timed_from_your_mark_and_the_result_says
     assert result.check(doc) == doc and doc["format"] == "stop-test-result/2"
     assert doc["stop"] == {"kind": "a product's control", "fired_by": "your own trigger", "ref": "", "product": GATEWAY}
     assert doc["run"]["via"] == "https://gw.example:8443"           # its scheme, host and port alone
-    assert {p: v["outcome"] for p, v in doc["repeats"][0].items()} == {p: "stopped" for p in running.AWS_PATHS}
+    assert {p: v["outcome"] for p, v in doc["repeats"][0].items()} == {p: "not measured" for p in running.AWS_PATHS}
     # asked once, after the warm-up; the timing starts at the Enter, moved onto the agent's clock
     ((marked, invoked),) = marks
     assert invoked >= running.WARM_UP + 1
     assert r.repeats[0].fired_at == pytest.approx(marked + aws.skew, abs=0.001)
     assert {v["fired_at"] for v in doc["repeats"][0].values()} == {result.iso(marked + aws.skew)}
-    # so each time errs toward slower: the switch went on 7 seconds after the mark, and held 3 seconds after that
+    # so each time errs toward slower: the switch went on 7 seconds after the mark, and held 3 seconds after that; and
+    # none of the failures it gave counts
     found = running.results(r)[0][1]
-    assert all(f.effect_between[1] >= 7.0 + 3.0 for f in found.values()), found
+    assert all(f.failures[0].at - f.fired_at >= 7.0 + 3.0 for f in found.values()), found
+    assert all(not_counted_after(f.reason) and not f.refused for f in found.values()), found
     assert {f.fired_source for f in found.values()} == {running.FROM_THE_MARK}
     assert said == [running.MARKED, running.SWITCH_OFF]                 # and, once timed, that it may go off
     # the kit fired nothing itself, and the run is torn down as any other
@@ -83,7 +93,7 @@ def test_the_gateway_and_the_bundle_go_with_each_invocation_and_are_written_nowh
     assert details["gateway"] == {"via": "https://gw.example:8443", "product": GATEWAY}
     page = report.page(doc, [d for _, d in running.results(r)])
     for written in (json.dumps(doc), json.dumps(details), page, repr(r), "\n".join(said)):
-        assert all(s not in written for s in ("user:pass", "pass@", "token", "/p?", "BEGIN CERTIFICATE"))
+        assert all(s not in written for s in ("user:pass", "pass@", "token=x", "/p?", "BEGIN CERTIFICATE"))
     assert report.GATEWAY_NOTE.format(name=GATEWAY["name"], attachment=GATEWAY["attachment"],
                                       via="https://gw.example:8443") in page
     assert report.MARK_NOTE in page and report.GATEWAY_HEADING in page        # read from the stop's kind
@@ -113,10 +123,11 @@ def test_a_path_that_fails_through_the_gateway_before_the_stop_is_not_measured_n
     aws = FakeAWS(clock, gateway_refuses=("outside_key", "another_identity"), gateway_breaks={"open_internet": 6})
     r, doc, marks = through(aws, clock, said=said)
     assert {p: v["outcome"] for p, v in doc["repeats"][0].items()} == {
-        "own_calls": "stopped", "another_identity": "not measured", "outside_key": "not measured",
+        "own_calls": "not measured", "another_identity": "not measured", "outside_key": "not measured",
         "open_internet": "not measured"}
     assert len(marks) == 1 and result.check(doc)
-    assert all(not b.ok for b in r.repeats[0].beats["open_internet"])       # failing after the mark, never "stopped"
+    rep = r.repeats[0]                                                      # failing after the mark, never "stopped"
+    assert all(not b.ok for b in rep.beats["open_internet"] if b.at > rep.fired_at)
     assert said == [running.NOT_THROUGH_THE_GATEWAY.format(path=PATH_WORDS[p], codes=codes) for p, codes in (
         ("another_identity", "ProxyConnectionError 10"), ("outside_key", "ProxyConnectionError 10"),
         ("open_internet", "ProxyConnectionError 6"))] + [running.MARKED, running.SWITCH_OFF]
@@ -268,10 +279,10 @@ def test_only_the_calls_the_attachment_covers_go_through_the_gateway_and_the_pag
     assert result.check(doc) == doc and r.through == {"outside_key", "open_internet"}
     assert aws.payloads and all(p["through"] == ["open_internet", "outside_key"] for p in aws.payloads)
     assert {p: v["outcome"] for p, v in doc["repeats"][0].items()} == {
-        "own_calls": "not stopped", "another_identity": "not stopped", "outside_key": "stopped",
-        "open_internet": "stopped"}
+        "own_calls": "not stopped", "another_identity": "not stopped", "outside_key": "not measured",
+        "open_internet": "not measured"}
     page = report.page(doc, [d for _, d in running.results(r)])
-    assert 'class="differs"' not in page
+    assert page.count('class="differs"') == 2                    # the gateway's two paths: expected stopped, not measured
     assert html.escape(report.GATEWAY_NOTE_SOME.format(
         name=OUTSIDE["name"], attachment=OUTSIDE["attachment"], via="https://gw.example:8443",
         paths="a key for a service outside the cloud, the open internet")) in page
@@ -289,7 +300,7 @@ def test_attached_to_all_its_outbound_traffic_every_call_goes_through_the_gatewa
     r, doc, _ = through(aws, clock)
     assert r.through == set(running.AWS_PATHS) and all(set(p["through"]) == set(running.AWS_PATHS)
                                                          for p in aws.payloads)
-    assert {v["outcome"] for v in doc["repeats"][0].values()} == {"stopped"}
+    assert {v["outcome"] for v in doc["repeats"][0].values()} == {"not measured"}
 
 
 def test_a_path_going_directly_that_did_not_work_before_the_stop_is_not_run_as_in_any_run():
@@ -315,10 +326,11 @@ def test_a_path_already_refused_at_your_mark_is_not_measured_never_stopped():
     assert all(f.effect_between is None for f in found.values())
     page = report.page(doc, [d for _, d in running.results(r)])
     assert report.ALREADY_REFUSED_NOTE in page and page.count(running.ALREADY_REFUSED_REASON) == 4
-    # a refusal only after the first heartbeat after the mark is timed, as before
+    # failing only after the first heartbeat after the mark: not refused at the mark, and not counted either
     clock = Clock()
-    _, doc, _ = through(FakeAWS(clock), clock, after=2.0)
-    assert {v["outcome"] for v in doc["repeats"][0].values()} == {"stopped"}
+    r, doc, _ = through(FakeAWS(clock), clock, after=2.0)
+    assert {v["outcome"] for v in doc["repeats"][0].values()} == {"not measured"}
+    assert all(not_counted_after(f.reason) for f in running.results(r)[0][1].values())
 
 
 def test_the_window_is_the_one_given_before_the_run_and_the_result_records_it():

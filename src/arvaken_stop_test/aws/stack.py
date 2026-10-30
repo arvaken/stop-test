@@ -41,8 +41,8 @@ holds only where someone made it to run in a subnet: arvaken-stop-test-boundary 
 They allow the six actions, and deny them to any call from a function's own code, as an explicit deny in a boundary
 overrides any allow [source: aws-iam-boundary-explicit-deny]: Lambda puts its function's ARN on those calls, and not on
 the calls it makes itself to make a function's network interfaces (its guide, "Using source function ARN to control
-function access behavior") [source: aws-lambda-source-function-arn], so the agent's code cannot make them, nor any other
-function's under that boundary. Likewise a boundary is the same for every run, so for a model it allows
+function access behavior") [source: aws-lambda-source-function-arn, aws-lambda-source-function-arn-not-enis], so the
+agent's code cannot make them, nor any other function's under that boundary. Likewise a boundary is the same for every run, so for a model it allows
 `bedrock:InvokeModel` on any model and any inference profile (MODEL_STATEMENTS): any role made under it may call any
 model, billed to the account. A run with a model's roles carry `arvaken-stop-test-boundary-model`, or in a subnet too
 `arvaken-stop-test-boundary-via-model`. A run with neither takes arvaken-stop-test-boundary, as before.

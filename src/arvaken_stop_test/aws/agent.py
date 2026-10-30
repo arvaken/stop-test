@@ -1,7 +1,12 @@
 """The test agent: the code of the Lambda function the kit deploys (the design's sections 3 and 4).
 
 The kit invokes it once a second, with the kit's own credentials. Each invocation tries each path once and returns,
-for each, when (by its own clock), whether it succeeded, and if not the error's code. It prints nothing and writes no
+for each, when (by its own clock), whether it succeeded, and if not its failure record (D646): the error's code, the HTTP
+status AWS answered with, and AWS's own reason field where the error has one (Lambda's TooManyRequestsException and
+AgentCore's ValidationException do; S3's errors have none). Never a message: it can name resources and principals. The
+credentials the agent's own calls use are its role's, which Lambda gives it without their issue or expiry time: the
+agent hands back their access key ID with each reply, for the kit to find their times (run.own_tokens); the session it
+works under for another identity is the kit's to time (run.py). It prints nothing and writes no
 logs of its own (the account's CloudTrail still records what the kit does), and a stop that denies the agent everything
 cannot stop its report: the reply goes back to the kit through Lambda, not through anything the agent's role reaches.
 
@@ -72,13 +77,25 @@ def _code(e):
     return type(e).__name__[:64]
 
 
+def _record(e):
+    status = reason = None
+    if isinstance(e, botocore.exceptions.ClientError):
+        status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        reason = e.response.get("Reason") or e.response.get("reason")
+    elif isinstance(e, urllib.error.HTTPError):
+        status = e.code
+    if not (isinstance(reason, str) and reason.replace("_", "").isalnum()):
+        reason = None
+    return {"error": _code(e), "status": status, "reason": reason and reason[:64]}
+
+
 def _try(fn):
     at = time.time()
     try:
         fn()
         return {"at": at, "ok": True}
-    except Exception as e:  # noqa: BLE001
-        return {"at": at, "ok": False, "error": _code(e)}
+    except Exception as e:  # noqa: BLE001 - every failure is a heartbeat's result, by its record
+        return {"at": at, "ok": False, **_record(e)}
 
 
 def _gateway(event):
@@ -151,4 +168,4 @@ def handler(event, context):
              "outside_key": _try(outside_key), "open_internet": _try(open_internet)}
     if os.environ.get("MODEL"):
         beats["model"] = _try(model)
-    return {"at": time.time(), "beats": beats}
+    return {"at": time.time(), "beats": beats, "key": os.environ.get("AWS_ACCESS_KEY_ID")}

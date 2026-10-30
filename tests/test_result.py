@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from pathlib import Path
 
 import pytest
 
 from arvaken_stop_test import result as r
-from arvaken_stop_test.timing import Beat, judge
+from arvaken_stop_test.timing import NOT_MEASURED, Beat, judge
 
 FIRED = 1_761_220_000.0
 AGENT = {"kind": "aws-lambda-function", "runtime": "python3.12", "memory_mb": 128, "private_network": False,
@@ -20,7 +21,9 @@ AGENT = {"kind": "aws-lambda-function", "runtime": "python3.12", "memory_mb": 12
 def a_result(**over) -> dict:
     stopped = [Beat(FIRED + 1 + i, i < 5, None if i < 5 else "AccessDenied") for i in range(120)]
     open_net = [Beat(FIRED + 1 + i, True) for i in range(120)]
-    paths = {"own_calls": judge(stopped, FIRED, window=60), "open_internet": judge(open_net, FIRED, window=60)}
+    counts = lambda b, before: b.error == "AccessDenied"  # noqa: E731 - a policy on a role refuses so
+    paths = {"own_calls": judge(stopped, FIRED, window=60, counts=counts),
+             "open_internet": judge(open_net, FIRED, window=60, counts=counts)}
     fields = dict(kit_version="0.1.0", cloud="aws", region="eu-central-1", began_at=FIRED - 60, ended_at=FIRED + 200,
                   window=60, clock_gap_ms=12, calls=240, left_behind=[], stop_kind="policy on a role",
                   fired_by="the kit", stop_ref="arn:aws:iam::111122223333:policy/agent-stop", agent=AGENT,
@@ -140,10 +143,13 @@ GATEWAY = {"kind": "gateway", "attachment": "all its outbound traffic", "name": 
 
 def a_gateway_result(**over) -> dict:
     """A run through a gateway, as the kit's aws/run.py writes one: a product's control, fired by your own trigger, from
-    your mark; the key's path failed through the gateway before the stop."""
-    stopped = [Beat(FIRED + 1 + i, i < 5, None if i < 5 else "ProxyConnectionError") for i in range(120)]
-    paths = {"own_calls": judge(stopped, FIRED, window=60),
-             "outside_key": judge([], FIRED, window=60, tried=False, untried="not measured")}
+    your mark; the key's path failed through the gateway before the stop, and the own calls failed through it after
+    the mark, which counts nothing until the founder's ruling on a gateway's refusal (30 October 2026) is built."""
+    failed = [Beat(FIRED - 1, True)] + [Beat(FIRED + 1 + i, i < 5, None if i < 5 else "ProxyConnectionError")
+                                        for i in range(120)]
+    paths = {"own_calls": judge(failed, FIRED, window=60, counts=lambda b, before: False),
+             "outside_key": judge([], FIRED, window=60, tried=False, untried="not measured",
+                                  counts=lambda b, before: False)}
     fields = dict(stop_kind="a product's control", fired_by="your own trigger", stop_ref="", product=GATEWAY,
                   via="https://user:pass@gw.example:8443/p?token=x#f", repeats=[(FIRED, paths)])
     fields.update(over)
@@ -158,7 +164,7 @@ def test_a_result_through_a_gateway_keeps_its_product_and_its_address_as_scheme_
     assert all(s not in json.dumps(doc) for s in ("pass", "token", "/p?", "#f"))
     assert doc["repeats"][0]["outside_key"] == {"fired_at": "2025-10-23T11:46:40.000Z", "last_success_after": None,
                                                 "first_refused_after": None, "outcome": "not measured"}
-    assert doc["repeats"][0]["own_calls"]["outcome"] == "stopped"
+    assert doc["repeats"][0]["own_calls"]["outcome"] == "not measured"
 
 
 def _resigned(doc: dict, change) -> dict:
@@ -200,11 +206,10 @@ def test_a_version_2_result_that_breaks_its_rules_is_refused_even_signed_again(c
 
 
 def test_a_result_of_a_cloud_stop_is_version_2_with_no_product_and_a_path_failed_before_the_stop_not_run():
-    paths = {"outside_key": judge([], FIRED, window=60, tried=False)}
+    paths = {"outside_key": judge([], FIRED, window=60, tried=False, counts=lambda b, before: False)}
     doc = r.sign(a_result(repeats=[(FIRED, paths)]), r.new_key())
     assert r.check(doc)["repeats"][0]["outside_key"]["outcome"] == "not run"
-    for change in (lambda d: d["repeats"][0]["outside_key"].__setitem__("outcome", "not measured"),  # a product's
-                   lambda d: d["run"].__setitem__("via", "https://gw.example:8443"),
+    for change in (lambda d: d["run"].__setitem__("via", "https://gw.example:8443"),
                    lambda d: d["run"].__setitem__("timing_from", "the kit's firing call"),
                    lambda d: d["repeats"][0]["outside_key"].__setitem__("failed_before_stop", True)):
         with pytest.raises(r.NotAResult):
@@ -240,3 +245,43 @@ def test_a_version_1_result_holds_its_own_shape_and_nothing_of_version_2(change)
         r.check(bad)
     with pytest.raises(r.NotAResult):                                  # nor once signed again
         r.check(r.sign(bad, r.new_key()))
+
+
+def test_not_measured_is_an_outcome_a_result_may_give():
+    doc = r.sign(a_result(), r.new_key())
+    bad = copy.deepcopy(doc)
+    bad["repeats"][0]["own_calls"]["outcome"] = NOT_MEASURED
+    with pytest.raises(r.NotAResult, match="signature"):             # an outcome the rule gives: only the signature
+        r.check(bad)
+
+
+@pytest.mark.skipif(not os.environ.get("STOP_TEST_RELEASE"), reason="checked when a release is made (release.yml)")
+def test_a_release_never_writes_not_measured_in_a_stop_test_result_1():
+    """No kit to 0.2.1 gave "not measured", and Arvaken's record refuses it in a stop-test-result/1 (the console's 0185):
+    a release that gives it writes a later format."""
+    assert NOT_MEASURED not in r.OUTCOMES or r.FORMAT != r.FORMAT_V1, \
+        "this kit gives 'not measured' but writes stop-test-result/1: release it with a later format"
+
+
+# -- the failure record (D646, item 4: the founder, 29 October 2026) ---------------------------------------------------
+
+def test_a_failure_record_holds_every_field_or_this_test_fails():
+    """The founder's words: "Every failed call in every run records its full error code, the provider's status and
+    reason fields, and the token's issue and expiry times where a token is used. Add a test that fails if any of these
+    is missing from a failure record." """
+    google = Beat(FIRED + 9, False, "HTTP401", status=401, reason="authError", step="write", token_issued=FIRED - 600,
+                  token_expires=FIRED + 3000)
+    aws = Beat(FIRED + 9, False, "AccessDenied", status=403)
+    for b, counted in ((google, True), (aws, False)):
+        record = r.failure_record(b, counted)
+        assert tuple(record) == r.FAILURE_RECORD and set(record) == {
+            "at", "step", "code", "status", "reason", "reason_given", "provider_status", "token_issued",
+            "token_expires", "counted"}
+    assert r.failure_record(google, True) == {
+        "at": "2025-10-23T11:46:49.000Z", "step": "write", "code": "HTTP401", "status": 401, "reason": "authError",
+        "reason_given": True, "provider_status": None, "token_issued": "2025-10-23T11:36:40.000Z",
+        "token_expires": "2025-10-23T12:36:40.000Z", "counted": True}
+    # S3's errors give no reason: the reason is empty, and the record says none was given
+    assert (r.failure_record(aws, False)["reason"], r.failure_record(aws, False)["reason_given"]) == (None, False)
+    found = judge([Beat(FIRED - 1, True), aws, google], FIRED, window=60, counts=lambda b, before: b.error == "HTTP401")
+    assert [x["counted"] for x in r.failure_records(found)] == [False, True]
