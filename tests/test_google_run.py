@@ -6,12 +6,21 @@ own answer: a deny policy naming the agent's account, or the account disabled, s
 propagation delay (8 seconds here); a token the agent took for the second account before the stop keeps working, as
 neither stop names that account; Cloud Audit Logs record the firing call some time later (two minutes here), to the
 microsecond; a thing deleted answers 404. Each case's expectations are worked out by hand from those rules.
+
+A heartbeat whose call got no answer: `lose` names each by its number (n) and the error urllib, http.client or the
+socket raised for it. In the teardown: `no_answer` gives the calls, by their method and their path's end, that get no
+answer, and how many more of them; with `first_deletes_unanswered`, each object's first deletion gets none, an object
+whose name ends in an even digit deleted all the same, its answer lost (a read that timed out), any other not (a TLS
+handshake that timed out). A deletion of an object that is not there answers 404.
 """
 from __future__ import annotations
 
 import ast
+import http.client
 import json
 import re
+import threading
+import urllib.error
 import urllib.parse
 from datetime import datetime, timezone
 
@@ -41,6 +50,11 @@ class Clock:
         self.t += d
 
 
+def handshake() -> urllib.error.URLError:
+    """urllib's error for a TLS handshake that timed out, as runs r37f2ed13 and r5a229643 ended on (30 October 2026)."""
+    return urllib.error.URLError(TimeoutError("_ssl.c:993: The handshake operation timed out"))
+
+
 def iso(t: float) -> str:
     return datetime.fromtimestamp(t, tz=timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
@@ -49,7 +63,7 @@ class FakeGoogle:
     """One project, as the kit's run sees it through `Google.call`."""
 
     def __init__(self, clock: Clock, *, delay=8.0, log_delay=120.0, skew=0.05, declared_rules=None, bucket_stays=False,
-                 described=True):
+                 described=True, lose=None):
         self.project, self.region = PROJECT, REGION
         self.clock, self.delay, self.log_delay, self.skew = clock, delay, log_delay, skew
         self.accounts: dict[str, dict] = {}
@@ -61,6 +75,10 @@ class FakeGoogle:
         self.service = None
         self.objects: set[str] = set()
         self.objects_stay = False                      # every object's deletion refused
+        self.no_answer: dict[tuple[str, str], int] = {}    # (method, a path's end): how many more such calls get none
+        self.first_deletes_unanswered = False
+        self.unanswered: set[str] = set()              # the objects whose first deletion got no answer
+        self.lock = threading.Lock()                   # the teardown deletes objects on many threads at once
         self.unavailable: dict[str, int] = {}          # a path's part, and how many more GETs of it Google answers 503
         self.audit: list[tuple[str, str, float]] = []  # (method, resource, when)
         self.declared_rules = declared_rules or [{"denyRule": {
@@ -69,6 +87,7 @@ class FakeGoogle:
         self.bodies: list[dict] = []
         self.customer = None                           # the customer's own trigger, pulled at any call once set
         self.agent_calls, self.pulling = 0, False
+        self.lose = dict(lose or {})
 
     # what stops the agent's own calls, and since when
     def stopped_since(self) -> float | None:
@@ -107,12 +126,18 @@ class FakeGoogle:
             self.bodies.append({"method": method, "url": url, "body": body})
         u = urllib.parse.urlsplit(url)
         path = urllib.parse.unquote(u.path)
+        for (m, end), more in self.no_answer.items():
+            if method == m and path.endswith(end) and more > 0:
+                self.no_answer[(m, end)] = more - 1
+                raise handshake()
         for part, more in self.unavailable.items():
             if method == "GET" and part in path and more > 0:
                 self.unavailable[part] = more - 1
                 raise GoogleError(503, "UNAVAILABLE")
         if identity:
             assert url == "https://agent.example/", url
+            if (lost := self.lose.get(body.get("n"))) is not None:
+                raise lost
             return self.agent(body)
         if path.endswith("/serviceAccounts") and method == "POST":
             email = f"{body['accountId']}@{PROJECT}.iam.gserviceaccount.com"
@@ -154,7 +179,17 @@ class FakeGoogle:
             if method == "DELETE" and "/o/" in path:
                 if self.objects_stay:
                     raise GoogleError(403, "forbidden")
-                self.objects.discard(path.split("/o/", 1)[1])
+                name = path.split("/o/", 1)[1]
+                with self.lock:
+                    if self.first_deletes_unanswered and name not in self.unanswered:
+                        self.unanswered.add(name)
+                        if name[-1] in "02468":
+                            self.objects.discard(name)
+                            raise TimeoutError("The read operation timed out")
+                        raise handshake()
+                    if name not in self.objects:
+                        raise GoogleError(404, "notFound")
+                    self.objects.discard(name)
                 return {}
             if method == "DELETE" and path == f"/storage/v1/b/{self.bucket}":
                 if self.objects:
@@ -420,3 +455,76 @@ def test_cloud_runs_refusals_are_recorded_on_every_path_and_never_counted():
     assert {p: v["outcome"] for p, v in doc["repeats"][0].items()} == {p: "not measured" for p in running.GOOGLE_PATHS}
     found = running.results(r)[0][1]["own_calls"]
     assert found.not_counted == {"Cloud Run refused: HTTP503": found.failures_after} and found.failures[0].status == 503
+
+
+def test_a_heartbeat_that_got_no_answer_is_counted_by_its_code_and_never_ends_the_run():
+    """Run r37f2ed13 (30 October 2026) ended on one: a TLS handshake with the test agent timed out, urllib raised it,
+    and the kit wrote no result. A heartbeat the kit could not complete gives no beat to any path, is counted in the
+    details by its code, and the run goes on (the founder's answer of 30 October 2026). Google's own answer that is not
+    Cloud Run's refusal still ends the run."""
+    clock = Clock()
+    whole, whole_doc = a_run(FakeGoogle(clock), firing.DISABLE)
+    lose = {-2: handshake(), 5: TimeoutError("The read operation timed out"),
+            6: http.client.RemoteDisconnected("Remote end closed connection without response"), 20: handshake()}
+    clock = Clock()
+    r, doc = a_run(FakeGoogle(clock, lose=lose), firing.DISABLE)
+    assert result.check(doc) == doc
+    assert [{p: v["outcome"] for p, v in d["repeats"][0].items()} for d in (doc, whole_doc)] == [
+        {"own_calls": "stopped", "another_identity": "not stopped", "outside_key": "not stopped",
+         "open_internet": "not stopped"}] * 2
+    assert r.calls == whole.calls - 4 * len(running.GOOGLE_PATHS)
+    lost = running.details(r, doc)["heartbeats_lost"]
+    assert lost["by_code"] == {"TimeoutError": 3, "RemoteDisconnected": 1}
+    assert [e["code"] for e in lost["each"]] == ["TimeoutError", "TimeoutError", "RemoteDisconnected", "TimeoutError"]
+    assert running.details(whole, whole_doc)["heartbeats_lost"] == {"by_code": {}, "each": []}
+    clock = Clock()
+    with pytest.raises(GoogleError):
+        a_run(FakeGoogle(clock, lose={5: GoogleError(502, "HTTP")}), firing.DISABLE)
+
+
+def test_a_teardown_whose_calls_get_no_answer_still_removes_what_it_can_and_the_result_is_written():
+    """Run r5a229643 (30 October 2026) finished its five repeats, then a TLS handshake in its teardown's deletions of the
+    bucket's objects timed out; urllib raised it out of run()'s finally, and no result was written. Now each teardown
+    step catches any error, as aws/run.py's does; an object's deletion that got no answer is asked again, a 404 then
+    being the first one's done; and a check that got no answer is asked again before anything is named (the founder's
+    answer of 30 October 2026)."""
+    clock = Clock()
+    fake = FakeGoogle(clock)
+    fake.objects = {f"own/{i}" for i in range(2500)}
+    fake.first_deletes_unanswered = True
+    fake.no_answer = {("DELETE", f"/serviceAccounts/{N['second_account']}"): 1, ("GET", f"/b/{N['bucket']}"): 2}
+    r, doc = a_run(fake, firing.DENY_ALL)
+    assert result.check(doc) == doc
+    assert fake.objects == set() and fake.bucket is None and len(fake.unanswered) == 2500
+    # the account whose deletion got no answer is still there, and named; the bucket's check, asked again, is gone
+    assert r.left_behind == [f"the account {N['second_account']}"] and doc["run"]["left_behind"] == r.left_behind
+    assert f"the bucket {N['bucket']}" in r.checked_gone
+    assert len([u for m, u in fake.calls if m == "GET" and u.endswith(f"/b/{N['bucket']}")]) == 3
+
+
+def test_a_check_that_never_gets_an_answer_is_named_as_could_not_be_checked_and_the_result_is_written():
+    clock = Clock()
+    fake = FakeGoogle(clock)
+    fake.no_answer = {("GET", f"/b/{N['bucket']}"): 99}
+    r, doc = a_run(fake, firing.DENY_ALL)
+    assert result.check(doc) == doc and fake.bucket is None
+    assert r.left_behind == [f"the bucket {N['bucket']} (could not be checked: TimeoutError)"]
+    assert len([u for m, u in fake.calls if m == "GET" and u.endswith(f"/b/{N['bucket']}")]) == running.TRANSIENT_TRIES
+
+
+def test_a_listing_of_the_buckets_objects_that_got_no_answer_is_asked_again():
+    """The teardown empties the bucket page by page: a page asked for that got no answer is asked again, up to
+    LIST_TRIES in all, so one TLS handshake that timed out does not leave the bucket with its objects."""
+    clock = Clock()
+    fake = FakeGoogle(clock)
+    fake.objects = {f"own/{i}" for i in range(2500)}
+    fake.no_answer = {("GET", "/o"): running.LIST_TRIES - 1}
+    r, doc = a_run(fake, firing.DENY_ALL)
+    assert result.check(doc) == doc
+    assert fake.objects == set() and fake.bucket is None and r.left_behind == []
+    clock = Clock()
+    fake = FakeGoogle(clock)
+    fake.objects = {"own/1", "own/2"}
+    fake.no_answer = {("GET", "/o"): running.LIST_TRIES}         # no answer to any try: the bucket stays, and is named
+    r, doc = a_run(fake, firing.DENY_ALL)
+    assert result.check(doc) == doc and r.left_behind == [f"the bucket {N['bucket']}"]

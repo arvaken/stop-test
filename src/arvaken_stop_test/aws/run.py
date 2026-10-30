@@ -30,7 +30,9 @@ there, which the kit finds after the stack is made: those in the subnet whose de
 any that appeared in it, with exactly the run's security groups, while the stack was made. AWS removes them some time
 after the function is deleted, so the teardown waits for them, up to ENI_WAIT, saying why, before it names any as
 left: an interface still there during that wait is waited for, not left. Ctrl-C ends the wait early; the interfaces
-still there are then named as left.
+still there are then named as left. CloudFormation finishes deleting the function only once AWS has removed them, and
+deletes the roles and the bucket after it, so where the stack was still being deleted when its own wait ended, the kit
+waits for it again once the interfaces are gone, before it checks anything gone (D561's run r6e758a49).
 
 **A call to a model (`--model`; the design's section 4, its optional fifth row).** A run given a model has a fifth
 path, "model" (Run.paths): the agent's one call to it with each heartbeat, as its own role (agent.py). It is timed,
@@ -115,6 +117,9 @@ INTERFACE_GONE = "the network interface {id}"
 INTERFACE_LEFT = "the network interface {id} in your subnet {subnet}"
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 INTERFACES_UNCHECKED = "the test agent's network interfaces in your subnet {subnet} (could not be checked: {code})"
+# Where the search for anything tagged with the run got no answer, or another error, after botocore's retries.
+# CUSTOMER TEXT: approved by the founder, word for word, 22:57 UTC on 30 October 2026
+TAGGED_UNCHECKED = "anything else tagged with the run {run} (could not be checked: {code})"
 # What a run with a model says where the model's call did not work before the stop.
 # CUSTOMER TEXT: approved by the founder, by 11:09:43 UTC on 29 October 2026 (D562, F4: his five model lines)
 MODEL_DID_NOT_WORK = ("Before the stop, a call to the model {model} did not work ({codes}), so nothing was timed. "
@@ -179,6 +184,7 @@ class Run:
     outputs: dict[str, str] = field(default_factory=dict)
     offset: float = 0.0                 # the test agent's clock minus the kit's, from the warm-up
     calls: int = 0
+    lost: list[tuple[float, str]] = field(default_factory=list)     # heartbeats with no answer: sent, by the kit's clock
     working: set[str] = field(default_factory=set)      # the paths that worked in the warm-up
     setup_errors: dict[str, dict[str, int]] = field(default_factory=dict)   # and the errors of those that did not
     repeats: list[Repeat] = field(default_factory=list)
@@ -330,6 +336,16 @@ def refused_by_lambda(e: Exception) -> str | None:
     return None
 
 
+def unreached(e: Exception) -> str | None:
+    """botocore's name for an Invoke that got no answer, the network having failed or timed out on the way there or back
+    after botocore's retries (its ConnectionError and HTTPClientError: ConnectTimeoutError, ReadTimeoutError and
+    EndpointConnectionError among them); else None. Read by class, so the kit needs no botocore to load this module."""
+    if any(k.__module__ == "botocore.exceptions" and k.__name__ in ("ConnectionError", "HTTPClientError")
+           for k in type(e).__mro__):
+        return type(e).__name__
+    return None
+
+
 def _invoke(c: Clients, r: Run, payload: dict, clock: Clock) -> tuple[dict, float, float]:
     sent = clock.now()
     response = c.lambda_.invoke(FunctionName=names(r.run)["function"], Payload=json.dumps(payload).encode())
@@ -348,14 +364,20 @@ def heartbeat(c: Clients, r: Run, n: int, session: dict,
               clock: Clock) -> tuple[dict[str, Beat], float, float, float | None]:
     """One heartbeat: each path's result, the kit's clock when it was asked and answered, and the agent's own clock.
     Where Lambda refused to run the agent, each path's beat is that refusal, at the kit's clock moved onto the agent's,
-    and the agent's own clock is None: it did not run."""
+    and the agent's own clock is None: it did not run. Where the Invoke got no answer (unreached), nothing of the
+    agent's was seen: no path has a beat, the heartbeat is kept as lost, by its code, for the details, and the run goes
+    on (the founder's answer of 30 October 2026, after Google's run r37f2ed13 ended on one)."""
     sent = clock.now()
     try:
         body, sent, received = _invoke(c, r, {"n": n, "session": session, **r.gateway}, clock)
     except Exception as e:
         code = refused_by_lambda(e)
         if code is None:
-            raise
+            lost = unreached(e)
+            if lost is None:
+                raise
+            r.lost.append((sent, lost))
+            return {}, sent, clock.now(), None
         received = clock.now()
         at = (sent + received) / 2 + r.offset
         response = getattr(e, "response", None) or {}
@@ -637,7 +659,8 @@ def own_tokens(c: Clients, r: Run) -> None:
 def tear_down(c: Clients, r: Run, clock: Clock, eni_wait: float = ENI_WAIT,
               say: Callable[[str], None] = lambda _: None) -> None:
     """Remove the stop the kit fired and everything it made; name anything left (D532, K4). In a subnet of yours, wait
-    for the function's network interfaces to be removed first (wait_for_interfaces)."""
+    for the function's network interfaces to be removed first (wait_for_interfaces), then, where the stack was still
+    being deleted, for the stack again: CloudFormation deletes the rest only once those are gone."""
     n = names(r.run)
     try:
         firing.remove(c.iam, r.run, r.stop_ref)
@@ -653,19 +676,35 @@ def tear_down(c: Clients, r: Run, clock: Clock, eni_wait: float = ENI_WAIT,
                 c.s3.delete_objects(Bucket=bucket, Delete={"Objects": [{"Key": o["Key"]} for o in listed]})
         except Exception:  # noqa: BLE001 - what cannot be emptied is named below as left
             pass
+    deleted = False
     try:
         c.cloudformation.delete_stack(StackName=n["stack"])
-        _wait_for_stack(c.cloudformation, n["stack"], clock, "DELETE_COMPLETE")
+        deleted = _stack_deleted(c, n["stack"], clock)
     except Exception:  # noqa: BLE001 - what the stack could not delete is named below as left
         pass
     gone, left = wait_for_interfaces(c, r, clock, eni_wait, say) if r.subnet else ([], [])
+    if r.subnet and not deleted and not left:
+        try:
+            _stack_deleted(c, n["stack"], clock)
+        except KeyboardInterrupt:
+            pass                                # Ctrl-C ends this wait too: what is still there is named below
     r.left_behind, r.checked_gone = check_gone(c, r)
     r.left_behind += left
     r.checked_gone += gone
 
 
+def _stack_deleted(c: Clients, stack: str, clock: Clock) -> bool:
+    """Whether the stack's wait saw it deleted: False where it was still being deleted when the wait ended, or its
+    delete failed."""
+    try:
+        _wait_for_stack(c.cloudformation, stack, clock, "DELETE_COMPLETE")
+    except (RuntimeError, TimeoutError):
+        return False
+    return True
+
+
 def _code(e: Exception) -> str:
-    return str(getattr(e, "response", {}).get("Error", {}).get("Code") or type(e).__name__)
+    return str((getattr(e, "response", None) or {}).get("Error", {}).get("Code") or type(e).__name__)
 
 
 def wait_for_interfaces(c: Clients, r: Run, clock: Clock, wait: float = ENI_WAIT,
@@ -714,7 +753,7 @@ def _gone(call: Callable[[], Any]) -> bool | str:
         call()
         return False
     except Exception as e:  # noqa: BLE001 - each answer is sorted below
-        code = str(getattr(e, "response", {}).get("Error", {}).get("Code") or type(e).__name__)
+        code = str((getattr(e, "response", None) or {}).get("Error", {}).get("Code") or type(e).__name__)
         if code in NOT_FOUND or (code == "ValidationError" and "does not exist" in str(e)):
             return True
         return code
@@ -779,7 +818,11 @@ def check_gone(c: Clients, r: Run) -> tuple[list[str], list[str]]:
         except Exception as e:  # noqa: BLE001 - named, unchecked
             left.append(f"the stop on the role {role} (could not be checked: {type(e).__name__})")
     named = " ".join(left)
-    tagged = c.tagging.get_resources(TagFilters=[{"Key": TAG, "Values": [r.run]}]).get("ResourceTagMappingList", [])
+    try:
+        tagged = c.tagging.get_resources(TagFilters=[{"Key": TAG, "Values": [r.run]}]).get("ResourceTagMappingList", [])
+    except Exception as e:  # noqa: BLE001 - named, unchecked: the teardown never ends the run
+        left.append(TAGGED_UNCHECKED.format(run=r.run, code=_code(e)))
+        tagged = []
     left += sorted(m["ResourceARN"] for m in tagged if m["ResourceARN"].split(":")[-1].split("/")[-1] not in named)
     return left, gone
 
@@ -871,6 +914,7 @@ def details(r: Run, doc: dict) -> dict:
     out = {"format": "stop-test-details/1", "run": r.run, "result_signature": doc["signature"],
            "stop_kind": r.stop_kind, "window_seconds": r.window, "left_behind": r.left_behind,
            "checked_gone": r.checked_gone, "repeats": repeats, "lambda_refused": refused,
+           "heartbeats_lost": result.heartbeats_lost([(at + r.offset, code) for at, code in r.lost]),
            "trigger": {"kind": r.trigger_kind, "record": r.trigger_record} if own_trigger else None}
     if r.via:       # the gateway as the result keeps it: its scheme, host and port alone, and with no bundle
         out["gateway"] = {"via": result.gateway_address(r.via), "product": r.product}

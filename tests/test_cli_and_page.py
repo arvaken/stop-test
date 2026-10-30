@@ -402,3 +402,53 @@ def test_the_plan_through_a_gateway_attached_to_outside_services_names_only_thos
                                     "call, which still go to Arvaken's test address") in out
     assert cli.PLAN_VIA.format(via="https://gw.example:8443") not in out
     assert all(s not in out for s in ("secret", "user:", "token", "/p?"))
+
+
+# The founder's words for a heartbeat the kit got no answer to, approved word for word at 22:40 UTC on 30 October 2026
+LOST_WORDS = ("The kit got no answer to 4 of its heartbeats to the test agent (ConnectTimeoutError 1, "
+              "EndpointConnectionError 1, ReadTimeoutError 2): the network failed or timed out on the way there or "
+              "back. No path has a result from them.")
+
+
+def test_the_page_says_below_the_table_how_many_heartbeats_got_no_answer_and_nothing_where_none_did(
+        tmp_path, monkeypatch, capsys):
+    from arvaken_stop_test.aws import boto
+    from arvaken_stop_test.aws import run as running
+    from test_aws_run import LAMBDA_URL
+    import botocore.exceptions as b
+    clock = Clock()
+    r, doc = a_run(FakeAWS(clock), clock)
+    whole = report.page(doc, [d for _, d in running.results(r)], lost=running.details(r, doc)["heartbeats_lost"]["by_code"])
+    assert "heartbeats" not in whole
+    clock = Clock()
+    made = a_run(FakeAWS(clock, lose={-2: b.ConnectTimeoutError(endpoint_url=LAMBDA_URL),
+                                      5: b.ReadTimeoutError(endpoint_url=LAMBDA_URL),
+                                      6: b.ReadTimeoutError(endpoint_url=LAMBDA_URL),
+                                      20: b.EndpointConnectionError(endpoint_url=LAMBDA_URL)}), clock)
+    monkeypatch.setattr(boto, "clients_for", lambda region: None)
+    monkeypatch.setattr(running, "run", lambda *a, **kw: made)
+    monkeypatch.setattr("builtins.input", lambda prompt: "r0123abcd")
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["aws", "run", "--inline-deny", "--region", "eu-central-1", "--run", "r0123abcd"]) == 0
+    page = (tmp_path / "stop-test-r0123abcd.html").read_text(encoding="utf-8")
+    assert LOST_WORDS in page and page.index("</table>") < page.index(LOST_WORDS)
+    assert json.loads((tmp_path / "stop-test-r0123abcd-details.json").read_text(encoding="utf-8"))[
+        "heartbeats_lost"]["by_code"] == {"ConnectTimeoutError": 1, "ReadTimeoutError": 2, "EndpointConnectionError": 1}
+
+
+def test_the_google_page_says_how_many_heartbeats_got_no_answer(tmp_path, monkeypatch, capsys):
+    """Run r37f2ed13's TLS handshake that timed out, through the command line, onto the page and into the details."""
+    import urllib.error
+    from arvaken_stop_test.google import fire
+    from arvaken_stop_test.google import run as running
+    from test_google_run import Clock as GoogleClock, FakeGoogle, a_run as a_google_run
+    handshake = urllib.error.URLError(TimeoutError("_ssl.c:993: The handshake operation timed out"))
+    made = a_google_run(FakeGoogle(GoogleClock(), lose={20: handshake}), fire.DISABLE)
+    monkeypatch.setattr(running, "run", lambda *a, **kw: made)
+    monkeypatch.setattr("builtins.input", lambda prompt: "r0123abcd")
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["google", "run", "--disable-account", "--project", "acme-sandbox-1", "--region", "europe-west3",
+                     "--run", "r0123abcd"]) == 0
+    page = (tmp_path / "stop-test-r0123abcd.html").read_text(encoding="utf-8")
+    assert ("The kit got no answer to 1 of its heartbeats to the test agent (TimeoutError 1): the network failed or "
+            "timed out on the way there or back. No path has a result from them.") in page

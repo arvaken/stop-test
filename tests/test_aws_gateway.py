@@ -192,6 +192,56 @@ def test_in_a_subnet_of_yours_the_kit_waits_for_the_functions_network_interfaces
                                                   "left": []}
 
 
+def test_in_a_subnet_the_kit_checks_the_stack_gone_only_once_cloudformation_has_deleted_it():
+    """D561's run r6e758a49, 30 October 2026: CloudFormation finishes deleting a function in a subnet only once AWS has
+    removed its network interface, then deletes its roles and its bucket, so the delete can outlast the stack's own
+    wait. Lambda already answers that the function is gone. The kit waits for the interface, then for the stack again,
+    and only then checks anything gone."""
+    clock = Clock()
+    aws = FakeAWS(clock, eni_after=1150.0, stack_after_eni=45.0)   # the interface goes after the stack's wait has ended
+    r, doc, _ = through(aws, clock, subnet=SUBNET, security_groups=GROUPS)
+    assert doc["run"]["left_behind"] == [] and doc["run"]["left_anything"] is False and result.check(doc)
+    assert {"the stack arvaken-stop-test-r0123abcd", "the role arvaken-stop-test-r0123abcd-agent",
+            "the bucket arvaken-stop-test-r0123abcd-bucket-abc"} <= set(r.checked_gone)
+    assert r.checked_gone[-1] == "the network interface eni-0aaa1111"
+    deleted = aws.function_deleted_at + 1150 + 45
+    assert deleted <= r.ended_at < deleted + running.ENI_POLL
+
+
+def test_a_stack_still_waiting_on_an_interface_left_in_your_subnet_is_named_left_without_a_second_wait():
+    clock = Clock()
+    aws = FakeAWS(clock, eni_after=None, stack_after_eni=45.0)     # AWS never removes the interface
+    r, doc, _ = through(aws, clock, subnet=SUBNET, security_groups=GROUPS, eni_wait=120.0)
+    left = doc["run"]["left_behind"]
+    assert {"the stack arvaken-stop-test-r0123abcd", "the role arvaken-stop-test-r0123abcd-agent",
+            "the network interface eni-0aaa1111 in your subnet subnet-0abc1234"} <= set(left)
+    assert "the function arvaken-stop-test-r0123abcd-agent" not in left and result.check(doc)
+    assert r.ended_at < aws.function_deleted_at + 900 + 120 + 2 * running.ENI_POLL
+
+
+def test_ctrl_c_while_the_kit_waits_for_the_stack_again_ends_that_wait_and_keeps_the_result():
+    clock = Clock()
+    aws = FakeAWS(clock, eni_after=1150.0, stack_after_eni=45.0)
+    polled, pressed = [], []
+
+    class Interrupted:
+        """The fake clock, but Ctrl-C is pressed at the first pause after the wait for the interfaces."""
+        now = staticmethod(clock.now)
+
+        @staticmethod
+        def sleep(d: float) -> None:
+            if d == running.ENI_POLL:
+                polled.append(clock.now())
+            elif polled and not aws.enis.get("eni-0aaa1111"):
+                pressed.append(clock.now())
+                raise KeyboardInterrupt
+            clock.sleep(d)
+    r, doc, _ = through(aws, Interrupted(), subnet=SUBNET, security_groups=GROUPS)
+    assert pressed == [polled[-1] + running.ENI_POLL]          # once, at the stack's first pause, its delete unfinished
+    assert "the stack arvaken-stop-test-r0123abcd" in doc["run"]["left_behind"] and result.check(doc)
+    assert r.checked_gone[-1] == "the network interface eni-0aaa1111"
+
+
 def test_a_network_interface_still_there_when_the_wait_ends_is_named_as_left():
     clock, said = Clock(), []
     aws = FakeAWS(clock, eni_after=None)                        # AWS never removes it

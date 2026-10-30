@@ -70,6 +70,10 @@ NETWORK_NOTE = "The test agent ran in your subnet {subnet}, with your security g
 INTERFACES_NOTE = "Its network interfaces there: {interfaces}. Checked gone: {gone}. Still there: {left}."
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 NO_INTERFACES_NOTE = "The kit found no network interface of the test agent's own in your subnet."
+# CUSTOMER TEXT: approved by the founder, word for word, 22:40 UTC on 30 October 2026, shown below the table only where
+# a heartbeat was lost
+LOST_NOTE = ("The kit got no answer to {count} of its heartbeats to the test agent ({codes}): the network failed or "
+             "timed out on the way there or back. No path has a result from them.")
 
 
 def expected(kind: str, path: str, attachment: str | None = None) -> str:
@@ -105,6 +109,14 @@ def _network(network: Mapping[str, Any] | None) -> str:
     return f"<p>{html.escape(said)}</p>\n"
 
 
+def _lost(lost: Mapping[str, int] | None) -> str:
+    """The heartbeats the kit got no answer to, by code (the details' heartbeats_lost): how many and why; or nothing."""
+    if not lost:
+        return ""
+    codes = ", ".join(f"{code} {n}" for code, n in sorted(lost.items()))
+    return f"<p>{html.escape(LOST_NOTE.format(count=sum(lost.values()), codes=codes))}</p>\n"
+
+
 def _source(details: list[Mapping[str, PathResult]] | None) -> str:
     sources = sorted({f.fired_source for d in details or [] for f in d.values() if f.fired_source})
     if not sources:
@@ -132,8 +144,9 @@ def _refused(details: list[Mapping[str, PathResult]] | None) -> str:
 
 
 def page(doc: Mapping[str, Any], details: list[Mapping[str, PathResult]] | None = None,
-         network: Mapping[str, Any] | None = None) -> str:
-    """The page. `network` is what a run in a subnet of yours made there (aws/run.py's network)."""
+         network: Mapping[str, Any] | None = None, lost: Mapping[str, int] | None = None) -> str:
+    """The page. `network` is what a run in a subnet of yours made there (aws/run.py's network); `lost`, the heartbeats
+    the kit got no answer to, by code (the details' heartbeats_lost)."""
     window = float(doc["run"]["window_seconds"])
     attachment = (doc["stop"].get("product") or {}).get("attachment")
     rows = []
@@ -175,7 +188,7 @@ test agent's were {doc['run']['clock_gap_ms']} ms apart.</p>
 <th>What the test found</th><th>First refused</th><th>Errors seen (this page only)</th></tr></thead><tbody>
 {''.join(rows)}
 </tbody></table>
-<p>{left}</p>
+{_lost(lost)}<p>{left}</p>
 <p>{html.escape(REVOKE_NOTE) if doc['stop']['kind'] == REVOKE_KIND else ''}</p>
 <p>{html.escape(_refused(details))}</p>
 <p>{html.escape(_source(details))}</p>
