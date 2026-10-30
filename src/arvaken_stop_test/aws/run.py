@@ -325,8 +325,9 @@ def firing_moments(c: Clients, r: Run, clock: Clock, wait: float = TRAIL_WAIT) -
         setattr(rep, prefix + "fired_precision", after - before)
 
 
-# CUSTOMER TEXT: not yet approved
-NOT_IDENTIFIED = "CloudTrail holds no record of your trigger as a kind of stop the kit counts, so nothing counts as stopped"
+# CUSTOMER TEXT: approved by the founder, word for word, 30 October 2026
+NOT_IDENTIFIED = ("CloudTrail holds no record of your trigger as a kind of stop the kit counts, so nothing counts as "
+                  "stopped")
 # Your own trigger's kind of stop, by the call CloudTrail records of your action on the test agent's role (the founder's
 # refusal ruling of 29 October 2026, item 5). A policy written on the role named AWSRevokeOlderSessions is revoking its
 # sessions. Nothing else on the role or the function (deleting it, or setting its concurrency) is a kind whose refusals

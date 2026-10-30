@@ -229,8 +229,8 @@ stop-test google clean --run <run> --project my-test-project --region europe-wes
 
 ## What counts as stopped
 
-<!-- CUSTOMER TEXT: not yet approved (the founder's refusal ruling of 29 October 2026, GENERAL: "the README lists, per
-stop kind, which refusals count") -->
+<!-- CUSTOMER TEXT: approved by the founder, word for word, 30 October 2026 (his refusal ruling of 29 October 2026,
+GENERAL: "the README lists, per stop kind, which refusals count") -->
 
 After the stop, a call counts as stopped only where the stop itself refused it. Any other failure, such as a throttle,
 a server error, a timeout or a lost connection, is not counted: it is neither stopped nor a success, and the page shows

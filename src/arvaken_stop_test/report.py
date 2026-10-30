@@ -62,7 +62,8 @@ def _refused(details: list[Mapping[str, PathResult]] | None) -> str:
                     if code.startswith(REFUSED)})
     if not codes:
         return ""
-    # CUSTOMER TEXT: not yet approved (the founder's refusal ruling of 29 October 2026 changed what counts)
+    # CUSTOMER TEXT: approved by the founder, word for word, 30 October 2026 (his refusal ruling of 29 October
+    # changed what counts)
     said = (f"Lambda refused to run the test agent ({', '.join(codes)}). While it refused, the agent made no call on "
             "any path. Each path counts KMSAccessDeniedException as refused where it first came after the stop and the "
             "agent ran before it, and no other refusal of Lambda's.")
@@ -84,7 +85,7 @@ def page(doc: Mapping[str, Any], details: list[Mapping[str, PathResult]] | None 
                 counted = {code: n - found.not_counted.get(code, 0) for code, n in found.errors.items()}
                 errors = ", ".join(f"{code} {n}" for code, n in sorted(counted.items()) if n)
                 if found.not_counted:
-                    # CUSTOMER TEXT: not yet approved
+                    # CUSTOMER TEXT: approved by the founder, word for word, 30 October 2026
                     rest = ", ".join(f"{code} {n}" for code, n in sorted(found.not_counted.items()))
                     errors = f"{errors}; not counted: {rest}" if errors else f"not counted: {rest}"
                 if found.reason and part["outcome"] in ("not run", "not measured"):

@@ -59,7 +59,7 @@ PATH_WORDS = {
 
 STOPPED, FLAPPED, NOT_STOPPED, NOT_RUN = "stopped", "stopped, then succeeded again", "not stopped", "not run"
 NOT_MEASURED = "not measured"       # the stop's effect could not be counted (the founder, 29 October 2026)
-# CUSTOMER TEXT: not yet approved
+# CUSTOMER TEXT: approved by the founder, word for word, 30 October 2026
 ALL_NOT_COUNTED = "every call after the stop was not counted"
 NOTHING_COUNTED_AFTER = "nothing after {time} was counted"
 
@@ -140,7 +140,8 @@ def _decide(beats: Sequence[Beat], fired_at: float, window: float, hold: float) 
     """The rule on a path's successes and refusals after the stop, in order: its outcome, and where it stopped, when."""
     # A run lasts from its first failure to the last heartbeat before the next success, or to the last heartbeat seen.
     last_seen = beats[-1].at
-    held = [(start, (last if followed else last_seen) - start >= hold, followed) for start, last, followed in _runs(beats)]
+    held = [(start, (last if followed else last_seen) - start >= hold, followed)
+            for start, last, followed in _runs(beats)]
     if any(long_enough and followed for _, long_enough, followed in held):
         return FLAPPED, next(start for start, long_enough, followed in held if long_enough and followed)
     final = held[-1] if held else None
@@ -186,7 +187,8 @@ def judge(beats: Iterable[Beat], fired_at: float | None, window: float, hold: fl
                   tries_after=len(after), failures_after=len(failures),
                   errors=dict(Counter(b.error or "unknown" for b in failures)),
                   not_counted=dict(Counter(b.error or "unknown" for b in failures if id(b) not in counted)),
-                  successes_after_first_refusal=sum(1 for t in successes if first_refusal is not None and t > first_refusal),
+                  successes_after_first_refusal=sum(1 for t in successes
+                                                    if first_refusal is not None and t > first_refusal),
                   refused=tuple(refused), failures=tuple(failures))
     if not kept:
         return PathResult(NOT_MEASURED, reason=ALL_NOT_COUNTED, **common)

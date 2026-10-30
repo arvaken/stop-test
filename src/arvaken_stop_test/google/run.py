@@ -245,9 +245,9 @@ def firing_moments(g: Google, r: Run, clock: Clock, wait: float = LOG_WAIT) -> N
         rep.fired_at, rep.fired_precision = rep.fired_before + r.offset, rep.fired_after - rep.fired_before
 
 
-# CUSTOMER TEXT: not yet approved
-NOT_IDENTIFIED = ("Cloud Audit Logs hold no record of your trigger as a kind of stop the kit counts, so nothing counts as "
-                  "stopped")
+# CUSTOMER TEXT: approved by the founder, word for word, 30 October 2026
+NOT_IDENTIFIED = ("Cloud Audit Logs hold no record of your trigger as a kind of stop the kit counts, so nothing counts "
+                  "as stopped")
 # The calls whose record shows your own trigger's kind (the founder's refusal ruling of 29 October 2026, item 5): the
 # test agent's account disabled, or a deny policy made or changed that the kit saw naming it.
 DENY_METHODS = ("google.iam.v2.Policies.CreatePolicy", "google.iam.v2.Policies.UpdatePolicy")
