@@ -38,6 +38,7 @@ WARM_UP = 10
 RECOVERY = 300.0
 DELETERS = 32                  # objects deleted at once at teardown: a five-repeat run leaves thousands in its bucket
 DELETE_TRIES = 3               # an object's deletion that got no answer is asked this many times in all
+LIST_TRIES = 3                 # and a page of the bucket's objects, asked for at teardown, that got no answer
 TRANSIENT_TRIES = 4            # a check Google answers 429 or 5xx is made this many times in all before it is said
 LOG_WAIT = 600.0               # seconds to wait, after the last window, for Cloud Audit Logs to record each firing
 LOGGING = "https://logging.googleapis.com/v2/entries:list"
@@ -336,6 +337,20 @@ def _deleted(g: Google, url: str) -> bool:
     return False
 
 
+def _listed(g: Google, url: str) -> list[dict]:
+    """A page of the bucket's objects, asked for again where it got no answer, up to LIST_TRIES in all. Google's own
+    refusal, and no answer to the last try, are raised: the teardown then empties no more, and names the bucket."""
+    for tries in range(1, LIST_TRIES + 1):
+        try:
+            return g.call("GET", url).get("items") or []
+        except GoogleError:
+            raise
+        except Exception:  # noqa: BLE001 - no answer: asked again
+            if tries == LIST_TRIES:
+                raise
+    return []
+
+
 def tear_down(g: Google, r: Run, clock: Clock) -> None:
     """Remove the stop the kit fired and everything it made; name anything left (D532, K4)."""
     n = names(r.run, r.project)
@@ -346,8 +361,7 @@ def tear_down(g: Google, r: Run, clock: Clock) -> None:
     try:
         with ThreadPoolExecutor(max_workers=DELETERS) as pool:
             while True:
-                items = g.call("GET", f"{STORAGE}/b/{n['bucket']}/o?fields=items(name),nextPageToken&maxResults=1000"
-                               ).get("items") or []
+                items = _listed(g, f"{STORAGE}/b/{n['bucket']}/o?fields=items(name),nextPageToken&maxResults=1000")
                 def delete(name: str) -> bool:
                     return _deleted(g, f"{STORAGE}/b/{n['bucket']}/o/{quoted(name)}")
                 deleted = list(pool.map(delete, [i["name"] for i in items]))

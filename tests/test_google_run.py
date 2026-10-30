@@ -510,3 +510,21 @@ def test_a_check_that_never_gets_an_answer_is_named_as_could_not_be_checked_and_
     assert result.check(doc) == doc and fake.bucket is None
     assert r.left_behind == [f"the bucket {N['bucket']} (could not be checked: TimeoutError)"]
     assert len([u for m, u in fake.calls if m == "GET" and u.endswith(f"/b/{N['bucket']}")]) == running.TRANSIENT_TRIES
+
+
+def test_a_listing_of_the_buckets_objects_that_got_no_answer_is_asked_again():
+    """The teardown empties the bucket page by page: a page asked for that got no answer is asked again, up to
+    LIST_TRIES in all, so one TLS handshake that timed out does not leave the bucket with its objects."""
+    clock = Clock()
+    fake = FakeGoogle(clock)
+    fake.objects = {f"own/{i}" for i in range(2500)}
+    fake.no_answer = {("GET", "/o"): running.LIST_TRIES - 1}
+    r, doc = a_run(fake, firing.DENY_ALL)
+    assert result.check(doc) == doc
+    assert fake.objects == set() and fake.bucket is None and r.left_behind == []
+    clock = Clock()
+    fake = FakeGoogle(clock)
+    fake.objects = {"own/1", "own/2"}
+    fake.no_answer = {("GET", "/o"): running.LIST_TRIES}         # no answer to any try: the bucket stays, and is named
+    r, doc = a_run(fake, firing.DENY_ALL)
+    assert result.check(doc) == doc and r.left_behind == [f"the bucket {N['bucket']}"]
