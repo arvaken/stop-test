@@ -121,6 +121,22 @@
    "sentence": "(Node.js and Python) The source code of your Lambda function. If you include your function source inline with this parameter, CloudFormation places it in a file named index and zips it to create a deployment package. This zip file cannot exceed 4MB.",
    "about": "AWS::Lambda::Function Code's ZipFile, a function's inline code",
    "read": "2026-10-30"
+  },
+  "aws-lambda-best-practices-clients-outside-handler": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/lambda/latest/dg/best-practices.html",
+   "page": "Best practices for working with AWS Lambda Event Functions - AWS Lambda",
+   "sentence": "Initialize SDK clients and database connections outside of the function handler, and cache static assets locally in the /tmp directory. Subsequent invocations processed by the same instance of your function can reuse these resources.",
+   "about": "an SDK client made outside a Lambda function's handler, reused by later invocations in the same instance",
+   "read": "2026-10-30"
+  },
+  "aws-botocore-max-pool-connections": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/botocore/latest/reference/config.html",
+   "page": "Config Reference - botocore 1.43.122 documentation",
+   "sentence": "The maximum number of connections to keep in a connection pool. If this value is not set, the default value of 10 is used.",
+   "about": "botocore's Config max_pool_connections: the connections a client keeps in its pool",
+   "read": "2026-10-30"
   }
  },
  "owed": {
