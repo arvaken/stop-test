@@ -1039,3 +1039,34 @@ def test_the_policy_reaches_only_the_runs_own_things():
                 resource == "arn:aws:iam::*:policy/*", resource
         if resources == ["*"]:
             assert s["Sid"] in ("ReadsAwsTakesOnEveryResourceOnly", "TheRunsRuntimeMadeWithTheRunsTag")
+
+
+def test_botocore_errors_whose_response_is_none_are_read_by_their_name():
+    """botocore's ReadTimeoutError and ConnectionClosedError carry `response`, as None, so reading their code with
+    getattr(e, "response", {}) raised AttributeError instead (found on arvaken/stop-test#19, 30 October 2026): a new
+    call or a check of the teardown's that timed out raised that, where it was to be recorded or named. Each place
+    reads it now as (getattr(e, "response", None) or {})."""
+    import botocore.exceptions as b
+    from arvaken_stop_test.agentcore import fire as agentcore_fire
+    from arvaken_stop_test.agentcore import run as agentcore_run
+    from arvaken_stop_test.agentcore import trail
+    from arvaken_stop_test.aws import fire as aws_fire
+    from arvaken_stop_test.aws import run as aws_run
+    url = "https://bedrock-agentcore.eu-central-1.amazonaws.com/"
+    for e in (b.ReadTimeoutError(endpoint_url=url), b.ConnectionClosedError(endpoint_url=url)):
+        name = type(e).__name__
+        assert e.response is None                                       # as botocore makes them
+
+        def raising(*_, e=e, **__):
+            raise e
+        assert agentcore_run.code(e) == name and trail._code(e) == name
+        assert aws_run._gone(raising) == name                           # named as could not be checked
+        # the error itself goes on, as any but the one each place looks for
+        control = type("Control", (), {"delete_resource_policy": staticmethod(raising)})()
+        with pytest.raises(type(e)):
+            agentcore_fire.remove(None, control, "r0123abcd", agentcore_fire.DENY, "arn:aws:bedrock-agentcore:x")
+        iam = type("IAM", (), {"get_policy": staticmethod(raising)})()
+        sts = type("STS", (), {"get_caller_identity": staticmethod(
+            lambda: {"Account": "123456789012", "Arn": "arn:aws:sts::123456789012:assumed-role/runner/you"})})()
+        with pytest.raises(type(e)):
+            aws_fire.why_no_boundary(iam, sts)
