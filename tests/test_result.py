@@ -105,10 +105,11 @@ def test_not_measured_is_an_outcome_a_result_may_give():
 
 
 @pytest.mark.skipif(not os.environ.get("STOP_TEST_RELEASE"), reason="checked when a release is made (release.yml)")
-def test_a_release_gives_not_measured_only_under_terms_that_allow_it_for_every_kind_of_stop():
-    """The founder's answer of 30 October 2026: no release carries "not measured" for every kind of stop until a version
-    of the kit's terms allows it (their v4, D595, give it to a product's control alone)."""
-    assert r.TERMS_ALLOWING_NOT_MEASURED, "no version of the kit's terms yet allows 'not measured' for every kind of stop"
+def test_a_release_never_writes_not_measured_in_a_stop_test_result_1():
+    """No kit to 0.2.1 gave "not measured", and Arvaken's record refuses it in a stop-test-result/1 (the console's 0185):
+    a release that gives it writes a later format."""
+    assert NOT_MEASURED not in r.OUTCOMES or r.FORMAT != r.FORMAT_V1, \
+        "this kit gives 'not measured' but writes stop-test-result/1: release it with a later format"
 
 
 # -- the failure record (D646, item 4: the founder, 29 October 2026) ---------------------------------------------------

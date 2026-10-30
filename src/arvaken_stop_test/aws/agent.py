@@ -4,7 +4,8 @@ The kit invokes it once a second, with the kit's own credentials. Each invocatio
 for each, when (by its own clock), whether it succeeded, and if not its failure record (D646): the error's code, the HTTP
 status AWS answered with, and AWS's own reason field where the error has one (Lambda's TooManyRequestsException and
 AgentCore's ValidationException do; S3's errors have none). Never a message: it can name resources and principals. The
-token the agent's own calls use is its role's, which Lambda gives it without its issue or expiry time; the session it
+credentials the agent's own calls use are its role's, which Lambda gives it without their issue or expiry time: the
+agent hands back their access key ID with each reply, for the kit to find their times (run.own_tokens); the session it
 works under for another identity is the kit's to time (run.py). It prints nothing and writes no
 logs of its own (the account's CloudTrail still records what the kit does), and a stop that denies the agent everything
 cannot stop its report: the reply goes back to the kit through Lambda, not through anything the agent's role reaches.
@@ -105,4 +106,4 @@ def handler(event, context):
 
     beats = {"own_calls": _try(own_calls), "another_identity": _try(another_identity),
              "outside_key": _try(outside_key), "open_internet": _try(open_internet)}
-    return {"at": time.time(), "beats": beats}
+    return {"at": time.time(), "beats": beats, "key": os.environ.get("AWS_ACCESS_KEY_ID")}

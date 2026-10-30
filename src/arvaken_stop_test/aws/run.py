@@ -56,6 +56,7 @@ class Clients:
     region: str
     logs: Any = None
     sts: Any = None
+    cloudtrail_here: Any = None         # CloudTrail in the run's own region, where it is not `cloudtrail`'s
 
 
 @dataclass
@@ -93,6 +94,9 @@ class Run:
     left_behind: list[str] = field(default_factory=list)
     checked_gone: list[str] = field(default_factory=list)       # each identifier the teardown found gone
     warm_beats: dict[str, list[Beat]] = field(default_factory=dict)     # the warm-up's heartbeats
+    # each own call's heartbeat, by its time, and the access key ID of the credentials it used: kept for own_tokens
+    # alone, and never written
+    own_keys: dict[float, str] = field(default_factory=dict)
     # your own trigger: the kind of stop CloudTrail's record of your action shows, or None, and that record
     trigger_kind: str | None = None
     trigger_record: dict[str, str] | None = None
@@ -198,6 +202,8 @@ def heartbeat(c: Clients, r: Run, n: int, session: dict,
         return {p: Beat(at, False, REFUSED + code, status=status, reason=response.get("Reason"))
                 for p in AWS_PATHS}, sent, received, None
     beats = {p: _beat(p, b, session) for p, b in (body.get("beats") or {}).items()}
+    if body.get("key") and "own_calls" in beats:
+        r.own_keys[beats["own_calls"].at] = str(body["key"])
     r.calls += len(beats)
     return beats, sent, received, float(body["at"])
 
@@ -376,6 +382,57 @@ def identify(c: Clients, r: Run, clock: Clock, wait: float = TRAIL_WAIT) -> None
 
 def _seconds_of(when: Any) -> float:
     return when.timestamp() if hasattr(when, "timestamp") else float(when)
+
+
+def _expiry(text: Any) -> float | None:
+    """A credential's expiry as CloudTrail writes it in AssumeRole's response, in either of the forms it may take."""
+    if not isinstance(text, str):
+        return None
+    for form in ("%b %d, %Y, %I:%M:%S %p", "%b %d, %Y %I:%M:%S %p"):
+        try:
+            return datetime.strptime(text, form).replace(tzinfo=timezone.utc).timestamp()
+        except ValueError:
+            pass
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def own_tokens(c: Clients, r: Run) -> None:
+    """The times of the credentials the agent's own calls used (D646): Lambda gives the agent its role's credentials
+    without their issue or expiry time, so the kit reads them from CloudTrail's record of the call that issued them, an
+    AssumeRole of the agent's role, matched by the credentials' access key ID, which the agent hands back. It asks the
+    run's own region and the region it reads IAM's calls in. Each own call's failure record then holds its credentials'
+    times; where no record is found, they stay empty."""
+    keys = set(r.own_keys.values())
+    trails = [t for t in {id(x): x for x in (c.cloudtrail_here, c.cloudtrail) if x is not None}.values()]
+    if not keys or not trails:
+        return
+    role = names(r.run)["agent_role"]
+    start, end = r.began_at + r.offset - 60, r.ended_at + r.offset + 60
+    found: dict[str, tuple[float, float | None]] = {}
+    for trail in trails:
+        token = None
+        while True:
+            try:
+                page = trail.lookup_events(
+                    LookupAttributes=[{"AttributeKey": "EventName", "AttributeValue": "AssumeRole"}],
+                    StartTime=start, EndTime=end, **({"NextToken": token} if token else {}))
+            except Exception:  # noqa: BLE001 - a history the kit cannot read leaves the times empty, never the result
+                break
+            for e in page.get("Events", []):
+                detail = json.loads(e.get("CloudTrailEvent") or "{}")
+                made = (detail.get("responseElements") or {}).get("credentials") or {}
+                if made.get("accessKeyId") in keys and                         str((detail.get("requestParameters") or {}).get("roleArn", "")).endswith(f":role/{role}"):
+                    found[made["accessKeyId"]] = (_seconds_of(e["EventTime"]), _expiry(made.get("expiration")))
+            token = page.get("NextToken")
+            if not token:
+                break
+    for rep in r.repeats:
+        rep.beats["own_calls"] = [
+            replace(b, token_issued=found[r.own_keys[b.at]][0], token_expires=found[r.own_keys[b.at]][1])
+            if r.own_keys.get(b.at) in found else b for b in rep.beats.get("own_calls", [])]
 
 
 def tear_down(c: Clients, r: Run, clock: Clock) -> None:
@@ -605,4 +662,5 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", 
     finally:
         tear_down(c, r, clock)
         r.ended_at = clock.now()
+    own_tokens(c, r)
     return r, the_result(r)

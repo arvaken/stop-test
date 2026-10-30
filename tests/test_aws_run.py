@@ -24,6 +24,7 @@ from arvaken_stop_test.aws.stack import INLINE_LIMIT, TAG, agent_code, names, te
 
 T0 = 1_761_220_000.0
 STOP = "arn:aws:iam::111122223333:policy/agent-stop"
+OWN_KEY = "ASIAOWNSESSIONKEY001"
 
 
 class ClientError(Exception):
@@ -210,6 +211,7 @@ class FakeAWS:
                     "reason": None})},
                 **{p: ({"at": agent_now, "ok": False, "error": self.endpoint_error} if self.endpoint_error else
                        {"at": agent_now, "ok": True}) for p in ("outside_key", "open_internet")}}}
+            body["key"] = OWN_KEY                 # the access key ID of the role's credentials Lambda gave it
             if own:
                 self.objects.add(f"own/{event['n']}")
         self.clock.t += 0.1
@@ -245,6 +247,17 @@ class FakeAWS:
     # cloudtrail: the kit's own calls, and the customer's, each with its record; CloudFormation's making of the stack
     # made the role's own policy, and the watch's reads are recorded too, as CloudTrail records reads
     def lookup_events(self, LookupAttributes, StartTime, EndTime, NextToken=None):
+        if LookupAttributes[0]["AttributeKey"] == "EventName":
+            # Lambda's AssumeRole of the agent's role, as the environment started, and another function's
+            made = [(OWN_KEY, "arvaken-stop-test-r0123abcd-agent"), ("ASIAOTHERFUNCTION01", "someone-elses")]
+            return {"Events": [{"EventId": f"a{i}", "EventName": "AssumeRole",
+                                "EventTime": datetime.fromtimestamp(int(T0 + 5), tz=timezone.utc),
+                                "CloudTrailEvent": json.dumps({
+                                    "requestParameters": {"roleArn": f"arn:aws:iam::111122223333:role/{role}"},
+                                    "responseElements": {"credentials": {
+                                        "accessKeyId": key, "expiration": "Oct 23, 2025, 5:46:45 PM"}}})}
+                               for i, (key, role) in enumerate(made)
+                               if StartTime <= T0 + 5 <= EndTime]}
         role = LookupAttributes[0]["AttributeValue"]
         calls = [("AttachRolePolicy", at, "", "kit") for at in self.attach_calls if role.endswith("-agent")]
         calls += [("PutRolePolicy", at, "", "kit") for name, at in self.put_calls if name == role]
@@ -266,7 +279,7 @@ class FakeAWS:
 
 def clients(aws: FakeAWS) -> running.Clients:
     return running.Clients(cloudformation=aws, iam=aws, lambda_=aws, s3=aws, cloudtrail=aws, tagging=aws,
-                           region="eu-central-1", logs=aws, sts=aws)
+                           region="eu-central-1", logs=aws, sts=aws, cloudtrail_here=aws)
 
 
 def a_run(aws: FakeAWS, clock: Clock, **over):
@@ -586,3 +599,18 @@ def test_a_managed_policy_that_does_not_deny_the_agents_own_calls_is_refused_bef
         a_run(half, clock2)
     assert half.stack is None
 
+
+
+def test_each_own_calls_failure_holds_the_times_of_the_credentials_it_used_from_cloudtrail():
+    """D646: "the token's issue and expiry times where a token is used". Lambda gives the agent its role's credentials
+    without their times: the kit finds them in CloudTrail's record of the AssumeRole that issued them, by their access
+    key ID, which it never writes."""
+    clock = Clock()
+    r, doc = a_run(FakeAWS(clock), clock, stop_ref=firing.INLINE)
+    records = running.details(r, doc)["repeats"][0]["own_calls"]["failures"]
+    assert records and {(x["token_issued"], x["token_expires"]) for x in records} == {
+        ("2025-10-23T11:46:45.000Z", "2025-10-23T17:46:45.000Z")}
+    other = running.details(r, doc)["repeats"][0]["another_identity"]["failures"]
+    assert all(x["token_issued"] is None for x in running.details(r, doc)["repeats"][0]["outside_key"]["failures"])
+    assert not other or all(x["token_expires"] for x in other)
+    assert OWN_KEY not in json.dumps(running.details(r, doc)) and OWN_KEY not in json.dumps(doc)

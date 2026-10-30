@@ -30,11 +30,11 @@ from arvaken_stop_test.timing import FLAPPED, NOT_MEASURED, NOT_RUN, NOT_STOPPED
 FORMAT = "stop-test-result/1"
 OUTCOMES = (STOPPED, FLAPPED, NOT_STOPPED, NOT_RUN, NOT_MEASURED)
 FIRED_BY = ("the kit", "your own trigger")
-# "Not measured" on a path of any kind of stop (the founder, 29 October 2026) is more than the kit's terms allow: their v4
-# (D595) give it to a product's control alone. His answer of 30 October 2026: no release carries it until a version of
-# the terms allows it for every kind of stop. That version, once it is in force; until then a release is refused
-# (tests/test_result.py, under STOP_TEST_RELEASE).
-TERMS_ALLOWING_NOT_MEASURED: str | None = None
+# "Not measured" on a path of any kind of stop (the founder, 29 October 2026). The kit's terms keep each path's outcome
+# without listing the outcomes (4.4), which the founder ruled is enough (30 October 2026). A stop-test-result/1 never
+# carries it, as no kit to 0.2.1 gave it and Arvaken's record refuses it there: a release writes it only in a later
+# format (tests/test_result.py, under STOP_TEST_RELEASE).
+FORMAT_V1 = "stop-test-result/1"
 
 # Every field, by where it sits, and whether it identifies (sealed when submitted) or stays readable.
 SHAPE: dict[str, tuple[str, ...]] = {
