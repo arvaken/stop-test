@@ -117,6 +117,9 @@ INTERFACE_GONE = "the network interface {id}"
 INTERFACE_LEFT = "the network interface {id} in your subnet {subnet}"
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 INTERFACES_UNCHECKED = "the test agent's network interfaces in your subnet {subnet} (could not be checked: {code})"
+# Where the search for anything tagged with the run got no answer, or another error, after botocore's retries.
+# CUSTOMER TEXT: approved by the founder, word for word, 22:57 UTC on 30 October 2026
+TAGGED_UNCHECKED = "anything else tagged with the run {run} (could not be checked: {code})"
 # What a run with a model says where the model's call did not work before the stop.
 # CUSTOMER TEXT: approved by the founder, by 11:09:43 UTC on 29 October 2026 (D562, F4: his five model lines)
 MODEL_DID_NOT_WORK = ("Before the stop, a call to the model {model} did not work ({codes}), so nothing was timed. "
@@ -701,7 +704,7 @@ def _stack_deleted(c: Clients, stack: str, clock: Clock) -> bool:
 
 
 def _code(e: Exception) -> str:
-    return str(getattr(e, "response", {}).get("Error", {}).get("Code") or type(e).__name__)
+    return str((getattr(e, "response", None) or {}).get("Error", {}).get("Code") or type(e).__name__)
 
 
 def wait_for_interfaces(c: Clients, r: Run, clock: Clock, wait: float = ENI_WAIT,
@@ -750,7 +753,7 @@ def _gone(call: Callable[[], Any]) -> bool | str:
         call()
         return False
     except Exception as e:  # noqa: BLE001 - each answer is sorted below
-        code = str(getattr(e, "response", {}).get("Error", {}).get("Code") or type(e).__name__)
+        code = str((getattr(e, "response", None) or {}).get("Error", {}).get("Code") or type(e).__name__)
         if code in NOT_FOUND or (code == "ValidationError" and "does not exist" in str(e)):
             return True
         return code
@@ -815,7 +818,11 @@ def check_gone(c: Clients, r: Run) -> tuple[list[str], list[str]]:
         except Exception as e:  # noqa: BLE001 - named, unchecked
             left.append(f"the stop on the role {role} (could not be checked: {type(e).__name__})")
     named = " ".join(left)
-    tagged = c.tagging.get_resources(TagFilters=[{"Key": TAG, "Values": [r.run]}]).get("ResourceTagMappingList", [])
+    try:
+        tagged = c.tagging.get_resources(TagFilters=[{"Key": TAG, "Values": [r.run]}]).get("ResourceTagMappingList", [])
+    except Exception as e:  # noqa: BLE001 - named, unchecked: the teardown never ends the run
+        left.append(TAGGED_UNCHECKED.format(run=r.run, code=_code(e)))
+        tagged = []
     left += sorted(m["ResourceARN"] for m in tagged if m["ResourceARN"].split(":")[-1].split("/")[-1] not in named)
     return left, gone
 

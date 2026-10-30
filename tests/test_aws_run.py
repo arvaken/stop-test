@@ -21,7 +21,7 @@ until then the stack reads DELETE_IN_PROGRESS and its roles and bucket are still
 that the function is gone.
 
 A heartbeat whose invocation got no answer: `lose` names each by its number (n) and the error botocore raised for it
-after its retries.
+after its retries; `tagging_error`, the error the search for anything tagged with the run raises.
 
 With a model (--model): where the stack's function names one (MODEL), each heartbeat also has the model's call, made as
 the agent's own role, so it is refused (AccessDeniedException) once its own calls are; `model_error` is a code the call
@@ -79,7 +79,7 @@ class FakeAWS:
                  boundary_model="the kit's", boundary_via_model="the kit's", gateway_refuses=(), gateway_breaks=None,
                  gw_delay=3.0, eni_after=600.0, eni_described=True, subnet_has=(), stack_stays=False, model_error=None,
                  gw_status=None, agent_versions=("3.12.15", "1.42.97", "2.8.0"), new_environment_after=None,
-                 stack_after_eni=None, lose=None):
+                 stack_after_eni=None, lose=None, tagging_error=None):
         self.clock, self.delay, self.trail_delay, self.skew = clock, delay, trail_delay, skew
         self.left, self.role_tagged, self.endpoint_error = list(left), role_tagged, endpoint_error
         self.stack = None
@@ -126,6 +126,7 @@ class FakeAWS:
         self.ec2_calls: list[str] = []
         self.stack_stays, self.stack_after_eni = stack_stays, stack_after_eni
         self.lose = dict(lose or {})
+        self.tagging_error = tagging_error
         self.model_error = model_error
         # the customer's own actions on the agent's role, as CloudTrail records them: (call, when, policy's name)
         self.customer_calls: list[tuple[str, float, str]] = []
@@ -388,6 +389,8 @@ class FakeAWS:
 
     # tagging
     def get_resources(self, TagFilters):
+        if self.tagging_error is not None:
+            raise self.tagging_error
         return {"ResourceTagMappingList": [{"ResourceARN": a} for a in self.left]}
 
 
@@ -762,3 +765,34 @@ def test_a_heartbeat_that_got_no_answer_is_counted_by_its_code_and_never_ends_th
     clock = Clock()
     with pytest.raises(ClientError):
         a_run(FakeAWS(clock, lose={5: ClientError("ServiceException")}), clock)
+
+
+
+def test_a_search_for_what_is_tagged_with_the_run_that_got_no_answer_is_named_and_the_result_is_written():
+    """The teardown's last check, every resource tagged with the run, was the one call of AWS's teardown not guarded:
+    an error there, botocore's retries spent, left run()'s finally and no result was written, as Google's run r5a229643
+    lost its (30 October 2026). Now it is named, in the founder's words, and the result is written."""
+    clock = Clock()
+    aws = FakeAWS(clock, tagging_error=botocore.exceptions.ReadTimeoutError(
+        endpoint_url="https://tagging.eu-central-1.amazonaws.com/"))
+    r, doc = a_run(aws, clock)
+    assert result.check(doc) == doc and aws.stack["status"] == "DELETED"
+    assert doc["run"]["left_behind"] == [
+        "anything else tagged with the run r0123abcd (could not be checked: ReadTimeoutError)"]
+    assert doc["run"]["left_anything"] is True
+    clock = Clock()
+    _, doc = a_run(FakeAWS(clock, tagging_error=ClientError("AccessDeniedException")), clock)
+    assert doc["run"]["left_behind"] == [
+        "anything else tagged with the run r0123abcd (could not be checked: AccessDeniedException)"]
+
+
+def test_botocore_errors_whose_response_is_none_are_read_by_their_name():
+    """ReadTimeoutError and ConnectionClosedError carry `response`, as None: the kit reads their code by their name,
+    never failing on it, so a check of the teardown's that got no answer is named as could not be checked."""
+    for e in (botocore.exceptions.ReadTimeoutError(endpoint_url=LAMBDA_URL),
+              botocore.exceptions.ConnectionClosedError(endpoint_url=LAMBDA_URL),
+              botocore.exceptions.ConnectTimeoutError(endpoint_url=LAMBDA_URL)):
+        def call(e=e):
+            raise e
+        assert running._code(e) == type(e).__name__ and running._gone(call) == type(e).__name__
+    assert running._gone(lambda: (_ for _ in ()).throw(ClientError("NoSuchEntity"))) is True
