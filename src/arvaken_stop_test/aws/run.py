@@ -12,16 +12,51 @@ moved onto the test agent's clock by the difference measured during the warm-up.
 roles, the bucket, the function's log group (which Lambda makes where a function may write logs; the test agent may
 not, so none is expected), and the stop the kit fired. The run's tag is asked as well, to catch anything else.
 
+**Through a gateway (`--via`; D561, section 5).** The stop is a product's control: the kit cannot see a product's change
+in the cloud, so the customer fires it themselves, from a mark: the kit asks them to press Enter, then fire their stop,
+and each path is timed from that Enter, so a time errs toward slower, never faster. Each invocation carries the
+gateway's address and the customer's certificate bundle for the agent's calls through it (agent.py); neither is written
+into the stack, the result or the details as given, and the result keeps the address as its scheme, host and port alone
+(result.py; D595). Only the calls the declared attachment covers go through the gateway (Run.through,
+result.GATEWAY_ROUTES); the others go directly, as the customer's agents' would, and are timed from the same mark. An
+attachment that covers none of the run's calls is refused before anything is made, and so is a window under
+timing.GATEWAY_WINDOW. Before the stop, each path whose calls go through the gateway must work through it: one whose
+last try in the warm-up did not reads "not measured", never "stopped"; a path going directly that did not reads "not
+run", as in any run. A path whose first heartbeat after the mark was already refused reads "not measured" too. Where no
+path through the gateway works, there is nothing to time, and the kit asks for no mark.
+
+**In a subnet of the customer's (`--subnet`, `--security-group`).** Lambda makes the function's network interfaces
+there, which the kit finds after the stack is made: those in the subnet whose description names the run's function, and
+any that appeared in it, with exactly the run's security groups, while the stack was made. AWS removes them some time
+after the function is deleted, so the teardown waits for them, up to ENI_WAIT, saying why, before it names any as
+left: an interface still there during that wait is waited for, not left. Ctrl-C ends the wait early; the interfaces
+still there are then named as left.
+
+**A call to a model (`--model`; the design's section 4, its optional fifth row).** A run given a model has a fifth
+path, "model" (Run.paths): the agent's one call to it with each heartbeat, as its own role (agent.py). It is timed,
+judged, written to the result and shown on the page and in the details as its own calls are, from the same firing
+moment, and between repeats the kit waits for it to work again as well. Before the stop it must have worked: where it
+did not in the warm-up (a model ID that is wrong, or a model not enabled in the account, answers AccessDeniedException
+or ValidationException), the kit says so, times nothing, removes what it made and raises NotStarted, which carries the
+run's record with anything left; it does not time the other paths without it. Through a gateway where no path worked,
+the gateway is said instead, as before. The model's call counts a refusal by its code, as every path does
+(refusals.py): a throttle (ThrottlingException) after the stop is not counted. A run without a model has the four
+paths, exactly as before.
+
 **What counts as the stop's refusal** is refusals.py's, by the kind of stop: for your own trigger, the kind CloudTrail's
 record of your action shows (`identify`), or none, where the kit finds no such record, and then nothing counts. Each path
 is judged from its heartbeats before the firing moment as well as after it: a refusal counts only on a path that
 succeeded before it, and Lambda's KMSAccessDeniedException only where the agent ran before the stop and it first came
-after.
+after. Through a gateway the refusal is the gateway's own (the founder's ruling, D655, 30 October 2026): its 403 to the
+CONNECT, or its 407 where its address signs in, from a combination the parse was tested on (refusals.gateway_counts);
+through an https:// gateway nothing counts yet (Run.counted_kind); and a try made with a client made after the mark is
+set aside, never setting the result (new_connections_only).
 """
 from __future__ import annotations
 
 import json
 import time
+import urllib.parse
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -30,13 +65,68 @@ from typing import Any
 
 from arvaken_stop_test import __version__, refusals, result
 from arvaken_stop_test.aws import fire as firing
-from arvaken_stop_test.aws.stack import MEMORY_MB, RUNTIME, TAG, names, template_body
-from arvaken_stop_test.timing import HOLD, NOT_MEASURED, PATH_WORDS, WINDOWS, Beat, PathResult, judge
+from arvaken_stop_test.aws.stack import MEMORY_MB, RUNTIME, TAG, is_model_id, names, template_body
+from arvaken_stop_test.timing import (GATEWAY_WINDOW, HOLD, NOT_MEASURED, NOT_RUN, PATH_WORDS, REFUSED_AT_THE_MARK,
+                                      WINDOWS, Beat, PathResult, judge)
 
 AWS_PATHS = ("own_calls", "another_identity", "outside_key", "open_internet")
+MODEL = "model"              # the optional fifth path, for a run given a model (timing.PATHS)
 WARM_UP = 10                 # heartbeats before the first firing
 RECOVERY = 300.0             # seconds to wait, between repeats, for the agent's own calls to work again
 TRAIL_WAIT = 900.0           # seconds to wait, after the last window, for CloudTrail to record each firing
+ENI_WAIT = 1800.0            # seconds to wait, once the function is deleted, for AWS to remove its network interfaces
+ENI_POLL = 30.0              # and how often to ask
+
+# What a run through a gateway says, as it goes. The first is the founder's own words (D561, section 5).
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
+MARK_PROMPT = "Press Enter, then fire your stop."
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
+MARKED = "Marked. Each path is timed from your mark, so a time it gives errs toward slower, never faster."
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
+SWITCH_OFF = "The timing is done: you can turn your gateway's switch off now. The kit never turns it off itself."
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
+NOT_THROUGH_THE_GATEWAY = ("Before the stop, {path} did not work through your gateway ({codes}): it will be reported "
+                           "as not measured, never as stopped.")
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
+NOTHING_THROUGH_THE_GATEWAY = ("No path worked through your gateway before the stop, so there is nothing to time. "
+                               "Don't fire your stop: the kit is removing what it made.")
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
+NOT_MEASURED_REASON = "it did not work through your gateway before the stop"
+# CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
+ALREADY_REFUSED_REASON = "it was already refused at your mark"
+# CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
+NOT_COVERED_BY_THE_ATTACHMENT = ("Your gateway, as you said it is attached ({attachment}), covers none of the test "
+                                 "agent's calls in this run, so there is nothing of it to time.")
+# CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
+GATEWAY_WINDOW_TOO_SHORT = "Through your gateway the kit times each path for at least 15 minutes after your mark."
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
+FROM_THE_MARK = "your mark, the moment you pressed Enter, on the kit's clock moved onto the agent's"
+# What the teardown says of the function's network interfaces in a subnet of yours.
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
+WAITING_FOR_INTERFACES = (
+    "AWS removes a Lambda function's network interfaces some time after the function is deleted, often many minutes "
+    "later. The kit is waiting up to {minutes} minutes for the test agent's {count} network interface(s) in your "
+    "subnet {subnet} to be removed, before it names anything left for you to delete.")
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
+WAIT_STOPPED = "You stopped the wait. The network interfaces still there are named as left; AWS may yet remove them."
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
+INTERFACE_GONE = "the network interface {id}"
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
+INTERFACE_LEFT = "the network interface {id} in your subnet {subnet}"
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
+INTERFACES_UNCHECKED = "the test agent's network interfaces in your subnet {subnet} (could not be checked: {code})"
+# What a run with a model says where the model's call did not work before the stop.
+# CUSTOMER TEXT: approved by the founder, by 11:09:43 UTC on 29 October 2026 (D562, F4: his five model lines)
+MODEL_DID_NOT_WORK = ("Before the stop, a call to the model {model} did not work ({codes}), so nothing was timed. "
+                      "Check that your account can call it in {region}.")
+
+
+class NotStarted(firing.Refused):
+    """The run was torn down before anything was timed. `run` is its record, with anything it left."""
+
+    def __init__(self, message: str, run: Run):
+        super().__init__(message)
+        self.run = run
 
 
 @dataclass
@@ -56,6 +146,7 @@ class Clients:
     region: str
     logs: Any = None
     sts: Any = None
+    ec2: Any = None                     # read only: a subnet's network interfaces, where a run names one
     cloudtrail_here: Any = None         # CloudTrail in the run's own region, where it is not `cloudtrail`'s
 
 
@@ -93,6 +184,18 @@ class Run:
     repeats: list[Repeat] = field(default_factory=list)
     left_behind: list[str] = field(default_factory=list)
     checked_gone: list[str] = field(default_factory=list)       # each identifier the teardown found gone
+    # through a gateway: its address as given, a user name and password included, and the customer's certificate
+    # bundle, for the agent's calls alone (never shown, never written); and the product, as the customer declared it
+    via: str = field(default="", repr=False)
+    ca: str = field(default="", repr=False)
+    product: dict[str, str] | None = None
+    # in a subnet of the customer's: it, its security groups, and the function's network interfaces found there
+    subnet: str = ""
+    security_groups: list[str] = field(default_factory=list)
+    interfaces: list[str] = field(default_factory=list)
+    interfaces_gone: list[str] = field(default_factory=list)
+    interfaces_left: list[str] = field(default_factory=list)
+    model: str = ""                     # a model's ID or an inference profile's, for the fifth path; else none
     warm_beats: dict[str, list[Beat]] = field(default_factory=dict)     # the warm-up's heartbeats
     # each own call's heartbeat, by its time, and the access key ID of the credentials it used: kept for own_tokens
     # alone, and never written
@@ -102,15 +205,45 @@ class Run:
     trigger_record: dict[str, str] | None = None
 
     @property
+    def paths(self) -> tuple[str, ...]:
+        """The run's paths: the four, and the model's call where the run was given a model."""
+        return (*AWS_PATHS, MODEL) if self.model else AWS_PATHS
+
+    @property
     def stop_kind(self) -> str:
+        if self.product:
+            return result.PRODUCT_CONTROL
         if self.fired_by == "your own trigger" and self.trigger_kind:
             return self.trigger_kind
         return firing.kind_of(self.stop_ref)
 
     @property
+    def through(self) -> set[str]:
+        """The paths whose calls go through the gateway: those its declared attachment covers; none without one."""
+        if not (self.via and self.product):
+            return set()
+        return set(result.GATEWAY_ROUTES[self.product["attachment"]]) & set(self.paths)
+
+    @property
+    def gateway(self) -> dict[str, Any]:
+        """What each invocation carries for the agent's calls through the gateway: its address, the bundle, and which
+        paths' calls go through it; nothing without one."""
+        return {"via": self.via, **({"ca": self.ca} if self.ca else {}), "through": sorted(self.through)} \
+            if self.via else {}
+
+    @property
     def counted_kind(self) -> str | None:
-        """The kind of stop whose refusals count: the kit's own; for your own trigger, the one identified, or None."""
+        """The kind of stop whose refusals count: the kit's own; for your own trigger, the one identified, or None; and
+        through a gateway, a product's control, whose refusal is the gateway's own (refusals.gateway_counts), except
+        through an https:// gateway, where nothing counts until a test shows the kit can read its refusal (D655, (c))."""
+        if self.via:
+            return None if self.via.lower().startswith("https://") else refusals.PRODUCT_CONTROL
         return self.trigger_kind if self.fired_by == "your own trigger" else firing.kind_of(self.stop_ref)
+
+    @property
+    def signed_in(self) -> bool:
+        """Whether the gateway's address carries a user name and password, so its calls go through signed in."""
+        return bool(self.via and urllib.parse.urlsplit(self.via).username)
 
 
 def _wait_for_stack(cf: Any, stack: str, clock: Clock, want: str, limit: float = 900.0) -> dict | None:
@@ -129,12 +262,40 @@ def _wait_for_stack(cf: Any, stack: str, clock: Clock, want: str, limit: float =
     raise TimeoutError(f"the stack {stack} did not reach {want} in {int(limit)} seconds")
 
 
-def deploy(c: Clients, r: Run, endpoint: str, clock: Clock) -> None:
+def deploy(c: Clients, r: Run, endpoint: str, clock: Clock, before: dict[str, dict] | None = None) -> None:
+    """Make the run's stack. In a subnet, `before` is its network interfaces before the stack was made, so that those
+    Lambda makes for the function are found after it (the_functions)."""
     n = names(r.run)
-    c.cloudformation.create_stack(StackName=n["stack"], TemplateBody=template_body(r.run, endpoint),
+    c.cloudformation.create_stack(StackName=n["stack"],
+                                  TemplateBody=template_body(r.run, endpoint, subnet=r.subnet,
+                                                             security_groups=r.security_groups, model=r.model),
                                   Capabilities=["CAPABILITY_NAMED_IAM"], Tags=[{"Key": TAG, "Value": r.run}])
     found = _wait_for_stack(c.cloudformation, n["stack"], clock, "CREATE_COMPLETE")
     r.outputs = {o["OutputKey"]: o["OutputValue"] for o in (found or {}).get("Outputs", [])}
+    if r.subnet:
+        r.interfaces = sorted(the_functions(r, interfaces_in(c, r.subnet), before))
+
+
+def interfaces_in(c: Clients, subnet: str) -> dict[str, dict]:
+    """The network interfaces in a subnet, by their IDs. Only read: the kit changes nothing of the customer's."""
+    found: dict[str, dict] = {}
+    token = None
+    while True:
+        page = c.ec2.describe_network_interfaces(Filters=[{"Name": "subnet-id", "Values": [subnet]}],
+                                                 **({"NextToken": token} if token else {}))
+        found.update({i["NetworkInterfaceId"]: i for i in page.get("NetworkInterfaces", [])})
+        token = page.get("NextToken")
+        if not token:
+            return found
+
+
+def the_functions(r: Run, found: dict[str, dict], before: dict[str, dict] | None = None) -> set[str]:
+    """Of the interfaces found, the test agent's: each whose description names the run's function (Lambda describes its
+    interfaces by the function), and, where the subnet was read before the stack was made, each new since then with
+    exactly the run's security groups."""
+    function, groups = names(r.run)["function"], set(r.security_groups)
+    return {i for i, ni in found.items() if function in (ni.get("Description") or "")
+            or (before is not None and i not in before and {g["GroupId"] for g in ni.get("Groups", [])} == groups)}
 
 
 def outputs_of(c: Clients, run: str) -> dict[str, str]:
@@ -177,9 +338,9 @@ def _invoke(c: Clients, r: Run, payload: dict, clock: Clock) -> tuple[dict, floa
 
 
 def assume(c: Clients, r: Run, clock: Clock) -> dict:
-    """The second role's session, taken by the agent, and when it took it, by its clock: AssumeRole gives a session's
-    expiry, not its issue time."""
-    body, _, _ = _invoke(c, r, {"action": "assume"}, clock)
+    """The second role's session, taken by the agent (through a gateway, through it), and when it took it, by its
+    clock: AssumeRole gives a session's expiry, not its issue time."""
+    body, _, _ = _invoke(c, r, {"action": "assume", **r.gateway}, clock)
     return {**body["session"], "issued": float(body["at"])}
 
 
@@ -190,7 +351,7 @@ def heartbeat(c: Clients, r: Run, n: int, session: dict,
     and the agent's own clock is None: it did not run."""
     sent = clock.now()
     try:
-        body, sent, received = _invoke(c, r, {"n": n, "session": session}, clock)
+        body, sent, received = _invoke(c, r, {"n": n, "session": session, **r.gateway}, clock)
     except Exception as e:
         code = refused_by_lambda(e)
         if code is None:
@@ -200,31 +361,38 @@ def heartbeat(c: Clients, r: Run, n: int, session: dict,
         response = getattr(e, "response", None) or {}
         status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
         return {p: Beat(at, False, REFUSED + code, status=status, reason=response.get("Reason"))
-                for p in AWS_PATHS}, sent, received, None
-    beats = {p: _beat(p, b, session) for p, b in (body.get("beats") or {}).items()}
+                for p in r.paths}, sent, received, None
+    versions = tuple(str(v) for v in body["v"]) if isinstance(body.get("v"), list) else None
+    beats = {p: _beat(p, b, session, versions) for p, b in (body.get("beats") or {}).items()}
     if body.get("key") and "own_calls" in beats:
         r.own_keys[beats["own_calls"].at] = str(body["key"])
     r.calls += len(beats)
     return beats, sent, received, float(body["at"])
 
 
-def _beat(path: str, b: dict, session: dict) -> Beat:
-    """A path's heartbeat from the agent's reply, with its failure record; under another identity, with the times of
-    the session it used."""
+def _beat(path: str, b: dict, session: dict, versions: tuple[str, ...] | None = None) -> Beat:
+    """A path's heartbeat from the agent's reply, with its failure record, when its client was made and what the agent
+    ran on; under another identity, with the times of the session it used."""
     timed = path == "another_identity" and bool(session)
+    made = b.get("client_at")
     return Beat(float(b["at"]), bool(b["ok"]), b.get("error"), status=b.get("status"), reason=b.get("reason"),
                 token_issued=session.get("issued") if timed else None,
-                token_expires=session.get("expires") if timed else None)
+                token_expires=session.get("expires") if timed else None,
+                client_at=float(made) if made is not None else None, versions=versions)
 
 
 def warm_up(c: Clients, r: Run, session: dict, clock: Clock) -> None:
-    """Heartbeats before any firing: which paths work, and how far apart the kit's clock and the agent's are."""
+    """Heartbeats before any firing: which paths work, and how far apart the kit's clock and the agent's are. Through a
+    gateway, a path works before the stop only where its last try in the warm-up worked: one failing as the customer
+    fires their stop would otherwise read as stopped."""
     best = None
+    last: dict[str, Beat] = {}
     for i in range(WARM_UP):
         beats, sent, received, agent_at = heartbeat(c, r, -1 - i, session, clock)
         for p, b in beats.items():
             r.warm_beats.setdefault(p, []).append(b)
         r.working |= {p for p, b in beats.items() if b.ok}
+        last.update(beats)
         for p, b in beats.items():
             if not b.ok:
                 codes = r.setup_errors.setdefault(p, {})
@@ -234,20 +402,46 @@ def warm_up(c: Clients, r: Run, session: dict, clock: Clock) -> None:
             best = (trip, agent_at - (sent + received) / 2)
         clock.sleep(1.0)
     r.offset = best[1] if best else 0.0
+    if r.via:
+        r.working = {p for p in r.working if p in last and last[p].ok}
+
+
+def _codes(r: Run, p: str) -> str:
+    return ", ".join(f"{code} {k}" for code, k in sorted(r.setup_errors.get(p, {}).items())) or "no answer"
+
+
+def _did_not_work(r: Run, p: str) -> str:
+    """What the kit says of a path that did not work before the stop: through the gateway, that it will be not
+    measured; else, as in any run, not run."""
+    if p in r.through:
+        return NOT_THROUGH_THE_GATEWAY.format(path=PATH_WORDS[p], codes=_codes(r, p))
+    return f"Before the stop, {PATH_WORDS[p]} did not work ({_codes(r, p)}): it will be reported as not run."
 
 
 def time_one(c: Clients, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
-             before: dict[str, list[Beat]] | None = None) -> Repeat:
-    """One repeat: fire (or wait for the customer's own trigger), then a heartbeat a second through the window and the
-    hold. `before` is each path's heartbeats before the firing: the warm-up's, or those since the last stop was taken
-    off."""
+             before: dict[str, list[Beat]] | None = None, mark: Callable[[], object] | None = None,
+             say: Callable[[str], None] = lambda _: None) -> Repeat:
+    """One repeat: fire (or wait for the customer's own trigger, or their mark), then a heartbeat a second through the
+    window and the hold. `before` is each path's heartbeats before the firing: the warm-up's, or those since the last
+    stop was taken off. Through a gateway, the session for the other identity is taken through it, before the mark:
+    where it cannot be, that path did not work before the stop."""
     rep = Repeat()
     for p, beats in (before or {}).items():
         rep.beats.setdefault(p, []).extend(beats)
-    session = assume(c, r, clock)
+    session = assume_or_none(c, r, clock) if r.via else assume(c, r, clock)
+    if session is None:
+        if "another_identity" in r.working:
+            r.working.discard("another_identity")
+            r.setup_errors.setdefault("another_identity", {})["NoSession"] = 1
+            say(_did_not_work(r, "another_identity"))
+        session = {}
     rep.session_expires = session.get("expires")
     n = n0
-    if watch_own_trigger:
+    if mark is not None:
+        mark()                          # the customer presses Enter, then fires their stop: timed from the Enter
+        rep.fired_before = rep.fired_after = clock.now()
+        say(MARKED)
+    elif watch_own_trigger:
         rep.watched_from = clock.now()
         seen = firing.watch(c.iam, c.lambda_, r.run, until=clock.now() + r.window, now=clock.now, sleep=clock.sleep)
         if seen is None:
@@ -271,17 +465,19 @@ def time_one(c: Clients, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
 
 
 def recover(c: Clients, r: Run, clock: Clock) -> dict[str, list[Beat]]:
-    """Between repeats: remove the stop, then wait until the agent's own calls work again. Returns each path's
-    heartbeats meanwhile, which come before the next repeat's firing."""
+    """Between repeats: remove the stop, then wait until the agent's own calls work again, and with a model its call to
+    the model, also made as its own role. Returns each path's heartbeats meanwhile, which come before the next repeat's
+    firing."""
     firing.remove(c.iam, r.run, r.stop_ref)
     session = assume_or_none(c, r, clock)
     end = clock.now() + RECOVERY
     good, seen = 0, {}
+    own = [p for p in ("own_calls", MODEL) if p in r.paths]
     while clock.now() < end and good < 5:
         beats, _, _, _ = heartbeat(c, r, 0, session or {}, clock)
         for p, b in beats.items():
             seen.setdefault(p, []).append(b)
-        good = good + 1 if beats.get("own_calls") and beats["own_calls"].ok else 0
+        good = good + 1 if all(beats.get(p) and beats[p].ok for p in own) else 0
         clock.sleep(1.0)
     return seen
 
@@ -297,14 +493,16 @@ def firing_moments(c: Clients, r: Run, clock: Clock, wait: float = TRAIL_WAIT) -
     """Each repeat's firing moment: CloudTrail's record of its attach call, waited for up to `wait` seconds; else the
     kit's own clock when the call returned, moved onto the agent's clock."""
     n = names(r.run)
-    event_name = firing.KINDS[r.stop_kind]
     if r.fired_by != "the kit":
-        # the customer's own trigger made no attach call of the kit's: its moment is when the kit saw the change
+        # the customer's own trigger made no attach call of the kit's: its moment is when the kit saw the change, or
+        # through a gateway the customer's mark
         for rep in r.repeats:
             if rep.fired_after:
                 rep.fired_at = rep.fired_after + r.offset
-        identify(c, r, clock, wait)
+        if not r.via:                       # through a gateway the stop is a product's control, never identified
+            identify(c, r, clock, wait)
         return
+    event_name = firing.KINDS[r.stop_kind]
     # (repeat, its moment's prefix, the role its call named): the agent's role, and for revoking, the role it became
     pending = [(rep, "", n["agent_role"]) for rep in r.repeats if rep.fired_after]
     pending += [(rep, "second_", n["second_role"]) for rep in r.repeats if rep.second_fired_after]
@@ -424,7 +622,8 @@ def own_tokens(c: Clients, r: Run) -> None:
             for e in page.get("Events", []):
                 detail = json.loads(e.get("CloudTrailEvent") or "{}")
                 made = (detail.get("responseElements") or {}).get("credentials") or {}
-                if made.get("accessKeyId") in keys and                         str((detail.get("requestParameters") or {}).get("roleArn", "")).endswith(f":role/{role}"):
+                if made.get("accessKeyId") in keys and \
+                        str((detail.get("requestParameters") or {}).get("roleArn", "")).endswith(f":role/{role}"):
                     found[made["accessKeyId"]] = (_seconds_of(e["EventTime"]), _expiry(made.get("expiration")))
             token = page.get("NextToken")
             if not token:
@@ -435,8 +634,10 @@ def own_tokens(c: Clients, r: Run) -> None:
             if r.own_keys.get(b.at) in found else b for b in rep.beats.get("own_calls", [])]
 
 
-def tear_down(c: Clients, r: Run, clock: Clock) -> None:
-    """Remove the stop the kit fired and everything it made; name anything left (D532, K4)."""
+def tear_down(c: Clients, r: Run, clock: Clock, eni_wait: float = ENI_WAIT,
+              say: Callable[[str], None] = lambda _: None) -> None:
+    """Remove the stop the kit fired and everything it made; name anything left (D532, K4). In a subnet of yours, wait
+    for the function's network interfaces to be removed first (wait_for_interfaces)."""
     n = names(r.run)
     try:
         firing.remove(c.iam, r.run, r.stop_ref)
@@ -457,7 +658,50 @@ def tear_down(c: Clients, r: Run, clock: Clock) -> None:
         _wait_for_stack(c.cloudformation, n["stack"], clock, "DELETE_COMPLETE")
     except Exception:  # noqa: BLE001 - what the stack could not delete is named below as left
         pass
+    gone, left = wait_for_interfaces(c, r, clock, eni_wait, say) if r.subnet else ([], [])
     r.left_behind, r.checked_gone = check_gone(c, r)
+    r.left_behind += left
+    r.checked_gone += gone
+
+
+def _code(e: Exception) -> str:
+    return str(getattr(e, "response", {}).get("Error", {}).get("Code") or type(e).__name__)
+
+
+def wait_for_interfaces(c: Clients, r: Run, clock: Clock, wait: float = ENI_WAIT,
+                        say: Callable[[str], None] = lambda _: None) -> tuple[list[str], list[str]]:
+    """The function's network interfaces in your subnet, waited for: AWS removes them some time after the function is
+    deleted, so one still there is waited for, up to `wait` seconds, asked every ENI_POLL, and the kit says why it
+    waits. Only then is one still there named as left. Returns what is gone and what is left. Where the function is
+    still there, so are its interfaces: they are named as left at once. Ctrl-C ends the wait early."""
+    function = names(r.run)["function"]
+    try:
+        ids = set(r.interfaces) | the_functions(r, interfaces_in(c, r.subnet))
+    except Exception as e:  # noqa: BLE001 - named, unchecked
+        return [], [INTERFACES_UNCHECKED.format(subnet=r.subnet, code=_code(e))]
+    r.interfaces, present = sorted(ids), set(ids)
+    if ids and _gone(lambda: c.lambda_.get_function(FunctionName=function)) is True:
+        end, said = clock.now() + wait, False
+        try:
+            while True:
+                present &= set(interfaces_in(c, r.subnet))
+                if not present or clock.now() >= end:
+                    break
+                if not said:
+                    say(WAITING_FOR_INTERFACES.format(minutes=int(wait // 60), count=len(present), subnet=r.subnet))
+                    said = True
+                clock.sleep(ENI_POLL)
+        except KeyboardInterrupt:
+            say(WAIT_STOPPED)
+        except Exception as e:  # noqa: BLE001 - those not yet seen gone are named, unchecked
+            r.interfaces_gone = sorted(ids - present)
+            r.interfaces_left = sorted(present)
+            return ([INTERFACE_GONE.format(id=i) for i in r.interfaces_gone],
+                    [INTERFACE_LEFT.format(id=i, subnet=r.subnet) + f" (could not be checked: {_code(e)})"
+                     for i in r.interfaces_left])
+    r.interfaces_gone, r.interfaces_left = sorted(ids - present), sorted(present)
+    return ([INTERFACE_GONE.format(id=i) for i in r.interfaces_gone],
+            [INTERFACE_LEFT.format(id=i, subnet=r.subnet) for i in r.interfaces_left])
 
 
 NOT_FOUND = {"NoSuchEntity", "ResourceNotFoundException", "NoSuchBucket", "404", "NotFound"}
@@ -553,21 +797,45 @@ def _moment(rep: Repeat, p: str) -> tuple[float | None, float]:
     return rep.fired_at, rep.fired_precision
 
 
+def new_connections_only(r: Run, rep: Repeat, p: str) -> list[Beat]:
+    """Through a gateway, a path's tries made with a client made after the mark, as when Lambda gave the agent a new
+    environment: "new connections only", which never set the path's result (D655, open tunnels 2; the founder's answer
+    of 30 October 2026)."""
+    at = _moment(rep, p)[0]
+    if p not in r.through or at is None:
+        return []
+    return [b for b in rep.beats.get(p, []) if b.client_at is not None and b.client_at > at]
+
+
+def _counts(r: Run, kind: str | None, p: str) -> Callable[[Beat, list[Beat]], bool]:
+    if kind == refusals.PRODUCT_CONTROL:
+        return lambda b, before: refusals.gateway_counts(p in r.through, r.signed_in, b)
+    return lambda b, before: refusals.counts(kind, p, b, before)
+
+
 def _one(r: Run, rep: Repeat, p: str) -> PathResult:
     at, precision = _moment(rep, p)
     kind = r.counted_kind
+    fresh = {id(b) for b in new_connections_only(r, rep, p)}
     found = judge(rep.beats.get(p, []), at, window=r.window, tried=p in r.working, setup_errors=r.setup_errors.get(p),
-                  fired_precision=precision, counts=lambda b, before: refusals.counts(kind, p, b, before))
-    if kind is None and found.outcome == NOT_MEASURED:
+                  fired_precision=precision, counts=_counts(r, kind, p),
+                  untried=NOT_MEASURED if p in r.through else NOT_RUN, refused_at_mark=NOT_MEASURED if r.via else None,
+                  set_aside=lambda b: id(b) in fresh)
+    if r.via:
+        if found.outcome == NOT_MEASURED and p not in r.working:
+            found = replace(found, reason=NOT_MEASURED_REASON)
+        elif found.outcome == NOT_MEASURED and found.reason == REFUSED_AT_THE_MARK:
+            found = replace(found, reason=ALREADY_REFUSED_REASON)
+    elif kind is None and found.outcome == NOT_MEASURED:
         found = replace(found, reason=NOT_IDENTIFIED)
     keeps = rep.session_expires if p == "another_identity" and found.outcome == "not stopped" else None
-    return replace(found, fired_source=_source(precision) if at is not None else None, keeps_working_until=keeps,
-                   fired_at=at)
+    source = (FROM_THE_MARK if r.via else _source(precision)) if at is not None else None
+    return replace(found, fired_source=source, keeps_working_until=keeps, fired_at=at)
 
 
 def results(r: Run) -> list[tuple[float | None, dict[str, PathResult]]]:
     """Each repeat's paths, each judged from its own firing moment."""
-    return [(rep.fired_at, {p: _one(r, rep, p) for p in AWS_PATHS}) for rep in r.repeats]
+    return [(rep.fired_at, {p: _one(r, rep, p) for p in r.paths}) for rep in r.repeats]
 
 
 def _iso(t: float | None) -> str | None:
@@ -590,7 +858,8 @@ def details(r: Run, doc: dict) -> dict:
             "first_refused": _iso(f.first_failure_after), "stopped_from": _iso(f.stopped_at),
             "last_success": _iso(f.last_success_after), "tries_after": f.tries_after, "failures_after": f.failures_after,
             "errors": f.errors, "not_counted": f.not_counted, "reason": f.reason,
-            "keeps_working_until": _iso(f.keeps_working_until), "failures": result.failure_records(f)}
+            "keeps_working_until": _iso(f.keeps_working_until), "failures": result.failure_records(f),
+            **({"client": client_mode(r, rep, p)} if p in r.through else {})}
             for p, f in found.items()})
     # each repeat's refusals by Lambda to run the agent at all, after the stop, by Lambda's code
     refused = []
@@ -598,10 +867,38 @@ def details(r: Run, doc: dict) -> dict:
         at = rep.fired_at if rep.fired_at is not None else float("inf")
         refused.append(dict(Counter(b.error.removeprefix(REFUSED) for b in rep.beats.get("own_calls", [])
                                     if b.error and b.error.startswith(REFUSED) and b.at > at)))
-    return {"format": "stop-test-details/1", "run": r.run, "result_signature": doc["signature"],
-            "stop_kind": r.stop_kind, "window_seconds": r.window, "left_behind": r.left_behind,
-            "checked_gone": r.checked_gone, "repeats": repeats, "lambda_refused": refused,
-            "trigger": {"kind": r.trigger_kind, "record": r.trigger_record} if r.fired_by == "your own trigger" else None}
+    own_trigger = r.fired_by == "your own trigger" and not r.via
+    out = {"format": "stop-test-details/1", "run": r.run, "result_signature": doc["signature"],
+           "stop_kind": r.stop_kind, "window_seconds": r.window, "left_behind": r.left_behind,
+           "checked_gone": r.checked_gone, "repeats": repeats, "lambda_refused": refused,
+           "trigger": {"kind": r.trigger_kind, "record": r.trigger_record} if own_trigger else None}
+    if r.via:       # the gateway as the result keeps it: its scheme, host and port alone, and with no bundle
+        out["gateway"] = {"via": result.gateway_address(r.via), "product": r.product}
+    if r.subnet:
+        out["network"] = network(r)
+    if r.model:     # the model the fifth path called, as given
+        out["model"] = r.model
+    return out
+
+
+def client_mode(r: Run, rep: Repeat, p: str) -> dict[str, Any]:
+    """Which client a path through the gateway was timed with (D655, open tunnels 3): one kept from before the mark, its
+    connection and tunnel reused, or None where no client was kept from before the mark (every try after it on a new
+    client, or none made); and the tries made with a client made after the mark, "new connections only", shown beside it
+    and never setting the result."""
+    at = _moment(rep, p)[0]
+    made = sorted({b.client_at for b in rep.beats.get(p, []) if b.client_at is not None and (at is None or
+                                                                                          b.client_at <= at)})
+    fresh = new_connections_only(r, rep, p)
+    return {"mode": "kept from before the mark" if made else None, "made": [_iso(m) for m in made],
+            "new_connections_only": {"tries": len(fresh), "failures": dict(Counter(b.error or "unknown"
+                                                                                    for b in fresh if not b.ok))}}
+
+
+def network(r: Run) -> dict[str, Any]:
+    """What a run made in your subnet, for its page: the function's network interfaces, and which were seen gone."""
+    return {"subnet": r.subnet, "security_groups": list(r.security_groups), "interfaces": list(r.interfaces),
+            "gone": list(r.interfaces_gone), "left": list(r.interfaces_left)}
 
 
 def the_result(r: Run, key=None) -> dict:
@@ -611,21 +908,54 @@ def the_result(r: Run, key=None) -> dict:
         began_at=r.began_at, ended_at=r.ended_at, window=r.window, clock_gap_ms=int(round(abs(r.offset) * 1000)),
         calls=r.calls, left_behind=r.left_behind, stop_kind=r.stop_kind, fired_by=r.fired_by,
         stop_ref=r.stop_ref,
-        agent={"kind": "aws-lambda-function", "runtime": RUNTIME, "memory_mb": MEMORY_MB, "private_network": False,
+        agent={"kind": "aws-lambda-function", "runtime": RUNTIME, "memory_mb": MEMORY_MB,
+               "private_network": bool(r.subnet),
                "ref": r.outputs.get("Agent", ""), "role_ref": r.outputs.get("AgentRole", "")},
-        repeats=results(r))
+        repeats=results(r), product=r.product, via=r.via or None)
     return result.sign(doc, key or result.new_key())
+
+
+def _a_gateway(product: Any) -> bool:
+    return isinstance(product, dict) and product.get("kind") == result.GATEWAY and \
+        product.get("attachment") in result.PRODUCTS[result.GATEWAY] and \
+        isinstance(product.get("name"), str) and 0 < len(product["name"]) <= result.NAME_LIMIT
 
 
 def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", window: float = WINDOWS["aws"],
         repeats: int = 1, clock: Clock | None = None, run_name: str | None = None,
-        trail_wait: float = TRAIL_WAIT, say: Callable[[str], None] = lambda _: None) -> tuple[Run, dict]:
+        trail_wait: float = TRAIL_WAIT, say: Callable[[str], None] = lambda _: None, via: str = "", ca: str = "",
+        product: dict[str, str] | None = None, subnet: str = "", security_groups: tuple[str, ...] | list[str] = (),
+        mark: Callable[[], object] | None = None, eni_wait: float = ENI_WAIT, model: str = "") -> tuple[Run, dict]:
     """A whole run, torn down whatever happens. Returns the run's record and its signed result. `say` is told, as the
-    run goes, of a path that did not work before the stop."""
+    run goes, of a path that did not work before the stop. With `model` (a Bedrock model's ID or an inference
+    profile's), the agent also calls it with each heartbeat, as a fifth path; where that call did not work before the
+    stop, the run is torn down and NotStarted raised.
+
+    Through a gateway: `via` is its address, `ca` the customer's certificate bundle (its text) for the calls through it
+    alone, `product` the declared gateway ({"kind", "attachment", "name"}), and `mark` what waits for the customer's
+    Enter. In a subnet of the customer's: `subnet`, with its `security_groups`; `eni_wait` bounds the teardown's wait
+    for the function's network interfaces."""
     from arvaken_stop_test.aws.stack import new_run
     clock = clock or Clock()
     if fired_by not in result.FIRED_BY:
         raise ValueError(f"the stop is fired by one of {result.FIRED_BY}")
+    if (product or ca) and not via:
+        raise ValueError("a product's control, and a certificate bundle, go with a gateway's address (via)")
+    if via:
+        if fired_by != "your own trigger" or stop_ref:
+            raise ValueError("through a gateway the stop is a product's control, fired by your own trigger")
+        if not _a_gateway(product):
+            raise ValueError("through a gateway the declared stop is a gateway, by its attachment and its name")
+        if mark is None:
+            raise ValueError("through a gateway each path is timed from your mark")
+        if window < GATEWAY_WINDOW:
+            raise ValueError(GATEWAY_WINDOW_TOO_SHORT)
+        if not set(result.GATEWAY_ROUTES[product["attachment"]]) & {*AWS_PATHS, *([MODEL] if model else [])}:
+            raise ValueError(NOT_COVERED_BY_THE_ATTACHMENT.format(attachment=product["attachment"]))
+    if (subnet or security_groups) and not (via and subnet and security_groups):
+        raise ValueError("a subnet of yours, with its security groups, is where your gateway is reached: with via")
+    if model and not is_model_id(model):
+        raise ValueError("a model is named by a Bedrock model's ID or an inference profile's")
     if fired_by == "the kit":
         reason = firing.why_not(stop_ref)
         if reason:
@@ -634,33 +964,45 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", 
     if fired_by == "the kit" and stop_ref not in (firing.REVOKE, firing.INLINE) \
             and not firing.covers(c.iam, stop_ref, the_name):
         raise firing.Refused(firing.NOT_COVERED)    # before anything is made
-    reason = firing.why_no_boundary(c.iam, c.sts)
+    reason = firing.why_no_boundary(c.iam, c.sts, network=bool(subnet), model=bool(model))
     if reason:
         raise firing.Refused(reason)                # before anything is made
     if not 1 <= repeats <= 5:
         raise ValueError("a run repeats one to five times")
     if fired_by == "your own trigger" and repeats != 1:
         raise ValueError("with your own trigger a run fires once: only you can take your own stop off between repeats")
-    r = Run(run=the_name, stop_ref=stop_ref, fired_by=fired_by, window=window, region=c.region)
+    before = interfaces_in(c, subnet) if subnet else None       # read, before anything is made
+    r = Run(run=the_name, stop_ref=stop_ref, fired_by=fired_by, window=window, region=c.region, via=via, ca=ca,
+            product=dict(product) if product else None, subnet=subnet, security_groups=list(security_groups),
+            model=model)
     r.began_at = clock.now()
     try:
-        deploy(c, r, endpoint, clock)
-        warm_up(c, r, assume(c, r, clock), clock)
-        for p in AWS_PATHS:
+        deploy(c, r, endpoint, clock, before)
+        first = assume_or_none(c, r, clock) if via else assume(c, r, clock)
+        warm_up(c, r, first or {}, clock)
+        if model and MODEL not in r.working and (r.working or not via):
+            said = MODEL_DID_NOT_WORK.format(model=model, codes=_codes(r, MODEL), region=c.region)
+            say(said)
+            raise NotStarted(said, r)               # torn down below; nothing was fired or asked for
+        for p in r.paths:
             if p not in r.working:
-                codes = ", ".join(f"{code} {k}" for code, k in sorted(r.setup_errors.get(p, {}).items()))
-                say(f"Before the stop, {PATH_WORDS[p]} did not work ({codes or 'no answer'}): it will be reported as "
-                    "not run.")
+                say(_did_not_work(r, p))
         n, before = 0, r.warm_beats
-        for i in range(repeats):
+        if via and not r.working & r.through:
+            say(NOTHING_THROUGH_THE_GATEWAY)        # no mark is asked for: every path reads "not measured"
+            r.repeats.append(Repeat())
+        for i in range(repeats if not r.repeats else 0):
             if i:
                 before = recover(c, r, clock)
-            rep = time_one(c, r, clock, fired_by == "your own trigger", n, before)
+            rep = time_one(c, r, clock, fired_by == "your own trigger", n, before, mark=mark if via else None,
+                           say=say)
             r.repeats.append(rep)
             n += sum(len(b) for b in rep.beats.values())
+            if via:
+                say(SWITCH_OFF)                     # the customer's switch may be stopping everything behind it
         firing_moments(c, r, clock, wait=trail_wait)
     finally:
-        tear_down(c, r, clock)
+        tear_down(c, r, clock, eni_wait=eni_wait, say=say)
         r.ended_at = clock.now()
     own_tokens(c, r)
     return r, the_result(r)

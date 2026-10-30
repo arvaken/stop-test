@@ -65,6 +65,78 @@
    "sentence": "authError: This error indicates a problem with the authorization provided in the request to Cloud Storage. The following are some situations where that will occur: The OAuth access token has expired and needs to be refreshed. This can be avoided by refreshing the access token early, but code can also catch this error, refresh the token and retry automatically. Multiple non-matching authorizations were provided; choose one mode only. The OAuth access token's bound project does not match the project associated with the provided developer key. The Authorization header was of an unrecognized format or uses an unsupported credential type.",
    "about": "the 401 Unauthorized reason authError, an expired access token among its situations",
    "read": "2026-10-30"
+  },
+  "aws-lambda-vpc-permissions": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc.html",
+   "page": "Giving Lambda Event Functions access to resources in an Amazon VPC - AWS Lambda",
+   "sentence": "If you prefer to create your own IAM permissions policy, make sure to add all of the following permissions and allow them on all resources (\"Resource\": \"*\"): ec2:CreateNetworkInterface ec2:DescribeNetworkInterfaces ec2:DescribeSubnets ec2:DeleteNetworkInterface ec2:AssignPrivateIpAddresses ec2:UnassignPrivateIpAddresses",
+   "about": "the permissions a function's execution role needs for Lambda to attach the function to an Amazon VPC, and the resources to allow them on",
+   "read": "2026-10-30"
+  },
+  "aws-lambda-source-function-arn": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/lambda/latest/dg/permissions-source-function-arn.html",
+   "page": "Using source function ARN to control function access behavior - AWS Lambda",
+   "sentence": "Lambda injects the source function ARN into the credentials context if the request is an AWS API request that comes from within your execution environment.",
+   "about": "the source function ARN on AWS API requests from a function's execution environment",
+   "read": "2026-10-30"
+  },
+  "aws-lambda-source-function-arn-not-enis": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/lambda/latest/dg/permissions-source-function-arn.html",
+   "page": "Using source function ARN to control function access behavior - AWS Lambda",
+   "sentence": "Other AWS API calls that Lambda makes outside of your execution environment on your behalf using the same execution role don't contain the source function ARN. Examples of such API calls outside the execution environment include: Calls to AWS Key Management Service (AWS KMS) to automatically encrypt and decrypt your environment variables. Calls to Amazon Elastic Compute Cloud (Amazon EC2) to create elastic network interfaces (ENIs) for a VPC-enabled function. Calls to AWS services, such as Amazon Simple Queue Service (Amazon SQS), to read from an event source that's set up as an event source mapping.",
+   "about": "the AWS API calls Lambda makes on a function's behalf that don't contain the source function ARN, among them Amazon EC2's to create ENIs for a VPC-enabled function",
+   "read": "2026-10-30"
+  },
+  "aws-iam-boundary-explicit-deny": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_boundaries.html",
+   "page": "Permissions boundaries for IAM entities - AWS Identity and Access Management",
+   "sentence": "Identity-based policies with boundaries – Identity-based policies are inline or managed policies that are attached to a user, group of users, or role. Identity-based policies grant permission to the entity, and permissions boundaries limit those permissions. The effective permissions are the intersection of both policy types. An explicit deny in either of these policies overrides the allow.",
+   "about": "evaluating identity-based policies with permissions boundaries: an explicit deny in either overrides the allow",
+   "read": "2026-10-30"
+  },
+  "aws-bedrock-inference-profile-permissions": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-prereq.html",
+   "page": "Prerequisites for inference profiles - Amazon Bedrock",
+   "sentence": "When you specify an inference profile in the Resource field in the first statement, you must also specify the foundation model in each Region associated with it.",
+   "about": "the resources a role's policy names to run model inference through an inference profile",
+   "read": "2026-10-30"
+  },
+  "aws-bedrock-converse-access-denied": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html",
+   "page": "Converse - Amazon Bedrock",
+   "sentence": "AccessDeniedException The request is denied because you do not have sufficient permissions to perform the requested action. For troubleshooting this error, see AccessDeniedException in the Amazon Bedrock User Guide HTTP Status Code: 403",
+   "about": "Converse's error AccessDeniedException",
+   "read": "2026-10-30"
+  },
+  "aws-cloudformation-lambda-inline-code": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-properties-lambda-function-code.html",
+   "page": "AWS::Lambda::Function Code - AWS CloudFormation",
+   "sentence": "(Node.js and Python) The source code of your Lambda function. If you include your function source inline with this parameter, CloudFormation places it in a file named index and zips it to create a deployment package. This zip file cannot exceed 4MB.",
+   "about": "AWS::Lambda::Function Code's ZipFile, a function's inline code",
+   "read": "2026-10-30"
+  },
+  "aws-lambda-best-practices-clients-outside-handler": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/lambda/latest/dg/best-practices.html",
+   "page": "Best practices for working with AWS Lambda Event Functions - AWS Lambda",
+   "sentence": "Initialize SDK clients and database connections outside of the function handler, and cache static assets locally in the /tmp directory. Subsequent invocations processed by the same instance of your function can reuse these resources.",
+   "about": "an SDK client made outside a Lambda function's handler, reused by later invocations in the same instance",
+   "read": "2026-10-30"
+  },
+  "aws-botocore-max-pool-connections": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/botocore/latest/reference/config.html",
+   "page": "Config Reference - botocore 1.43.122 documentation",
+   "sentence": "The maximum number of connections to keep in a connection pool. If this value is not set, the default value of 10 is used.",
+   "about": "botocore's Config max_pool_connections: the connections a client keeps in its pool",
+   "read": "2026-10-30"
   }
  },
  "owed": {

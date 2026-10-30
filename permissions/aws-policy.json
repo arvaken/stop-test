@@ -9,7 +9,10 @@
    "Action": ["iam:CreateRole", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:AttachRolePolicy",
               "iam:DetachRolePolicy"],
    "Resource": "arn:aws:iam::*:role/arvaken-stop-test-*",
-   "Condition": {"StringLike": {"iam:PermissionsBoundary": "arn:aws:iam::*:policy/arvaken-stop-test-boundary"}}},
+   "Condition": {"StringLike": {"iam:PermissionsBoundary": [
+     "arn:aws:iam::*:policy/arvaken-stop-test-boundary", "arn:aws:iam::*:policy/arvaken-stop-test-boundary-via",
+     "arn:aws:iam::*:policy/arvaken-stop-test-boundary-model",
+     "arn:aws:iam::*:policy/arvaken-stop-test-boundary-via-model"]}}},
   {"Sid": "TheRunsRoles", "Effect": "Allow",
    "Action": ["iam:DeleteRole", "iam:GetRole", "iam:TagRole", "iam:UntagRole", "iam:ListRoleTags", "iam:GetRolePolicy",
               "iam:ListRolePolicies", "iam:ListAttachedRolePolicies"],
@@ -30,7 +33,8 @@
   {"Sid": "YourStopReadAndChecked", "Effect": "Allow", "Action": ["iam:GetPolicy", "iam:GetPolicyVersion"],
    "Resource": "arn:aws:iam::*:policy/*"},
   {"Sid": "ReadsAwsTakesOnEveryResourceOnly", "Effect": "Allow",
-   "Action": ["cloudtrail:LookupEvents", "tag:GetResources", "logs:DescribeLogGroups", "iam:SimulateCustomPolicy"],
+   "Action": ["cloudtrail:LookupEvents", "tag:GetResources", "logs:DescribeLogGroups", "iam:SimulateCustomPolicy",
+              "ec2:DescribeNetworkInterfaces", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups", "ec2:DescribeVpcs"],
    "Resource": "*"}
  ]
 }

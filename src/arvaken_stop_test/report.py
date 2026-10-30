@@ -12,6 +12,7 @@ from typing import Any
 
 from datetime import datetime, timezone
 
+from arvaken_stop_test.result import GATEWAY_ROUTES
 from arvaken_stop_test.timing import PATH_WORDS, PathResult, worded
 
 
@@ -43,8 +44,65 @@ REVOKE_NOTE = ("Revoking sessions denies the sessions issued before the moment i
                "unaffected, so what is expected here is of the sessions the test agent held when the stop was fired.")
 
 
-def expected(kind: str, path: str) -> str:
+EXPECTED_HEADING = "A stop on its role would be expected"
+# Through a gateway (--via; D561), only the calls its declared attachment covers are sent through it (result.
+# GATEWAY_ROUTES; the founder's condition a, 28 October 2026), so its switch would be expected to stop those paths, and
+# not the others, which go directly; a path that did not work through it before the stop, or was already refused at
+# the mark, is "not measured".
+PRODUCT_KIND = "a product's control"
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
+GATEWAY_HEADING = "A stop of your gateway would be expected"
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
+GATEWAY_NOTE = ("Your stop: {name}, a gateway attached to {attachment}. Every call the test agent made went through "
+                "your gateway at {via}.")
+# CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
+GATEWAY_NOTE_SOME = ("Your stop: {name}, a gateway attached to {attachment}. The test agent's calls it covers "
+                     "({paths}) went through your gateway at {via}. Its other calls went directly.")
+# CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
+ALREADY_REFUSED_NOTE = "A path already refused at your mark is not measured either."
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
+MARK_NOTE = ("You fired your stop yourself, after your mark. Each time here is from your mark, the moment you pressed "
+             "Enter, so it errs toward slower, never faster. A path that did not work through your gateway before the "
+             "stop is not measured, never stopped.")
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
+NETWORK_NOTE = "The test agent ran in your subnet {subnet}, with your security group(s) {groups}."
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
+INTERFACES_NOTE = "Its network interfaces there: {interfaces}. Checked gone: {gone}. Still there: {left}."
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
+NO_INTERFACES_NOTE = "The kit found no network interface of the test agent's own in your subnet."
+
+
+def expected(kind: str, path: str, attachment: str | None = None) -> str:
+    """What the declared stop would be expected to do on a path: through a gateway, by how it is attached."""
+    if kind == PRODUCT_KIND:
+        return "stopped" if path in GATEWAY_ROUTES.get(attachment or "", ()) else "not stopped"
     return "stopped" if kind == REVOKE_KIND and path == "another_identity" else EXPECTED[path]
+
+
+def _gateway(doc: Mapping[str, Any]) -> str:
+    """Through a gateway: the product, as the customer named it, and the gateway's address, as the result keeps it."""
+    product = doc["stop"].get("product")
+    if not product:
+        return ""
+    via = doc["run"].get("via") or ""
+    routes = GATEWAY_ROUTES.get(product["attachment"], ())
+    said = GATEWAY_NOTE.format(name=product["name"], attachment=product["attachment"], via=via) \
+        if product["attachment"] == "all its outbound traffic" else \
+        GATEWAY_NOTE_SOME.format(name=product["name"], attachment=product["attachment"], via=via,
+                                 paths=", ".join(PATH_WORDS[p] for p in routes
+                                                 if any(p in rep for rep in doc["repeats"])))
+    return f"<p>{html.escape(said)}</p>\n<p>{html.escape(MARK_NOTE + ' ' + ALREADY_REFUSED_NOTE)}</p>\n"
+
+
+def _network(network: Mapping[str, Any] | None) -> str:
+    """In a subnet of yours: it, and the test agent's network interfaces the kit found there, gone or still there."""
+    if not network:
+        return ""
+    said = NETWORK_NOTE.format(subnet=network["subnet"], groups=", ".join(network["security_groups"]))
+    ids = lambda key: ", ".join(network[key]) or "none"  # noqa: E731
+    said += " " + (INTERFACES_NOTE.format(interfaces=ids("interfaces"), gone=ids("gone"), left=ids("left"))
+                   if network["interfaces"] else NO_INTERFACES_NOTE)
+    return f"<p>{html.escape(said)}</p>\n"
 
 
 def _source(details: list[Mapping[str, PathResult]] | None) -> str:
@@ -73,12 +131,16 @@ def _refused(details: list[Mapping[str, PathResult]] | None) -> str:
     return said
 
 
-def page(doc: Mapping[str, Any], details: list[Mapping[str, PathResult]] | None = None) -> str:
+def page(doc: Mapping[str, Any], details: list[Mapping[str, PathResult]] | None = None,
+         network: Mapping[str, Any] | None = None) -> str:
+    """The page. `network` is what a run in a subnet of yours made there (aws/run.py's network)."""
     window = float(doc["run"]["window_seconds"])
+    attachment = (doc["stop"].get("product") or {}).get("attachment")
     rows = []
     for i, repeat in enumerate(doc["repeats"]):
         for path, part in repeat.items():
-            expected_here, actual = worded(expected(doc["stop"]["kind"], path), window), worded(part["outcome"], window)
+            expected_here = worded(expected(doc["stop"]["kind"], path, attachment), window)
+            actual = worded(part["outcome"], window)
             errors = ""
             if details and i < len(details) and path in details[i]:
                 found = details[i][path]
@@ -90,7 +152,7 @@ def page(doc: Mapping[str, Any], details: list[Mapping[str, PathResult]] | None 
                     errors = f"{errors}; not counted: {rest}" if errors else f"not counted: {rest}"
                 if found.reason and part["outcome"] in ("not run", "not measured"):
                     errors = f"{found.reason}: {errors}" if errors else found.reason
-            mark = "" if expected(doc["stop"]["kind"], path) == part["outcome"] else ' class="differs"'
+            mark = "" if expected(doc["stop"]["kind"], path, attachment) == part["outcome"] else ' class="differs"'
             if details and i < len(details) and path in details[i] and _found(details[i][path]):
                 actual = f"{actual} ({_found(details[i][path])})"
             rows.append(f"<tr{mark}><td>{i + 1}</td><td>{html.escape(PATH_WORDS[path])}</td>"
@@ -98,6 +160,7 @@ def page(doc: Mapping[str, Any], details: list[Mapping[str, PathResult]] | None 
                         f"<td>{html.escape(part['first_refused_after'] or '')}</td><td>{html.escape(errors)}</td></tr>")
     left = ("Nothing the kit made was left." if not doc["run"]["left_anything"] else
             "Left for you to delete: " + ", ".join(html.escape(x) for x in doc["run"]["left_behind"]))
+    heading = GATEWAY_HEADING if doc["stop"]["kind"] == PRODUCT_KIND else EXPECTED_HEADING
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Stop test {html.escape(doc['run']['began_at'] or '')}</title>
 <style>body{{font:15px/1.5 system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem}}
@@ -108,8 +171,8 @@ tr.differs td{{font-weight:600}}</style></head><body>
 to {html.escape(doc['run']['ended_at'] or '')}. The stop was fired by {html.escape(doc['stop']['fired_by'])}.
 The window was {html.escape(worded('not stopped', window).removeprefix('not stopped within '))}; the kit's clock and the
 test agent's were {doc['run']['clock_gap_ms']} ms apart.</p>
-<table><thead><tr><th>Repeat</th><th>Path</th><th>A stop on its role would be expected</th><th>What the test found</th>
-<th>First refused</th><th>Errors seen (this page only)</th></tr></thead><tbody>
+{_gateway(doc)}{_network(network)}<table><thead><tr><th>Repeat</th><th>Path</th><th>{html.escape(heading)}</th>
+<th>What the test found</th><th>First refused</th><th>Errors seen (this page only)</th></tr></thead><tbody>
 {''.join(rows)}
 </tbody></table>
 <p>{left}</p>

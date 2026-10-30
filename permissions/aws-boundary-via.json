@@ -1,0 +1,51 @@
+{
+ "Version": "2012-10-17",
+ "Statement": [
+  {
+   "Sid": "TheRunsBucketsObjects",
+   "Effect": "Allow",
+   "Action": [
+    "s3:PutObject",
+    "s3:GetObject"
+   ],
+   "Resource": "arn:aws:s3:::arvaken-stop-test-*/*"
+  },
+  {
+   "Sid": "TheRunsSecondRole",
+   "Effect": "Allow",
+   "Action": "sts:AssumeRole",
+   "Resource": "arn:aws:iam::*:role/arvaken-stop-test-*"
+  },
+  {
+   "Sid": "TheTestAgentsNetworkInterfacesInASubnetYouName",
+   "Effect": "Allow",
+   "Action": [
+    "ec2:CreateNetworkInterface",
+    "ec2:DescribeNetworkInterfaces",
+    "ec2:DescribeSubnets",
+    "ec2:DeleteNetworkInterface",
+    "ec2:AssignPrivateIpAddresses",
+    "ec2:UnassignPrivateIpAddresses"
+   ],
+   "Resource": "*"
+  },
+  {
+   "Sid": "NoneOfThemFromAFunctionsOwnCode",
+   "Effect": "Deny",
+   "Action": [
+    "ec2:CreateNetworkInterface",
+    "ec2:DescribeNetworkInterfaces",
+    "ec2:DescribeSubnets",
+    "ec2:DeleteNetworkInterface",
+    "ec2:AssignPrivateIpAddresses",
+    "ec2:UnassignPrivateIpAddresses"
+   ],
+   "Resource": "*",
+   "Condition": {
+    "Null": {
+     "lambda:SourceFunctionArn": "false"
+    }
+   }
+  }
+ ]
+}
