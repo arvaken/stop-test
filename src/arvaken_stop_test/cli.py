@@ -328,8 +328,10 @@ def _google(args, p) -> int:
                          repeats=args.repeats, run_name=run_name, say=print)
     out = Path(f"stop-test-{run_name}.json")
     write(out, json.dumps(doc, indent=1, sort_keys=True))
-    write(Path(f"stop-test-{run_name}.html"), report.page(doc, [d for _, d in running.results(r)]))
-    write(Path(f"stop-test-{run_name}-details.json"), json.dumps(running.details(r, doc), indent=1))
+    details = running.details(r, doc)
+    write(Path(f"stop-test-{run_name}.html"), report.page(doc, [d for _, d in running.results(r)],
+                                                          lost=details["heartbeats_lost"]["by_code"]))
+    write(Path(f"stop-test-{run_name}-details.json"), json.dumps(details, indent=1))
     print(f"Wrote {out}, its page and its details. Nothing about your project was sent to Arvaken.")
     print(f"Your result's reference: {result.reference(doc)}. It's the SHA-256 of the result's signature.")
     return 0
@@ -463,9 +465,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     out = Path(f"stop-test-{run_name}.json")
     write(out, json.dumps(doc, indent=1, sort_keys=True))
+    details = running.details(r, doc)
     write(Path(f"stop-test-{run_name}.html"), report.page(doc, [d for _, d in running.results(r)],
-                                                          network=running.network(r) if r.subnet else None))
-    write(Path(f"stop-test-{run_name}-details.json"), json.dumps(running.details(r, doc), indent=1))
+                                                          network=running.network(r) if r.subnet else None,
+                                                          lost=details["heartbeats_lost"]["by_code"]))
+    write(Path(f"stop-test-{run_name}-details.json"), json.dumps(details, indent=1))
     # through a gateway, the calls to Arvaken's test address leave from the gateway's address where they go through it
     print(WROTE_THROUGH_A_GATEWAY.format(out=out) if args.via and "outside_key" in routed(args) else
           f"Wrote {out}, its page and its details. Nothing about your account was sent to Arvaken.")
