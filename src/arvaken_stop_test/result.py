@@ -32,6 +32,7 @@ import base64
 import hashlib
 import json
 import urllib.parse
+from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 
@@ -166,6 +167,13 @@ def failure_records(r: PathResult) -> list[dict[str, Any]]:
     """Each failure after the stop on a path, in order, with whether it counted as the stop's refusal."""
     refused = set(r.refused)
     return [failure_record(b, i in refused) for i, b in enumerate(r.failures)]
+
+
+def heartbeats_lost(lost: list[tuple[float, str]]) -> dict[str, Any]:
+    """The heartbeats a run could not complete, for its details: how many by code, and each one's moment, on the agent's
+    clock, with its code. None of them is a beat of any path (aws/run.py's and google/run.py's heartbeat)."""
+    return {"by_code": dict(Counter(code for _, code in lost)),
+            "each": [{"at": iso(at), "code": code} for at, code in sorted(lost)]}
 
 
 def build(*, kit_version: str, cloud: str, region: str, began_at: float, ended_at: float, window: float,

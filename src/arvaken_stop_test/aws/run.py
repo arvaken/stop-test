@@ -181,6 +181,7 @@ class Run:
     outputs: dict[str, str] = field(default_factory=dict)
     offset: float = 0.0                 # the test agent's clock minus the kit's, from the warm-up
     calls: int = 0
+    lost: list[tuple[float, str]] = field(default_factory=list)     # heartbeats with no answer: sent, by the kit's clock
     working: set[str] = field(default_factory=set)      # the paths that worked in the warm-up
     setup_errors: dict[str, dict[str, int]] = field(default_factory=dict)   # and the errors of those that did not
     repeats: list[Repeat] = field(default_factory=list)
@@ -332,6 +333,16 @@ def refused_by_lambda(e: Exception) -> str | None:
     return None
 
 
+def unreached(e: Exception) -> str | None:
+    """botocore's name for an Invoke that got no answer, the network having failed or timed out on the way there or back
+    after botocore's retries (its ConnectionError and HTTPClientError: ConnectTimeoutError, ReadTimeoutError and
+    EndpointConnectionError among them); else None. Read by class, so the kit needs no botocore to load this module."""
+    if any(k.__module__ == "botocore.exceptions" and k.__name__ in ("ConnectionError", "HTTPClientError")
+           for k in type(e).__mro__):
+        return type(e).__name__
+    return None
+
+
 def _invoke(c: Clients, r: Run, payload: dict, clock: Clock) -> tuple[dict, float, float]:
     sent = clock.now()
     response = c.lambda_.invoke(FunctionName=names(r.run)["function"], Payload=json.dumps(payload).encode())
@@ -350,14 +361,20 @@ def heartbeat(c: Clients, r: Run, n: int, session: dict,
               clock: Clock) -> tuple[dict[str, Beat], float, float, float | None]:
     """One heartbeat: each path's result, the kit's clock when it was asked and answered, and the agent's own clock.
     Where Lambda refused to run the agent, each path's beat is that refusal, at the kit's clock moved onto the agent's,
-    and the agent's own clock is None: it did not run."""
+    and the agent's own clock is None: it did not run. Where the Invoke got no answer (unreached), nothing of the
+    agent's was seen: no path has a beat, the heartbeat is kept as lost, by its code, for the details, and the run goes
+    on (the founder's answer of 30 October 2026, after Google's run r37f2ed13 ended on one)."""
     sent = clock.now()
     try:
         body, sent, received = _invoke(c, r, {"n": n, "session": session, **r.gateway}, clock)
     except Exception as e:
         code = refused_by_lambda(e)
         if code is None:
-            raise
+            lost = unreached(e)
+            if lost is None:
+                raise
+            r.lost.append((sent, lost))
+            return {}, sent, clock.now(), None
         received = clock.now()
         at = (sent + received) / 2 + r.offset
         response = getattr(e, "response", None) or {}
@@ -890,6 +907,7 @@ def details(r: Run, doc: dict) -> dict:
     out = {"format": "stop-test-details/1", "run": r.run, "result_signature": doc["signature"],
            "stop_kind": r.stop_kind, "window_seconds": r.window, "left_behind": r.left_behind,
            "checked_gone": r.checked_gone, "repeats": repeats, "lambda_refused": refused,
+           "heartbeats_lost": result.heartbeats_lost([(at + r.offset, code) for at, code in r.lost]),
            "trigger": {"kind": r.trigger_kind, "record": r.trigger_record} if own_trigger else None}
     if r.via:       # the gateway as the result keeps it: its scheme, host and port alone, and with no bundle
         out["gateway"] = {"via": result.gateway_address(r.via), "product": r.product}

@@ -18,8 +18,10 @@ founder, 29 October 2026). Each path is judged from its heartbeats before the fi
 """
 from __future__ import annotations
 
+import http.client
 import json
 import time
+import urllib.error
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
@@ -77,6 +79,7 @@ class Run:
     outputs: dict[str, str] = field(default_factory=dict)
     offset: float = 0.0
     calls: int = 0
+    lost: list[tuple[float, str]] = field(default_factory=list)     # heartbeats with no answer: sent, by the kit's clock
     working: set[str] = field(default_factory=set)
     setup_errors: dict[str, dict[str, int]] = field(default_factory=dict)
     repeats: list[Repeat] = field(default_factory=list)
@@ -128,8 +131,20 @@ def _seconds(text: str | None) -> float | None:
     return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
 
 
+def unreached(e: Exception) -> str:
+    """The name of what failed, for a call that got no answer: what urllib's URLError wraps, as the TLS handshake that
+    timed out in run r37f2ed13, or else the error's own, as the socket's or http.client's while reading the answer."""
+    if isinstance(e, urllib.error.URLError) and isinstance(e.reason, BaseException):
+        return type(e.reason).__name__
+    return type(e).__name__
+
+
 def heartbeat(g: Google, r: Run, n: int, session: dict,
               clock: Clock) -> tuple[dict[str, Beat], float, float, float | None]:
+    """One heartbeat, as aws/run.py's. Where the call got no answer, the network having failed or timed out on the way
+    to the test agent or back (unreached), nothing of the agent's was seen: no path has a beat, the heartbeat is kept as
+    lost, by its code, for the details, and the run goes on (the founder's answer of 30 October 2026, after run
+    r37f2ed13 ended on one). Google's own answer, a refusal among them, is a GoogleError."""
     sent = clock.now()
     try:
         body, sent, received = _invoke(g, r, {"n": n, "session": session}, clock)
@@ -139,6 +154,9 @@ def heartbeat(g: Google, r: Run, n: int, session: dict,
         received = clock.now()
         at = (sent + received) / 2 + r.offset
         return {p: Beat(at, False, f"{REFUSED}HTTP{e.status}", status=e.status) for p in GOOGLE_PATHS}, sent, received, None
+    except (urllib.error.URLError, http.client.HTTPException, OSError) as e:
+        r.lost.append((sent, unreached(e)))
+        return {}, sent, clock.now(), None
     beats = {p: Beat(float(b["at"]), bool(b["ok"]), b.get("error"), status=b.get("status"), reason=b.get("reason"),
                      provider_status=b.get("provider_status"), step=b.get("step"), token_issued=b.get("token_issued"),
                      token_expires=b.get("token_expires"))
@@ -422,6 +440,7 @@ def details(r: Run, doc: dict) -> dict:
     return {"format": "stop-test-details/1", "run": r.run, "result_signature": doc["signature"],
             "stop_kind": r.stop_kind, "window_seconds": r.window, "left_behind": r.left_behind,
             "checked_gone": r.checked_gone, "repeats": repeats,
+            "heartbeats_lost": result.heartbeats_lost([(at + r.offset, code) for at, code in r.lost]),
             "trigger": {"kind": r.trigger_kind, "record": r.trigger_record} if r.fired_by == "your own trigger" else None}
 
 

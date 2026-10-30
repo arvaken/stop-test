@@ -20,6 +20,9 @@ finishes deleting the stack that many seconds after AWS removes that interface, 
 until then the stack reads DELETE_IN_PROGRESS and its roles and bucket are still there, though Lambda already answers
 that the function is gone.
 
+A heartbeat whose invocation got no answer: `lose` names each by its number (n) and the error botocore raised for it
+after its retries.
+
 With a model (--model): where the stack's function names one (MODEL), each heartbeat also has the model's call, made as
 the agent's own role, so it is refused (AccessDeniedException) once its own calls are; `model_error` is a code the call
 fails with throughout, as a wrong model ID's or one not enabled in the account."""
@@ -29,6 +32,7 @@ import io
 import json
 from datetime import datetime, timezone
 
+import botocore.exceptions
 import pytest
 
 from arvaken_stop_test import result
@@ -75,7 +79,7 @@ class FakeAWS:
                  boundary_model="the kit's", boundary_via_model="the kit's", gateway_refuses=(), gateway_breaks=None,
                  gw_delay=3.0, eni_after=600.0, eni_described=True, subnet_has=(), stack_stays=False, model_error=None,
                  gw_status=None, agent_versions=("3.12.15", "1.42.97", "2.8.0"), new_environment_after=None,
-                 stack_after_eni=None):
+                 stack_after_eni=None, lose=None):
         self.clock, self.delay, self.trail_delay, self.skew = clock, delay, trail_delay, skew
         self.left, self.role_tagged, self.endpoint_error = list(left), role_tagged, endpoint_error
         self.stack = None
@@ -121,6 +125,7 @@ class FakeAWS:
         self.function_deleted_at: float | None = None
         self.ec2_calls: list[str] = []
         self.stack_stays, self.stack_after_eni = stack_stays, stack_after_eni
+        self.lose = dict(lose or {})
         self.model_error = model_error
         # the customer's own actions on the agent's role, as CloudTrail records them: (call, when, policy's name)
         self.customer_calls: list[tuple[str, float, str]] = []
@@ -253,6 +258,9 @@ class FakeAWS:
     def invoke(self, FunctionName, Payload):
         self.invocations += 1
         self.clock.t += 0.1                       # the call's way there; the agent stamps its time; and back (below)
+        if (lost := self.lose.get(json.loads(Payload).get("n"))) is not None:
+            self.clock.t += 0.1
+            raise lost
         stopped = self.stopped()
         self.stopped_from = (self.stopped_from or self.clock.now()) if stopped else None
         refusal = None
@@ -722,3 +730,35 @@ def test_each_own_calls_failure_holds_the_times_of_the_credentials_it_used_from_
     assert all(x["token_issued"] is None for x in running.details(r, doc)["repeats"][0]["outside_key"]["failures"])
     assert not other or all(x["token_expires"] for x in other)
     assert OWN_KEY not in json.dumps(running.details(r, doc)) and OWN_KEY not in json.dumps(doc)
+
+
+LAMBDA_URL = "https://lambda.eu-central-1.amazonaws.com/2015-03-31/functions/arvaken-stop-test-r0123abcd-agent/invocations"
+
+
+def test_a_heartbeat_that_got_no_answer_is_counted_by_its_code_and_never_ends_the_run():
+    """Google's run r37f2ed13 (30 October 2026) ended on a heartbeat that got no answer, and wrote no result; on AWS,
+    botocore's retries narrow that but do not close it. A heartbeat the kit could not complete gives no beat to any path,
+    is counted in the details by its code, and the run goes on (the founder's answer of 30 October 2026). Any other
+    error that is not Lambda's refusal still ends the run."""
+    clock = Clock()
+    whole, whole_doc = a_run(FakeAWS(clock), clock)
+    lose = {-2: botocore.exceptions.ConnectTimeoutError(endpoint_url=LAMBDA_URL),
+            5: botocore.exceptions.ReadTimeoutError(endpoint_url=LAMBDA_URL),
+            6: botocore.exceptions.ReadTimeoutError(endpoint_url=LAMBDA_URL),
+            20: botocore.exceptions.EndpointConnectionError(endpoint_url=LAMBDA_URL)}
+    clock = Clock()
+    r, doc = a_run(FakeAWS(clock, lose=lose), clock)
+    assert result.check(doc) == doc
+    assert [{p: v["outcome"] for p, v in d["repeats"][0].items()} for d in (doc, whole_doc)] == [
+        {"own_calls": "stopped", "another_identity": "not stopped", "outside_key": "not stopped",
+         "open_internet": "not stopped"}] * 2
+    assert r.calls == whole.calls - 4 * len(r.paths)                  # no beat for any path from the four
+    lost = running.details(r, doc)["heartbeats_lost"]
+    assert lost["by_code"] == {"ConnectTimeoutError": 1, "ReadTimeoutError": 2, "EndpointConnectionError": 1}
+    assert [e["code"] for e in lost["each"]] == [
+        "ConnectTimeoutError", "ReadTimeoutError", "ReadTimeoutError", "EndpointConnectionError"]
+    assert all(e["at"] < lost["each"][i + 1]["at"] for i, e in enumerate(lost["each"][:-1]))
+    assert running.details(whole, whole_doc)["heartbeats_lost"] == {"by_code": {}, "each": []}
+    clock = Clock()
+    with pytest.raises(ClientError):
+        a_run(FakeAWS(clock, lose={5: ClientError("ServiceException")}), clock)

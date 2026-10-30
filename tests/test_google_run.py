@@ -6,12 +6,17 @@ own answer: a deny policy naming the agent's account, or the account disabled, s
 propagation delay (8 seconds here); a token the agent took for the second account before the stop keeps working, as
 neither stop names that account; Cloud Audit Logs record the firing call some time later (two minutes here), to the
 microsecond; a thing deleted answers 404. Each case's expectations are worked out by hand from those rules.
+
+A heartbeat whose call got no answer: `lose` names each by its number (n) and the error urllib, http.client or the
+socket raised for it.
 """
 from __future__ import annotations
 
 import ast
+import http.client
 import json
 import re
+import urllib.error
 import urllib.parse
 from datetime import datetime, timezone
 
@@ -49,7 +54,7 @@ class FakeGoogle:
     """One project, as the kit's run sees it through `Google.call`."""
 
     def __init__(self, clock: Clock, *, delay=8.0, log_delay=120.0, skew=0.05, declared_rules=None, bucket_stays=False,
-                 described=True):
+                 described=True, lose=None):
         self.project, self.region = PROJECT, REGION
         self.clock, self.delay, self.log_delay, self.skew = clock, delay, log_delay, skew
         self.accounts: dict[str, dict] = {}
@@ -69,6 +74,7 @@ class FakeGoogle:
         self.bodies: list[dict] = []
         self.customer = None                           # the customer's own trigger, pulled at any call once set
         self.agent_calls, self.pulling = 0, False
+        self.lose = dict(lose or {})
 
     # what stops the agent's own calls, and since when
     def stopped_since(self) -> float | None:
@@ -113,6 +119,8 @@ class FakeGoogle:
                 raise GoogleError(503, "UNAVAILABLE")
         if identity:
             assert url == "https://agent.example/", url
+            if (lost := self.lose.get(body.get("n"))) is not None:
+                raise lost
             return self.agent(body)
         if path.endswith("/serviceAccounts") and method == "POST":
             email = f"{body['accountId']}@{PROJECT}.iam.gserviceaccount.com"
@@ -420,3 +428,29 @@ def test_cloud_runs_refusals_are_recorded_on_every_path_and_never_counted():
     assert {p: v["outcome"] for p, v in doc["repeats"][0].items()} == {p: "not measured" for p in running.GOOGLE_PATHS}
     found = running.results(r)[0][1]["own_calls"]
     assert found.not_counted == {"Cloud Run refused: HTTP503": found.failures_after} and found.failures[0].status == 503
+
+
+def test_a_heartbeat_that_got_no_answer_is_counted_by_its_code_and_never_ends_the_run():
+    """Run r37f2ed13 (30 October 2026) ended on one: a TLS handshake with the test agent timed out, urllib raised it,
+    and the kit wrote no result. A heartbeat the kit could not complete gives no beat to any path, is counted in the
+    details by its code, and the run goes on (the founder's answer of 30 October 2026). Google's own answer that is not
+    Cloud Run's refusal still ends the run."""
+    clock = Clock()
+    whole, whole_doc = a_run(FakeGoogle(clock), firing.DISABLE)
+    handshake = urllib.error.URLError(TimeoutError("_ssl.c:993: The handshake operation timed out"))   # r37f2ed13's
+    lose = {-2: handshake, 5: TimeoutError("The read operation timed out"),
+            6: http.client.RemoteDisconnected("Remote end closed connection without response"), 20: handshake}
+    clock = Clock()
+    r, doc = a_run(FakeGoogle(clock, lose=lose), firing.DISABLE)
+    assert result.check(doc) == doc
+    assert [{p: v["outcome"] for p, v in d["repeats"][0].items()} for d in (doc, whole_doc)] == [
+        {"own_calls": "stopped", "another_identity": "not stopped", "outside_key": "not stopped",
+         "open_internet": "not stopped"}] * 2
+    assert r.calls == whole.calls - 4 * len(running.GOOGLE_PATHS)
+    lost = running.details(r, doc)["heartbeats_lost"]
+    assert lost["by_code"] == {"TimeoutError": 3, "RemoteDisconnected": 1}
+    assert [e["code"] for e in lost["each"]] == ["TimeoutError", "TimeoutError", "RemoteDisconnected", "TimeoutError"]
+    assert running.details(whole, whole_doc)["heartbeats_lost"] == {"by_code": {}, "each": []}
+    clock = Clock()
+    with pytest.raises(GoogleError):
+        a_run(FakeGoogle(clock, lose={5: GoogleError(502, "HTTP")}), firing.DISABLE)
