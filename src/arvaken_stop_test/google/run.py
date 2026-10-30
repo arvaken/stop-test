@@ -37,6 +37,7 @@ GOOGLE_PATHS = ("own_calls", "another_identity", "outside_key", "open_internet")
 WARM_UP = 10
 RECOVERY = 300.0
 DELETERS = 32                  # objects deleted at once at teardown: a five-repeat run leaves thousands in its bucket
+DELETE_TRIES = 3               # an object's deletion that got no answer is asked this many times in all
 TRANSIENT_TRIES = 4            # a check Google answers 429 or 5xx is made this many times in all before it is said
 LOG_WAIT = 600.0               # seconds to wait, after the last window, for Cloud Audit Logs to record each firing
 LOGGING = "https://logging.googleapis.com/v2/entries:list"
@@ -311,12 +312,28 @@ def identify(g: Google, r: Run, clock: Clock, wait: float = LOG_WAIT) -> None:
 
 
 def _quiet(call: Callable[[], object]) -> bool:
-    """Whether the call was answered; a refusal is left to the check that follows (check_gone)."""
+    """Whether the call was answered. Anything else, a refusal or no answer at all, is left to the check that follows
+    (check_gone): no step of the teardown ends the run, as none of aws/run.py's does (the founder's answer of 30
+    October 2026, after run r5a229643's result was lost to a TLS handshake that timed out in its teardown)."""
     try:
         call()
         return True
-    except GoogleError:
-        pass
+    except Exception:  # noqa: BLE001 - each thing is checked gone below, and named where it is still there
+        return False
+
+
+def _deleted(g: Google, url: str) -> bool:
+    """An object's deletion, asked again where it got no answer, up to DELETE_TRIES in all: whether it was done. A 404
+    to a later try is an earlier try's deletion done, its answer lost."""
+    for tries in range(1, DELETE_TRIES + 1):
+        try:
+            g.call("DELETE", url)
+            return True
+        except GoogleError as e:
+            return tries > 1 and e.status == 404
+        except Exception:  # noqa: BLE001 - no answer: asked again
+            continue
+    return False
 
 
 def tear_down(g: Google, r: Run, clock: Clock) -> None:
@@ -332,11 +349,11 @@ def tear_down(g: Google, r: Run, clock: Clock) -> None:
                 items = g.call("GET", f"{STORAGE}/b/{n['bucket']}/o?fields=items(name),nextPageToken&maxResults=1000"
                                ).get("items") or []
                 def delete(name: str) -> bool:
-                    return _quiet(lambda: g.call("DELETE", f"{STORAGE}/b/{n['bucket']}/o/{quoted(name)}"))
+                    return _deleted(g, f"{STORAGE}/b/{n['bucket']}/o/{quoted(name)}")
                 deleted = list(pool.map(delete, [i["name"] for i in items]))
                 if not any(deleted):
                     break
-    except GoogleError:
+    except Exception:  # noqa: BLE001 - what cannot be emptied is named below as left
         pass
     _quiet(lambda: g.call("DELETE", f"{STORAGE}/b/{n['bucket']}"))
     for which in ("agent_account", "second_account"):
@@ -344,9 +361,14 @@ def tear_down(g: Google, r: Run, clock: Clock) -> None:
     r.left_behind, r.checked_gone = check_gone(g, r, clock)
 
 
+class _Unanswered(str):
+    """A check that got no answer, or failed otherwise than by Google's answer, by what failed (unreached)."""
+
+
 def _transient(found: bool | str) -> bool:
-    """A check Google could not answer just then (429, or 5xx), which is asked again before it is said."""
-    return isinstance(found, str) and (found.startswith("429 ") or found[:1] == "5")
+    """A check Google could not answer just then (429, or 5xx), or that got no answer at all, which is asked again
+    before it is said."""
+    return isinstance(found, _Unanswered) or (isinstance(found, str) and (found.startswith("429 ") or found[:1] == "5"))
 
 
 def _gone(call: Callable[[], object]) -> bool | str:
@@ -355,6 +377,8 @@ def _gone(call: Callable[[], object]) -> bool | str:
         return False
     except GoogleError as e:
         return True if e.status == 404 else f"{e.status} {e.code}"
+    except Exception as e:  # noqa: BLE001 - asked again, then named as could not be checked
+        return _Unanswered(unreached(e))
 
 
 def check_gone(g: Google, r: Run, clock: Clock, wait: float = 120.0) -> tuple[list[str], list[str]]:
