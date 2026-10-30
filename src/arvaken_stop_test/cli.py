@@ -183,10 +183,12 @@ AGENTCORE_PLAN = (
     "- times each path for {window} seconds after firing, {repeats};\n"
     "- calls the test agent about {calls} times. AWS bills each session's use to your account;\n"
     "- then removes the stop it fired and everything it made, and names anything left.")
-# CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
+# CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618); its bucket's objects added, approved by
+# him word for word on 30 October 2026
 AGENTCORE_PLAN_TRAIL = (
-    "- creates a CloudTrail trail of its own, {trail}, recording only the test agent's data events, and its bucket "
-    "{bucket}. Before deleting them, it copies their records beside the result, with the SHA-256 of each;\n")
+    "- creates a CloudTrail trail of its own, {trail}, recording only the data events of the test agent and of its "
+    "bucket's objects, and its bucket {bucket}. Before deleting them, it copies their records beside the result, with "
+    "the SHA-256 of each;\n")
 # CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
 AGENTCORE_KEPT = "The trail's records are in {folder}, each with its SHA-256 in {folder}/SHA256SUMS."
 # CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)

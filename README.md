@@ -215,8 +215,8 @@ of one repeat, and AWS bills each session's use to your account.
 
 The moment each stop was fired is CloudTrail's record of the call: IAM's for a policy on the role, AgentCore's for the
 deny. Ending a session is recorded as a data event, which CloudTrail's event history does not hold. With `--trail`, the
-kit makes a trail of the run's own, recording only the test agent's data events, into a bucket only CloudTrail may write
-to. It fires nothing until the trail has recorded a call to the agent, which can take some minutes. Before deleting the
+kit makes a trail of the run's own, recording only the data events of the test agent and of its bucket's objects, into a
+bucket only CloudTrail may write to. It fires nothing until the trail has recorded a call to the agent, which can take some minutes. Before deleting the
 trail and its bucket, it copies their records into a folder beside the result, `stop-test-<run>-trail`, each with its
 SHA-256. Without `--trail`, that moment is the kit's own clock, and the details say so. AWS charges for a trail's data
 events.
@@ -350,12 +350,17 @@ it by its code. A refusal counts only on a path that worked before it.
 | Stop | What counts as its refusal |
 |---|---|
 | `--stop`, `--inline-deny` or `--revoke-sessions`, on AWS | `AccessDenied` from Amazon S3, on the test agent's own calls and its work under another identity; and on every path, Lambda refusing to run the test agent with `KMSAccessDeniedException`, where the agent ran before the stop |
+| `--stop` or `--inline-deny`, on AgentCore | `AccessDenied` from Amazon S3, on the running session's own calls and its work under another identity; `AccessDeniedException` from AgentCore, on new calls to the agent and, on a harness, on its model |
+| `--deny-calls` | `AccessDeniedException` from AgentCore, on new calls to the agent. On the running session, nothing counts |
+| `--deny-calls-and-end-sessions` | that, on new calls; on the running session, its end, from when AWS confirms it: asked to end the session again, AWS answers that there is no such session. A path seen calling after that, in the bucket or the run's trail, is not stopped. Calls to Arvaken's test address can't be seen, so its two paths rest on that confirmation |
 | `--stop` or `--deny-all`, on Google Cloud | a `403` from Cloud Storage whose reason is `forbidden` or `insufficientPermissions` |
 | `--disable-account` | those, a `401` whose reason is `authError` from a token not yet expired, and a `404` when the test agent asks for its own token |
 | `--own-trigger` | those of the kind of stop the cloud's record of your action shows: CloudTrail's on AWS, Cloud Audit Logs' on Google Cloud. If it shows none of these, nothing counts as stopped |
 
 <!-- [source: aws-s3-access-denied-example, aws-lambda-invoke-kms-access-denied, google-storage-403-forbidden,
-google-storage-403-insufficient-permissions, google-storage-401-auth-error] -->
+google-storage-403-insufficient-permissions, google-storage-401-auth-error, aws-agentcore-invoke-access-denied,
+aws-agentcore-invoke-harness-access-denied, aws-agentcore-stop-session-not-found] -->
+<!-- CUSTOMER TEXT: the three AgentCore rows approved by the founder, word for word, 30 October 2026 -->
 
 A path whose calls after the stop were all not counted, or that was answered after the stop and then had nothing counted
 until the window ended, reads "not measured": the kit cannot say whether the stop stopped it.

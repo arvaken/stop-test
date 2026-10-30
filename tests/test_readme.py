@@ -73,8 +73,9 @@ AGENTCORE = (
     "thousand in a run of one repeat, and AWS bills each session's use to your account.",
     "The moment each stop was fired is CloudTrail's record of the call: IAM's for a policy on the role, AgentCore's "
     "for the deny. Ending a session is recorded as a data event, which CloudTrail's event history does not hold. With"
-    " `--trail`, the kit makes a trail of the run's own, recording only the test agent's data events, into a bucket "
-    'only CloudTrail may write to. It fires nothing until the trail has recorded a call to the agent, which can take '
+    " `--trail`, the kit makes a trail of the run's own, recording only the data events of the test agent and of its "
+    "bucket's objects, into a bucket only CloudTrail may write to. It fires nothing until the trail has recorded a "
+    'call to the agent, which can take '
     'some minutes. Before deleting the trail and its bucket, it copies their records into a folder beside the result,'
     " `stop-test-<run>-trail`, each with its SHA-256. Without `--trail`, that moment is the kit's own clock, and the "
     "details say so. AWS charges for a trail's data events.",
@@ -97,6 +98,9 @@ def test_the_readme_says_what_the_agentcore_module_does_in_the_approved_words():
         assert words in flat(README), words[:80]
 
 
+ROWS_AGENTCORE = tuple(("| `--stop` or `--inline-deny`, on AgentCore | `AccessDenied` from Amazon S3, on the running session's own calls and its work under another identity; `AccessDeniedException` from AgentCore, on new calls to the agent and, on a harness, on its model |", '| `--deny-calls` | `AccessDeniedException` from AgentCore, on new calls to the agent. On the running session, nothing counts |', "| `--deny-calls-and-end-sessions` | that, on new calls; on the running session, its end, from when AWS confirms it: asked to end the session again, AWS answers that there is no such session. A path seen calling after that, in the bucket or the run's trail, is not stopped. Calls to Arvaken's test address can't be seen, so its two paths rest on that confirmation |"))
+
+
 # The founder's approval, word for word, 30 October 2026: what counts as stopped, per kind of stop (his refusal ruling of
 # 29 October 2026, GENERAL)
 WHAT_COUNTS = (
@@ -110,6 +114,8 @@ WHAT_COUNTS = (
     "`insufficientPermissions` |",
     "| `--disable-account` | those, a `401` whose reason is `authError` from a token not yet expired, and a `404` when "
     "the test agent asks for its own token |",
+    # the three AgentCore rows, approved by the founder word for word on 30 October 2026
+    *ROWS_AGENTCORE,
     "| `--own-trigger` | those of the kind of stop the cloud's record of your action shows: CloudTrail's on AWS, Cloud "
     "Audit Logs' on Google Cloud. If it shows none of these, nothing counts as stopped |",
     'A path whose calls after the stop were all not counted, or that was answered after the stop and then had nothing '
