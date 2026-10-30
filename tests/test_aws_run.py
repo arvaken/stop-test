@@ -24,6 +24,7 @@ from arvaken_stop_test.aws.stack import INLINE_LIMIT, TAG, agent_code, names, te
 
 T0 = 1_761_220_000.0
 STOP = "arn:aws:iam::111122223333:policy/agent-stop"
+OWN_KEY = "ASIAOWNSESSIONKEY001"
 
 
 class ClientError(Exception):
@@ -79,6 +80,8 @@ class FakeAWS:
         self.boundary = boundary
         self.made_roles: list[dict] = []
         self.concurrency: int | None = None
+        # the customer's own actions on the agent's role, as CloudTrail records them: (call, when, policy's name)
+        self.customer_calls: list[tuple[str, float, str]] = []
 
     # cloudformation
     def create_stack(self, StackName, TemplateBody, Capabilities, Tags):
@@ -197,12 +200,18 @@ class FakeAWS:
             body = {"at": agent_now, "session": {"key": "k", "secret": "s", "token": "t", "expires": agent_now + 3600}}
         else:
             own = not self.stopped()
+            revoked = self.session_issued is not None and self.revoked_for("-second", self.session_issued)
+            other = bool(event.get("session")) and not revoked
+            # each failure with its record, as the agent gives it: S3's code and status, and no reason, as S3 has none
             body = {"at": agent_now, "beats": {
-                "own_calls": {"at": agent_now, "ok": own, **({} if own else {"error": "AccessDenied"})},
-                "another_identity": {"at": agent_now, "ok": bool(event.get("session")) and not (
-                    self.session_issued is not None and self.revoked_for("-second", self.session_issued))},
+                "own_calls": {"at": agent_now, "ok": own,
+                              **({} if own else {"error": "AccessDenied", "status": 403, "reason": None})},
+                "another_identity": {"at": agent_now, "ok": other, **({} if other else {
+                    "error": "AccessDenied" if revoked else "RuntimeError", "status": 403 if revoked else None,
+                    "reason": None})},
                 **{p: ({"at": agent_now, "ok": False, "error": self.endpoint_error} if self.endpoint_error else
                        {"at": agent_now, "ok": True}) for p in ("outside_key", "open_internet")}}}
+            body["key"] = OWN_KEY                 # the access key ID of the role's credentials Lambda gave it
             if own:
                 self.objects.add(f"own/{event['n']}")
         self.clock.t += 0.1
@@ -235,13 +244,33 @@ class FakeAWS:
         for o in Delete["Objects"]:
             self.objects.discard(o["Key"])
 
-    # cloudtrail
-    def lookup_events(self, LookupAttributes, StartTime, EndTime):
+    # cloudtrail: the kit's own calls, and the customer's, each with its record; CloudFormation's making of the stack
+    # made the role's own policy, and the watch's reads are recorded too, as CloudTrail records reads
+    def lookup_events(self, LookupAttributes, StartTime, EndTime, NextToken=None):
+        if LookupAttributes[0]["AttributeKey"] == "EventName":
+            # Lambda's AssumeRole of the agent's role, as the environment started, and another function's
+            made = [(OWN_KEY, "arvaken-stop-test-r0123abcd-agent"), ("ASIAOTHERFUNCTION01", "someone-elses")]
+            return {"Events": [{"EventId": f"a{i}", "EventName": "AssumeRole",
+                                "EventTime": datetime.fromtimestamp(int(T0 + 5), tz=timezone.utc),
+                                "CloudTrailEvent": json.dumps({
+                                    "requestParameters": {"roleArn": f"arn:aws:iam::111122223333:role/{role}"},
+                                    "responseElements": {"credentials": {
+                                        "accessKeyId": key, "expiration": "Oct 23, 2025, 5:46:45 PM"}}})}
+                               for i, (key, role) in enumerate(made)
+                               if StartTime <= T0 + 5 <= EndTime]}
         role = LookupAttributes[0]["AttributeValue"]
-        calls = [("AttachRolePolicy", at) for at in self.attach_calls if role.endswith("-agent")]
-        calls += [("PutRolePolicy", at) for name, at in self.put_calls if name == role]
-        return {"Events": [{"EventName": name, "EventTime": datetime.fromtimestamp(int(at), tz=timezone.utc)}
-                           for name, at in calls if StartTime <= at <= EndTime and self.clock.now() >= at + self.trail_delay]}
+        calls = [("AttachRolePolicy", at, "", "kit") for at in self.attach_calls if role.endswith("-agent")]
+        calls += [("PutRolePolicy", at, "", "kit") for name, at in self.put_calls if name == role]
+        calls += [(name, at, policy, "you") for name, at, policy in self.customer_calls if role.endswith("-agent")]
+        calls += [("PutRolePolicy", T0 + 1, "own-calls", "cloudformation.amazonaws.com"),
+                  ("ListRolePolicies", T0 + 30, "", "you")]
+        events = [{"EventId": f"e{i}", "EventName": name, "EventTime": datetime.fromtimestamp(int(at), tz=timezone.utc),
+                   "CloudTrailEvent": json.dumps({"sourceIPAddress": by, "requestParameters": {"policyName": policy}})}
+                  for i, (name, at, policy, by) in enumerate(calls)
+                  if StartTime <= at <= EndTime and self.clock.now() >= at + self.trail_delay]
+        # a page at a time, as CloudTrail gives them
+        start = int(NextToken or 0)
+        return {"Events": events[start:start + 2], **({"NextToken": str(start + 2)} if start + 2 < len(events) else {})}
 
     # tagging
     def get_resources(self, TagFilters):
@@ -250,7 +279,7 @@ class FakeAWS:
 
 def clients(aws: FakeAWS) -> running.Clients:
     return running.Clients(cloudformation=aws, iam=aws, lambda_=aws, s3=aws, cloudtrail=aws, tagging=aws,
-                           region="eu-central-1", logs=aws, sts=aws)
+                           region="eu-central-1", logs=aws, sts=aws, cloudtrail_here=aws)
 
 
 def a_run(aws: FakeAWS, clock: Clock, **over):
@@ -389,13 +418,50 @@ def test_with_the_customers_own_trigger_the_kit_times_from_the_change_it_sees_an
         if not pulled and aws.stack and aws.invocations > running.WARM_UP + 1 and t >= T0 + 40:
             pulled.append(t)
             aws.attached[STOP] = t
+            aws.customer_calls.append(("AttachRolePolicy", t, ""))
     clock.hooks.append(the_customer)
     r, doc = a_run(aws, clock, fired_by="your own trigger")
     assert not aws.attach_calls                                   # the kit attached nothing
     assert doc["stop"]["fired_by"] == "your own trigger"
     assert doc["repeats"][0]["own_calls"]["outcome"] == "stopped"
+    # the kind is CloudTrail's record of the customer's call, never CloudFormation's making of the role
+    assert (r.trigger_kind, r.trigger_record["event_name"]) == ("policy on a role", "AttachRolePolicy")
+    assert running.details(r, doc)["trigger"]["record"]["event_id"]
     with pytest.raises(ValueError, match="fires once"):
         a_run(FakeAWS(Clock()), Clock(), fired_by="your own trigger", repeats=2)
+
+
+def test_your_own_trigger_that_revokes_sessions_is_counted_as_revoking_them_by_its_policys_name():
+    clock = Clock()
+    aws = FakeAWS(clock)
+
+    def the_customer(t):
+        if not aws.customer_calls and aws.stack and aws.invocations > running.WARM_UP + 1 and t >= T0 + 40:
+            aws.inline[names("r0123abcd")["agent_role"]] = t
+            aws.customer_calls.append(("PutRolePolicy", t, "AWSRevokeOlderSessions"))
+    clock.hooks.append(the_customer)
+    r, doc = a_run(aws, clock, fired_by="your own trigger")
+    assert r.trigger_kind == "revoke active sessions" and doc["stop"]["kind"] == "revoke active sessions"
+
+
+def test_your_own_trigger_that_cloudtrail_shows_no_kind_of_counts_nothing_as_stopped_and_says_so():
+    """The founder's ruling of 29 October 2026, item 5: "If no kind can be identified, nothing counts as stopped and the
+    result says so." Here the trigger changed the role, but CloudTrail records no call that makes a kind the kit
+    counts."""
+    clock = Clock()
+    aws = FakeAWS(clock)
+    pulled = []
+
+    def the_customer(t):
+        if not pulled and aws.stack and aws.invocations > running.WARM_UP + 1 and t >= T0 + 40:
+            pulled.append(t)
+            aws.attached[STOP] = t                  # the role is denied, but no record says how
+    clock.hooks.append(the_customer)
+    r, doc = a_run(aws, clock, fired_by="your own trigger", trail_wait=60.0)
+    assert r.trigger_kind is None and r.trigger_record is None
+    found = running.results(r)[0][1]["own_calls"]
+    assert doc["repeats"][0]["own_calls"]["outcome"] == "not measured" and found.reason == running.NOT_IDENTIFIED
+    assert found.errors == {"AccessDenied": found.failures_after} and found.not_counted == found.errors
 
 
 def test_the_stack_holds_the_agent_and_reaches_only_the_runs_own_things():
@@ -464,7 +530,8 @@ def test_a_policy_written_on_the_agents_role_is_a_kind_of_its_own_and_stops_its_
 def test_lambda_refusing_to_run_the_agent_is_timed_on_every_path_not_a_crash():
     """Arvaken's inline measurement (23 October 2026): with a deny-all policy written on the agent's role, once Lambda
     needed a new environment for the agent it refused the invocation (KMSAccessDeniedException), and the kit crashed.
-    While Lambda refuses, the agent makes no call on any path, so each path counts each refusal as refused."""
+    While Lambda refuses, the agent makes no call on any path, so each path counts each KMSAccessDeniedException as
+    refused (the founder's refusal ruling of 29 October 2026, item 1)."""
     clock = Clock()
     aws = FakeAWS(clock, cold_after=20.0)
     r, doc = a_run(aws, clock, stop_ref=firing.INLINE, repeats=2)
@@ -480,13 +547,16 @@ def test_lambda_refusing_to_run_the_agent_is_timed_on_every_path_not_a_crash():
     from arvaken_stop_test import report
     page = report.page(doc, [d for _, d in running.results(r)])
     assert ("Lambda refused to run the test agent (KMSAccessDeniedException). While it refused, the agent made no call "
-            "on any path, and each path counts each refusal as refused.") in page
+            "on any path. Each path counts KMSAccessDeniedException as refused where it first came after the stop and "
+            "the agent ran before it, and no other refusal of Lambda&#x27;s.") in page
     assert "as when a stop on the role denies it while Lambda starts a new environment for the agent" in page
     assert "KMS" not in json.dumps(doc) and "refused:" not in json.dumps(doc) and result.check(doc)
     assert not aws.inline and aws.stack["status"] == "DELETED" and doc["run"]["left_behind"] == []
 
 
-def test_a_function_your_own_trigger_set_to_no_concurrency_is_timed_as_refused():
+def test_a_function_your_own_trigger_set_to_no_concurrency_is_recorded_and_not_counted():
+    """Lambda's refusal for no concurrency is not the kind of stop the kit counts (the founder's answer of 30 October
+    2026): each path records it, by Lambda's code, status and reason, and reads not measured."""
     clock = Clock()
     aws = FakeAWS(clock)
 
@@ -494,11 +564,13 @@ def test_a_function_your_own_trigger_set_to_no_concurrency_is_timed_as_refused()
         if aws.concurrency is None and aws.stack and aws.invocations > running.WARM_UP + 1 and t >= T0 + 40:
             aws.concurrency = 0
     clock.hooks.append(the_customer)
-    r, doc = a_run(aws, clock, fired_by="your own trigger")
-    assert {p: v["outcome"] for p, v in doc["repeats"][0].items()} == {p: "stopped" for p in running.AWS_PATHS}
-    refusals = [b for b in r.repeats[0].beats["own_calls"] if b.error == running.REFUSED + "TooManyRequestsException"]
-    assert running.details(r, doc)["lambda_refused"] == [{"TooManyRequestsException": len(refusals)}]
-    assert len(refusals) >= running.results(r)[0][1]["own_calls"].failures_after > 0
+    r, doc = a_run(aws, clock, fired_by="your own trigger", trail_wait=60.0)
+    assert {p: v["outcome"] for p, v in doc["repeats"][0].items()} == {p: "not measured" for p in running.AWS_PATHS}
+    refused = [b for b in r.repeats[0].beats["own_calls"] if b.error == running.REFUSED + "TooManyRequestsException"]
+    assert running.details(r, doc)["lambda_refused"] == [{"TooManyRequestsException": len(refused)}]
+    found = running.results(r)[0][1]["own_calls"]
+    assert found.not_counted == {running.REFUSED + "TooManyRequestsException": found.failures_after} and found.failures
+    assert found.failures[0].reason == running.NO_CONCURRENCY and found.first_failure_after is None
 
 
 def test_any_other_error_from_invoke_ends_the_run_and_is_never_read_as_stopped():
@@ -527,3 +599,18 @@ def test_a_managed_policy_that_does_not_deny_the_agents_own_calls_is_refused_bef
         a_run(half, clock2)
     assert half.stack is None
 
+
+
+def test_each_own_calls_failure_holds_the_times_of_the_credentials_it_used_from_cloudtrail():
+    """D646: "the token's issue and expiry times where a token is used". Lambda gives the agent its role's credentials
+    without their times: the kit finds them in CloudTrail's record of the AssumeRole that issued them, by their access
+    key ID, which it never writes."""
+    clock = Clock()
+    r, doc = a_run(FakeAWS(clock), clock, stop_ref=firing.INLINE)
+    records = running.details(r, doc)["repeats"][0]["own_calls"]["failures"]
+    assert records and {(x["token_issued"], x["token_expires"]) for x in records} == {
+        ("2025-10-23T11:46:45.000Z", "2025-10-23T17:46:45.000Z")}
+    other = running.details(r, doc)["repeats"][0]["another_identity"]["failures"]
+    assert all(x["token_issued"] is None for x in running.details(r, doc)["repeats"][0]["outside_key"]["failures"])
+    assert not other or all(x["token_expires"] for x in other)
+    assert OWN_KEY not in json.dumps(running.details(r, doc)) and OWN_KEY not in json.dumps(doc)

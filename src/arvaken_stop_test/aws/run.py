@@ -11,6 +11,12 @@ moved onto the test agent's clock by the difference measured during the warm-up.
 **What was made is checked gone by its own identifier** (the founder, 23 October 2026): the stack, the function, both
 roles, the bucket, the function's log group (which Lambda makes where a function may write logs; the test agent may
 not, so none is expected), and the stop the kit fired. The run's tag is asked as well, to catch anything else.
+
+**What counts as the stop's refusal** is refusals.py's, by the kind of stop: for your own trigger, the kind CloudTrail's
+record of your action shows (`identify`), or none, where the kit finds no such record, and then nothing counts. Each path
+is judged from its heartbeats before the firing moment as well as after it: a refusal counts only on a path that
+succeeded before it, and Lambda's KMSAccessDeniedException only where the agent ran before the stop and it first came
+after.
 """
 from __future__ import annotations
 
@@ -22,10 +28,10 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any
 
-from arvaken_stop_test import __version__, result
+from arvaken_stop_test import __version__, refusals, result
 from arvaken_stop_test.aws import fire as firing
 from arvaken_stop_test.aws.stack import MEMORY_MB, RUNTIME, TAG, names, template_body
-from arvaken_stop_test.timing import HOLD, PATH_WORDS, WINDOWS, Beat, PathResult, judge
+from arvaken_stop_test.timing import HOLD, NOT_MEASURED, PATH_WORDS, WINDOWS, Beat, PathResult, judge
 
 AWS_PATHS = ("own_calls", "another_identity", "outside_key", "open_internet")
 WARM_UP = 10                 # heartbeats before the first firing
@@ -50,6 +56,7 @@ class Clients:
     region: str
     logs: Any = None
     sts: Any = None
+    cloudtrail_here: Any = None         # CloudTrail in the run's own region, where it is not `cloudtrail`'s
 
 
 @dataclass
@@ -64,6 +71,8 @@ class Repeat:
     second_fired_at: float | None = None
     second_fired_precision: float = 0.0
     session_expires: float | None = None    # the session the agent took for the second role: when it expires
+    watched_from: float = 0.0           # your own trigger: the kit's clock when it began to watch for it
+    # each path's heartbeats: those since the stop before it was taken off (or the warm-up's), then the repeat's own
     beats: dict[str, list[Beat]] = field(default_factory=lambda: {p: [] for p in AWS_PATHS})
 
 
@@ -84,10 +93,24 @@ class Run:
     repeats: list[Repeat] = field(default_factory=list)
     left_behind: list[str] = field(default_factory=list)
     checked_gone: list[str] = field(default_factory=list)       # each identifier the teardown found gone
+    warm_beats: dict[str, list[Beat]] = field(default_factory=dict)     # the warm-up's heartbeats
+    # each own call's heartbeat, by its time, and the access key ID of the credentials it used: kept for own_tokens
+    # alone, and never written
+    own_keys: dict[float, str] = field(default_factory=dict)
+    # your own trigger: the kind of stop CloudTrail's record of your action shows, or None, and that record
+    trigger_kind: str | None = None
+    trigger_record: dict[str, str] | None = None
 
     @property
     def stop_kind(self) -> str:
+        if self.fired_by == "your own trigger" and self.trigger_kind:
+            return self.trigger_kind
         return firing.kind_of(self.stop_ref)
+
+    @property
+    def counted_kind(self) -> str | None:
+        """The kind of stop whose refusals count: the kit's own; for your own trigger, the one identified, or None."""
+        return self.trigger_kind if self.fired_by == "your own trigger" else firing.kind_of(self.stop_ref)
 
 
 def _wait_for_stack(cf: Any, stack: str, clock: Clock, want: str, limit: float = 900.0) -> dict | None:
@@ -129,10 +152,12 @@ def outputs_of(c: Clients, run: str) -> dict[str, str]:
 # environment for the agent, it refused the invocation, as it decrypts the agent's environment as that role. A function
 # your own trigger deleted, or set to no concurrency, is refused the same way. Anything else from Invoke (the kit's own
 # credentials expiring, say) is not the stop, and ends the run as before: it must never read as a path stopped.
+# Of these, only KMSAccessDeniedException counts as the stop's refusal (refusals.py; the founder, 29 and 30 October 2026):
+# the others are recorded on every path, not counted.
 LAMBDA_REFUSED = ("KMSAccessDeniedException", "KMSDisabledException", "KMSInvalidStateException",
                   "KMSNotFoundException", "ResourceNotFoundException")
 NO_CONCURRENCY = "ReservedFunctionConcurrentInvocationLimitExceeded"
-REFUSED = "Lambda refused: "          # the prefix of such a beat's error, so the page can say what it was
+REFUSED = refusals.LAMBDA_REFUSED     # the prefix of such a beat's error, so the page can say what it was
 
 
 def refused_by_lambda(e: Exception) -> str | None:
@@ -152,8 +177,10 @@ def _invoke(c: Clients, r: Run, payload: dict, clock: Clock) -> tuple[dict, floa
 
 
 def assume(c: Clients, r: Run, clock: Clock) -> dict:
+    """The second role's session, taken by the agent, and when it took it, by its clock: AssumeRole gives a session's
+    expiry, not its issue time."""
     body, _, _ = _invoke(c, r, {"action": "assume"}, clock)
-    return body["session"]
+    return {**body["session"], "issued": float(body["at"])}
 
 
 def heartbeat(c: Clients, r: Run, n: int, session: dict,
@@ -170,10 +197,24 @@ def heartbeat(c: Clients, r: Run, n: int, session: dict,
             raise
         received = clock.now()
         at = (sent + received) / 2 + r.offset
-        return {p: Beat(at, False, REFUSED + code) for p in AWS_PATHS}, sent, received, None
-    beats = {p: Beat(float(b["at"]), bool(b["ok"]), b.get("error")) for p, b in (body.get("beats") or {}).items()}
+        response = getattr(e, "response", None) or {}
+        status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        return {p: Beat(at, False, REFUSED + code, status=status, reason=response.get("Reason"))
+                for p in AWS_PATHS}, sent, received, None
+    beats = {p: _beat(p, b, session) for p, b in (body.get("beats") or {}).items()}
+    if body.get("key") and "own_calls" in beats:
+        r.own_keys[beats["own_calls"].at] = str(body["key"])
     r.calls += len(beats)
     return beats, sent, received, float(body["at"])
+
+
+def _beat(path: str, b: dict, session: dict) -> Beat:
+    """A path's heartbeat from the agent's reply, with its failure record; under another identity, with the times of
+    the session it used."""
+    timed = path == "another_identity" and bool(session)
+    return Beat(float(b["at"]), bool(b["ok"]), b.get("error"), status=b.get("status"), reason=b.get("reason"),
+                token_issued=session.get("issued") if timed else None,
+                token_expires=session.get("expires") if timed else None)
 
 
 def warm_up(c: Clients, r: Run, session: dict, clock: Clock) -> None:
@@ -181,6 +222,8 @@ def warm_up(c: Clients, r: Run, session: dict, clock: Clock) -> None:
     best = None
     for i in range(WARM_UP):
         beats, sent, received, agent_at = heartbeat(c, r, -1 - i, session, clock)
+        for p, b in beats.items():
+            r.warm_beats.setdefault(p, []).append(b)
         r.working |= {p for p, b in beats.items() if b.ok}
         for p, b in beats.items():
             if not b.ok:
@@ -193,14 +236,19 @@ def warm_up(c: Clients, r: Run, session: dict, clock: Clock) -> None:
     r.offset = best[1] if best else 0.0
 
 
-def time_one(c: Clients, r: Run, clock: Clock, watch_own_trigger: bool, n0: int) -> Repeat:
+def time_one(c: Clients, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
+             before: dict[str, list[Beat]] | None = None) -> Repeat:
     """One repeat: fire (or wait for the customer's own trigger), then a heartbeat a second through the window and the
-    hold."""
+    hold. `before` is each path's heartbeats before the firing: the warm-up's, or those since the last stop was taken
+    off."""
     rep = Repeat()
+    for p, beats in (before or {}).items():
+        rep.beats.setdefault(p, []).extend(beats)
     session = assume(c, r, clock)
     rep.session_expires = session.get("expires")
     n = n0
     if watch_own_trigger:
+        rep.watched_from = clock.now()
         seen = firing.watch(c.iam, c.lambda_, r.run, until=clock.now() + r.window, now=clock.now, sleep=clock.sleep)
         if seen is None:
             return rep
@@ -222,16 +270,20 @@ def time_one(c: Clients, r: Run, clock: Clock, watch_own_trigger: bool, n0: int)
     return rep
 
 
-def recover(c: Clients, r: Run, clock: Clock) -> None:
-    """Between repeats: remove the stop, then wait until the agent's own calls work again."""
+def recover(c: Clients, r: Run, clock: Clock) -> dict[str, list[Beat]]:
+    """Between repeats: remove the stop, then wait until the agent's own calls work again. Returns each path's
+    heartbeats meanwhile, which come before the next repeat's firing."""
     firing.remove(c.iam, r.run, r.stop_ref)
     session = assume_or_none(c, r, clock)
     end = clock.now() + RECOVERY
-    good = 0
+    good, seen = 0, {}
     while clock.now() < end and good < 5:
         beats, _, _, _ = heartbeat(c, r, 0, session or {}, clock)
+        for p, b in beats.items():
+            seen.setdefault(p, []).append(b)
         good = good + 1 if beats.get("own_calls") and beats["own_calls"].ok else 0
         clock.sleep(1.0)
+    return seen
 
 
 def assume_or_none(c: Clients, r: Run, clock: Clock) -> dict | None:
@@ -251,6 +303,7 @@ def firing_moments(c: Clients, r: Run, clock: Clock, wait: float = TRAIL_WAIT) -
         for rep in r.repeats:
             if rep.fired_after:
                 rep.fired_at = rep.fired_after + r.offset
+        identify(c, r, clock, wait)
         return
     # (repeat, its moment's prefix, the role its call named): the agent's role, and for revoking, the role it became
     pending = [(rep, "", n["agent_role"]) for rep in r.repeats if rep.fired_after]
@@ -276,6 +329,110 @@ def firing_moments(c: Clients, r: Run, clock: Clock, wait: float = TRAIL_WAIT) -
         before, after = getattr(rep, prefix + "fired_before"), getattr(rep, prefix + "fired_after")
         setattr(rep, prefix + "fired_at", before + r.offset)          # the call was made between the two readings
         setattr(rep, prefix + "fired_precision", after - before)
+
+
+# CUSTOMER TEXT: approved by the founder, word for word, 30 October 2026
+NOT_IDENTIFIED = ("CloudTrail holds no record of your trigger as a kind of stop the kit counts, so nothing counts as "
+                  "stopped")
+# Your own trigger's kind of stop, by the call CloudTrail records of your action on the test agent's role (the founder's
+# refusal ruling of 29 October 2026, item 5). A policy written on the role named AWSRevokeOlderSessions is revoking its
+# sessions. Nothing else on the role or the function (deleting it, or setting its concurrency) is a kind whose refusals
+# the kit counts.
+TRIGGER_CALLS = {"AttachRolePolicy": refusals.AWS_POLICY, "PutRolePolicy": refusals.AWS_INLINE}
+
+
+def identify(c: Clients, r: Run, clock: Clock, wait: float = TRAIL_WAIT) -> None:
+    """Your own trigger's kind of stop: the last call CloudTrail records on the test agent's role that makes a kind the
+    kit counts, from when the kit began to watch to just after it saw the change, made by anyone but CloudFormation and
+    not refused. Waited for up to `wait` seconds. Sets the run's trigger kind and the record it came from; where there is
+    none, the kind is None, and nothing counts as stopped."""
+    rep = next((x for x in r.repeats if x.fired_after), None)
+    if rep is None:
+        return
+    role = names(r.run)["agent_role"]
+    start, end = rep.watched_from + r.offset - 5, rep.fired_after + r.offset + 5
+    deadline = clock.now() + wait
+    while True:
+        calls, token = [], None
+        while True:
+            page = c.cloudtrail.lookup_events(LookupAttributes=[{"AttributeKey": "ResourceName", "AttributeValue": role}],
+                                              StartTime=start, EndTime=end, **({"NextToken": token} if token else {}))
+            for e in page.get("Events", []):
+                detail = json.loads(e.get("CloudTrailEvent") or "{}")
+                by = (detail.get("sourceIPAddress"), (detail.get("userIdentity") or {}).get("invokedBy"))
+                if e.get("EventName") in TRIGGER_CALLS and not detail.get("errorCode") \
+                        and "cloudformation.amazonaws.com" not in by:
+                    calls.append((e, detail))
+            token = page.get("NextToken")
+            if not token:
+                break
+        if calls or clock.now() >= deadline:
+            break
+        clock.sleep(30.0)
+    if not calls:
+        return
+    e, detail = max(calls, key=lambda x: _seconds_of(x[0]["EventTime"]))
+    kind = TRIGGER_CALLS[e["EventName"]]
+    if (detail.get("requestParameters") or {}).get("policyName") == firing.REVOKE_POLICY:
+        kind = refusals.AWS_REVOKE
+    r.trigger_kind = kind
+    r.trigger_record = {"source": "CloudTrail", "event_id": e.get("EventId", ""), "event_name": e["EventName"],
+                        "event_time": _iso(_seconds_of(e["EventTime"]))}
+
+
+def _seconds_of(when: Any) -> float:
+    return when.timestamp() if hasattr(when, "timestamp") else float(when)
+
+
+def _expiry(text: Any) -> float | None:
+    """A credential's expiry as CloudTrail writes it in AssumeRole's response, in either of the forms it may take."""
+    if not isinstance(text, str):
+        return None
+    for form in ("%b %d, %Y, %I:%M:%S %p", "%b %d, %Y %I:%M:%S %p"):
+        try:
+            return datetime.strptime(text, form).replace(tzinfo=timezone.utc).timestamp()
+        except ValueError:
+            pass
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def own_tokens(c: Clients, r: Run) -> None:
+    """The times of the credentials the agent's own calls used (D646): Lambda gives the agent its role's credentials
+    without their issue or expiry time, so the kit reads them from CloudTrail's record of the call that issued them, an
+    AssumeRole of the agent's role, matched by the credentials' access key ID, which the agent hands back. It asks the
+    run's own region and the region it reads IAM's calls in. Each own call's failure record then holds its credentials'
+    times; where no record is found, they stay empty."""
+    keys = set(r.own_keys.values())
+    trails = [t for t in {id(x): x for x in (c.cloudtrail_here, c.cloudtrail) if x is not None}.values()]
+    if not keys or not trails:
+        return
+    role = names(r.run)["agent_role"]
+    start, end = r.began_at + r.offset - 60, r.ended_at + r.offset + 60
+    found: dict[str, tuple[float, float | None]] = {}
+    for trail in trails:
+        token = None
+        while True:
+            try:
+                page = trail.lookup_events(
+                    LookupAttributes=[{"AttributeKey": "EventName", "AttributeValue": "AssumeRole"}],
+                    StartTime=start, EndTime=end, **({"NextToken": token} if token else {}))
+            except Exception:  # noqa: BLE001 - a history the kit cannot read leaves the times empty, never the result
+                break
+            for e in page.get("Events", []):
+                detail = json.loads(e.get("CloudTrailEvent") or "{}")
+                made = (detail.get("responseElements") or {}).get("credentials") or {}
+                if made.get("accessKeyId") in keys and                         str((detail.get("requestParameters") or {}).get("roleArn", "")).endswith(f":role/{role}"):
+                    found[made["accessKeyId"]] = (_seconds_of(e["EventTime"]), _expiry(made.get("expiration")))
+            token = page.get("NextToken")
+            if not token:
+                break
+    for rep in r.repeats:
+        rep.beats["own_calls"] = [
+            replace(b, token_issued=found[r.own_keys[b.at]][0], token_expires=found[r.own_keys[b.at]][1])
+            if r.own_keys.get(b.at) in found else b for b in rep.beats.get("own_calls", [])]
 
 
 def tear_down(c: Clients, r: Run, clock: Clock) -> None:
@@ -398,8 +555,11 @@ def _moment(rep: Repeat, p: str) -> tuple[float | None, float]:
 
 def _one(r: Run, rep: Repeat, p: str) -> PathResult:
     at, precision = _moment(rep, p)
+    kind = r.counted_kind
     found = judge(rep.beats.get(p, []), at, window=r.window, tried=p in r.working, setup_errors=r.setup_errors.get(p),
-                  fired_precision=precision)
+                  fired_precision=precision, counts=lambda b, before: refusals.counts(kind, p, b, before))
+    if kind is None and found.outcome == NOT_MEASURED:
+        found = replace(found, reason=NOT_IDENTIFIED)
     keeps = rep.session_expires if p == "another_identity" and found.outcome == "not stopped" else None
     return replace(found, fired_source=_source(precision) if at is not None else None, keeps_working_until=keeps,
                    fired_at=at)
@@ -418,8 +578,9 @@ def _iso(t: float | None) -> str | None:
 
 def details(r: Run, doc: dict) -> dict:
     """What the page shows, as a file beside the result: each path's time to effect as a range, its successes after its
-    first refusal, a session's expiry and the errors seen, with what the teardown checked gone. It stays with the one
-    who ran it; the result file is what may be submitted. Arvaken keeps its own runs' as its measurement (K9)."""
+    first refusal, a session's expiry, the errors seen and each failure's record (result.failure_records), counted or
+    not, with what the teardown checked gone and, for your own trigger, the record its kind came from. It stays with the
+    one who ran it; the result file is what may be submitted. Arvaken keeps its own runs' as its measurement (K9)."""
     repeats = []
     for rep, (_, found) in zip(r.repeats, results(r)):
         repeats.append({p: {
@@ -428,14 +589,19 @@ def details(r: Run, doc: dict) -> dict:
             "successes_after_first_refusal": f.successes_after_first_refusal,
             "first_refused": _iso(f.first_failure_after), "stopped_from": _iso(f.stopped_at),
             "last_success": _iso(f.last_success_after), "tries_after": f.tries_after, "failures_after": f.failures_after,
-            "errors": f.errors, "reason": f.reason, "keeps_working_until": _iso(f.keeps_working_until)}
+            "errors": f.errors, "not_counted": f.not_counted, "reason": f.reason,
+            "keeps_working_until": _iso(f.keeps_working_until), "failures": result.failure_records(f)}
             for p, f in found.items()})
-    # each repeat's refusals by Lambda to run the agent at all, by Lambda's code: every path counts each one
-    refused = [dict(Counter(b.error.removeprefix(REFUSED) for b in rep.beats.get("own_calls", [])
-                            if b.error and b.error.startswith(REFUSED))) for rep in r.repeats]
+    # each repeat's refusals by Lambda to run the agent at all, after the stop, by Lambda's code
+    refused = []
+    for rep in r.repeats:
+        at = rep.fired_at if rep.fired_at is not None else float("inf")
+        refused.append(dict(Counter(b.error.removeprefix(REFUSED) for b in rep.beats.get("own_calls", [])
+                                    if b.error and b.error.startswith(REFUSED) and b.at > at)))
     return {"format": "stop-test-details/1", "run": r.run, "result_signature": doc["signature"],
             "stop_kind": r.stop_kind, "window_seconds": r.window, "left_behind": r.left_behind,
-            "checked_gone": r.checked_gone, "repeats": repeats, "lambda_refused": refused}
+            "checked_gone": r.checked_gone, "repeats": repeats, "lambda_refused": refused,
+            "trigger": {"kind": r.trigger_kind, "record": r.trigger_record} if r.fired_by == "your own trigger" else None}
 
 
 def the_result(r: Run, key=None) -> dict:
@@ -485,15 +651,16 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", 
                 codes = ", ".join(f"{code} {k}" for code, k in sorted(r.setup_errors.get(p, {}).items()))
                 say(f"Before the stop, {PATH_WORDS[p]} did not work ({codes or 'no answer'}): it will be reported as "
                     "not run.")
-        n = 0
+        n, before = 0, r.warm_beats
         for i in range(repeats):
             if i:
-                recover(c, r, clock)
-            rep = time_one(c, r, clock, fired_by == "your own trigger", n)
+                before = recover(c, r, clock)
+            rep = time_one(c, r, clock, fired_by == "your own trigger", n, before)
             r.repeats.append(rep)
             n += sum(len(b) for b in rep.beats.values())
         firing_moments(c, r, clock, wait=trail_wait)
     finally:
         tear_down(c, r, clock)
         r.ended_at = clock.now()
+    own_tokens(c, r)
     return r, the_result(r)

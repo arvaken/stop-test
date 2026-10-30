@@ -1,0 +1,75 @@
+{
+ "schema": "arvaken.provider-sources/1",
+ "why": "The founder's ruling of 28 October 2026, item 6: any sentence, Why? text or rationale that says or implies a cloud provider documents a behaviour carries the page's URL, the exact sentence quoted and the date read. The kit takes the shape of arvaken/mark's check (mark#914). A claim cites its entries by id, [source: id], in the README or in a comment or docstring, never in words a customer is shown. tests/test_provider_claims_name_their_source.py fails the build on a claim with no source.",
+ "fields": {
+  "cloud": "aws, google_cloud or azure",
+  "url": "the page, https, on the provider's own host",
+  "page": "the page's title",
+  "sentence": "the sentence (or list, table row or entry) quoted whole, no ellipsis",
+  "about": "what the sentence is about, in the provider's own terms",
+  "read": "the day it was read, YYYY-MM-DD (UTC)"
+ },
+ "sources": {
+  "aws-s3-access-denied": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/troubleshoot-403-errors.html",
+   "page": "Troubleshoot access denied (403 Forbidden) errors in Amazon S3 - Amazon Simple Storage Service",
+   "sentence": "Access denied (HTTP 403 Forbidden) errors appear when AWS explicitly or implicitly denies an authorization request.",
+   "about": "Amazon S3's access denied (HTTP 403 Forbidden) errors, from an explicit or implicit deny",
+   "read": "2026-10-30"
+  },
+  "aws-s3-access-denied-example": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/troubleshoot-403-errors.html",
+   "page": "Troubleshoot access denied (403 Forbidden) errors in Amazon S3 - Amazon Simple Storage Service",
+   "sentence": "An error occurred (AccessDenied) when calling the GetObject operation: User: arn:aws:iam::777788889999:user/MaryMajor is not authorized to perform: s3:GetObject on resource: \"arn:aws:s3:::amzn-s3-demo-bucket1/object-name\" with an explicit deny in a resource control policy, with policy ARN: arn:aws:organizations::777788889999:policy/o-exampleorgid/resource_control_policy/p-examplepolicyid",
+   "about": "the error code AccessDenied, in an example of an explicit deny of s3:GetObject",
+   "read": "2026-10-30"
+  },
+  "aws-lambda-invoke-kms-access-denied": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/lambda/latest/api/API_Invoke.html",
+   "page": "Invoke - AWS Lambda",
+   "sentence": "KMSAccessDeniedException Lambda couldn't decrypt the environment variables because AWS KMS access was denied. Check the Lambda function's KMS permissions. HTTP Status Code: 502",
+   "about": "Invoke's error KMSAccessDeniedException",
+   "read": "2026-10-30"
+  },
+  "google-storage-error-format": {
+   "cloud": "google_cloud",
+   "url": "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
+   "page": "HTTP status and error codes for JSON | Cloud Storage | Google Cloud Documentation",
+   "sentence": "errors.reason: Example values include invalid, invalidParameter, and required. code: An HTTP status code value, without the textual description. Example values include: 400 (Bad Request), 401 (Unauthorized), and 404 (Not Found).",
+   "about": "the elements of the JSON API's error response, among them code and errors.reason, and no status",
+   "read": "2026-10-30"
+  },
+  "google-storage-403-forbidden": {
+   "cloud": "google_cloud",
+   "url": "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
+   "page": "HTTP status and error codes for JSON | Cloud Storage | Google Cloud Documentation",
+   "sentence": "forbidden: This error can occur for several reasons: According to access control policy, the current user does not have access to perform the requested action, and this can occur even if the resource being acted on doesn't exist; or the request is missing the overrideUnlockedRetention query parameter but is attempting to change an object's existing retention configuration in a way that requires the parameter; or the request is attempting to change a locked object's retention configuration in a way that requires the object to be unlocked.",
+   "about": "the 403 Forbidden reason forbidden",
+   "read": "2026-10-30"
+  },
+  "google-storage-403-insufficient-permissions": {
+   "cloud": "google_cloud",
+   "url": "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
+   "page": "HTTP status and error codes for JSON | Cloud Storage | Google Cloud Documentation",
+   "sentence": "insufficientPermissions: According to access control policy, the current user does not have access to perform the requested action. This code applies even if the resource being acted on doesn't exist.",
+   "about": "the 403 Forbidden reason insufficientPermissions",
+   "read": "2026-10-30"
+  },
+  "google-storage-401-auth-error": {
+   "cloud": "google_cloud",
+   "url": "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
+   "page": "HTTP status and error codes for JSON | Cloud Storage | Google Cloud Documentation",
+   "sentence": "authError: This error indicates a problem with the authorization provided in the request to Cloud Storage. The following are some situations where that will occur: The OAuth access token has expired and needs to be refreshed. This can be avoided by refreshing the access token early, but code can also catch this error, refresh the token and retry automatically. Multiple non-matching authorizations were provided; choose one mode only. The OAuth access token's bound project does not match the project associated with the provided developer key. The Authorization header was of an unrecognized format or uses an unsupported credential type.",
+   "about": "the 401 Unauthorized reason authError, an expired access token among its situations",
+   "read": "2026-10-30"
+  }
+ },
+ "owed": {
+  "due": "2026-11-04",
+  "why": "Claims on the kit's main branch when the check came: each is sourced by 4 November 2026, after which the build fails if any is left. The list only shrinks.",
+  "claims": []
+ }
+}

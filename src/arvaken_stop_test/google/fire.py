@@ -124,17 +124,21 @@ def remove(g: Google, run: str, stop_ref: str) -> None:
 
 
 def watch(g: Google, run: str, until: float, now: Callable[[], float] = time.time,
-          sleep: Callable[[float], None] = time.sleep) -> float | None:
+          sleep: Callable[[float], None] = time.sleep, found: list[tuple[str, str]] | None = None) -> float | None:
     """The customer's own trigger: when the kit first sees the test agent's account disabled, or a deny policy on the
-    project naming it. None if neither is seen before `until`."""
+    project naming it. None if neither is seen before `until`. What it saw is put in `found`: ("disabled", the
+    account's email) or ("deny policy", the policy's name), for the kit to find its record (run.identify)."""
     email = names(run, g.project)["agent_account"]
     principal = f"principal://iam.googleapis.com/projects/-/serviceAccounts/{email}"
+    seen = found if found is not None else []
     while now() < until:
         if g.call("GET", f"{IAM}/projects/-/serviceAccounts/{email}").get("disabled"):
+            seen.append(("disabled", email))
             return now()
         for listed in g.call("GET", _attachment(g)).get("policies") or []:
             policy = g.call("GET", f"{V2}/{listed['name']}") if "rules" not in listed else listed
             if any(principal in ((r.get("denyRule") or {}).get("deniedPrincipals") or []) for r in policy.get("rules") or []):
+                seen.append(("deny policy", listed["name"]))
                 return now()
         sleep(1.0)
     return None
