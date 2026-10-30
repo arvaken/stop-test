@@ -4,11 +4,16 @@ The stop test is a kit you run yourself, in your own cloud account, with your ow
 agent of its own, fires the stop you have declared on that test agent alone, unless you fire your own, and times what
 actually stops. When it finishes, it removes the stop it fired and everything it made.
 
-You run it yourself. Arvaken never runs tests in your account. Nothing about your account leaves it. Two of the kit's
-tests, of the open internet and of a key for a service outside your cloud, have the kit's test agent call Arvaken's test
-address, stop-test.arvaken.com. Neither call carries anything of yours: the second carries only a random key the kit
-makes for the run. The address answers with a fixed reply. What is kept of each call is Arvaken's one description of
-what Cloudflare records, word for word:
+You run it yourself. Arvaken never runs tests in your account. Nothing about your account leaves it, unless you name a
+gateway or a subnet for the test agent's calls. Then the address they leave from may be your own, and is recorded as
+below, and whoever runs your gateway sees the calls that pass through it. Two of the kit's tests, of the open internet
+and of a key for a service outside your cloud, have the kit's test agent call Arvaken's test address,
+stop-test.arvaken.com. Neither call carries anything of yours from the kit: the second carries only a random key the kit
+makes for the run. A gateway you name may add its own headers to the calls it carries, and they may identify you. Our
+test address keeps none of them. Of the headers a gateway could add or change, Cloudflare keeps two: a call's user
+agent, which the kit sets to its own name, and, where Cloudflare's security checks act on the call, its referer, which
+the kit never sends. A gateway that changes either changes what Cloudflare keeps. The address answers with a fixed
+reply. What is kept of each call is Arvaken's one description of what Cloudflare records, word for word:
 
 > Arvaken's test address (stop-test.arvaken.com) and its verification page (verify.arvaken.com) are served by
 > Cloudflare, on arvaken.com's Free plan. Arvaken's code at each writes no request log and stores no request;
@@ -54,6 +59,8 @@ During a run, the kit invokes the test agent about once a second, and each time 
 | Work under another identity | writes to the bucket with a session of the second role, taken before the stop |
 | A key for a service outside your cloud | calls stop-test.arvaken.com with the random key the kit made for the run |
 | The open internet | calls stop-test.arvaken.com with nothing |
+
+With `--model`, it also tries a fifth: a call to a model (see [A call to a model](#a-call-to-a-model)).
 
 When the run ends, the kit takes off the stop it fired, deletes the stack, and checks each thing it made by its own
 identifier: the stack, the function, both roles, the bucket, the function's log group and the stop. Anything still
@@ -142,7 +149,9 @@ In our own runs, one repeat took about 20 minutes, and five about 80.
 
 A run writes three files where you ran it:
 
-- `stop-test-<run>.json`: the result, in the format `stop-test-result/1`, signed with a key the kit makes for the run;
+- `stop-test-<run>.json`: the result, in the format `stop-test-result/2`, signed with a key the kit makes for the run.
+  The signature shows the file hasn't changed since it was signed. It shows nothing about who ran it, and it isn't
+  Arvaken's attestation of anything;
 - `stop-test-<run>.html`: a page showing what each path did beside what a stop on the role would be expected to do,
   with the errors seen;
 - `stop-test-<run>-details.json`: the details behind the page. It holds your account's identifiers (the names of
@@ -162,6 +171,97 @@ by the run's name, adding `--stop <ARN>` if the run attached a policy of yours:
 
 ```
 stop-test aws clean --run <run> --region eu-central-1
+```
+
+### A call to a model
+
+On AWS, the kit can also time the test agent's calls to a model. Name the model with `--model` and its Bedrock model
+ID or inference profile ID:
+
+```
+stop-test aws plan --stop arn:aws:iam::aws:policy/AWSDenyAll --model eu.amazon.nova-micro-v1:0 --region eu-central-1
+```
+
+With each invocation, the test agent then also calls that model once, as its own role, asking for one token. AWS bills
+each call to your account. The test agent keeps none of the model's answer: as on every path, it reports only whether
+the call worked and, if not, its error's code. The kit lets only the test agent's role call the model: for a model ID,
+that model in the run's region; for an inference profile ID, the profile in the run's region and the model it names in
+every region, as AWS requires for a profile that sends calls to other regions. The second role can't call it.
+<!-- [source: aws-bedrock-inference-profile-permissions] -->
+
+The call must work before the stop. If it doesn't, as when the ID is wrong or your account can't call that model in
+the run's region, the kit says so, times nothing, and removes what it made. After the stop, a call counts as stopped
+only when the stop refused it, as access denied; every other failure, a throttle among them, is not counted, and the
+page shows the errors seen. Between repeats, the kit also waits until the call to the model works again.
+
+A run that calls a model needs a boundary of its own, `arvaken-stop-test-boundary-model` (see
+[The permissions it needs](#the-permissions-it-needs)).
+
+### Through your gateway
+
+If your stop is a gateway's own switch, one your agents' calls go through, the kit can time it on AWS. On Google Cloud,
+the gateway option waits for a later version. Name your gateway with `--via` and its address, in place of a stop:
+
+```
+stop-test aws plan --via http://gateway.example:8888 --product-attachment all-outbound --product-name "Our test gateway" --region eu-central-1
+```
+
+The test agent then sends through your gateway, as an HTTPS proxy, only the calls your gateway is attached to: with
+`model`, its call to the model you name with `--model`; with `outside-services`, its call with a key and its
+open-internet call; with `all-outbound`, every call it makes: its own calls to AWS, its work under the second role, its
+call with a key, its open-internet call and, with `--model`, its call to the model. Its other calls go directly, as your
+agents' would. Its call with a key and its open-internet call go to Arvaken's test address. Through your gateway, they
+reach it from the address your gateway's traffic leaves from, which is yours, and Arvaken's test address sees that
+address. Cloudflare keeps that address, with its network and country, for 31 days, as Arvaken's description of what
+Cloudflare records says above.
+
+With `--via`, name your gateway with both of:
+
+- `--product-attachment`: how it is attached: `model` (its calls to a model), only with `--model`, since only then does
+  the test agent call one; `outside-services` (its calls to outside services); or `all-outbound` (all its outbound
+  traffic);
+- `--product-name`: its name, in your own words, up to 200 characters. It's shown as you wrote it. The kit doesn't check
+  it, and the result is your own test, not Arvaken's rating of any product.
+
+And if you need them:
+
+- `--ca-bundle <file>`: if your gateway inspects TLS, the certificate authority it uses, as PEM certificates of at most
+  64 KB. The kit uses it for the calls through your gateway alone, and never writes it into the result.
+- `--subnet <subnet-id>`, with one or more `--security-group <sg-id>`: the subnet the test agent runs in, where your
+  gateway is reached only from your network. Lambda makes the test agent's network interfaces there. The kit attaches
+  nothing else of yours, and after the run waits up to 30 minutes for AWS to remove those interfaces, then checks them
+  gone.
+
+Your gateway's switch may stop every agent behind it, not only the test agent, and the kit cannot see, limit or undo
+what it reaches. So the kit warns you, and goes on only when you type the run's name. Use a gateway where stopping
+everything behind it is safe, such as one you use only for testing. The kit never fires your switch, and never turns it
+off.
+
+When it asks, press Enter, then fire your stop. Each path is timed from that mark, so a time errs toward slower, never
+faster. A path whose calls were already refused at your mark is reported as not measured. The kit times each path for 15
+minutes after your mark, or longer if you give `--window` (15m or more) before the run. When the timing is done, the kit
+says so, and you can turn your switch off. A run through a gateway is timed once and not repeated, since only you can
+take its stop off.
+
+<!-- CUSTOMER TEXT: the founder's own words, D655 (b) and open tunnels 3, 30 October 2026 -->
+Switching your gateway off can't be measured as a stop: to the kit it looks the same as a broken network. Use a rule on
+your gateway that refuses calls, such as a filter or a closed port. A rule on your gateway may not reach a connection
+already open through it. The kit keeps its connections open, as AWS's own libraries do, so its times include that.
+
+<!-- CUSTOMER TEXT: approved by the founder, word for word, 30 October 2026 (D655, (c)) -->
+A refusal from a gateway that inspects TLS (`--ca-bundle`), made inside the connection it opened, and any refusal
+from a gateway reached over `https://`, read "not measured" for now: the kit can't yet tell them from AWS's own.
+
+A path that did not work through your gateway before the stop is reported as not measured, never as stopped. If none
+did, there is nothing to time: the kit asks for no mark, and removes what it made. The page shows each path beside what
+your gateway's stop should reach, given how you said it is attached. The result and the kit's logs keep your gateway's
+address as its scheme, host and port alone, never with a user name, password, path or query.
+
+If a run in your subnet could not clean up, add the subnet, and the kit waits for the test agent's network interfaces
+and checks them:
+
+```
+stop-test aws clean --run <run> --region eu-central-1 --subnet <subnet-id>
 ```
 
 ## On Google Cloud
@@ -241,11 +341,13 @@ it by its code. A refusal counts only on a path that worked before it.
 | `--stop`, `--inline-deny` or `--revoke-sessions`, on AWS | `AccessDenied` from Amazon S3, on the test agent's own calls and its work under another identity; `AccessDeniedException` from Amazon Bedrock, on its call to a model; and on every path, Lambda refusing to run the test agent with `KMSAccessDeniedException`, where the agent ran before the stop |
 | `--stop` or `--deny-all`, on Google Cloud | a `403` from Cloud Storage whose reason is `forbidden` or `insufficientPermissions` |
 | `--disable-account` | those, a `401` whose reason is `authError` from a token not yet expired, and a `404` when the test agent asks for its own token |
+| `--via`, your gateway | its own refusal of the test agent's connection through it: a `403`, or a `407` where your gateway's address carries a user name and password, read only where Lambda runs the test agent on the Python, botocore and urllib3 the kit was tested with |
 | `--own-trigger` | those of the kind of stop the cloud's record of your action shows: CloudTrail's on AWS, Cloud Audit Logs' on Google Cloud. If it shows none of these, nothing counts as stopped |
 
 <!-- [source: aws-s3-access-denied-example, aws-lambda-invoke-kms-access-denied, google-storage-403-forbidden,
 google-storage-403-insufficient-permissions, google-storage-401-auth-error, aws-bedrock-converse-access-denied] -->
 <!-- CUSTOMER TEXT: the AWS row's model path approved by the founder, word for word, 30 October 2026 -->
+<!-- CUSTOMER TEXT: the --via row approved by the founder, word for word, 30 October 2026 (D655) -->
 
 A path whose calls after the stop were all not counted, or that was answered after the stop and then had nothing counted
 until the window ended, reads "not measured": the kit cannot say whether the stop stopped it.
@@ -257,20 +359,38 @@ The kit runs with your own credentials. To give it only what a run needs, use th
 
 - **AWS:** [`permissions/aws-policy.json`](permissions/aws-policy.json), an IAM policy. Each statement names only what a
   run makes (its stack, roles, function, bucket and log group, each `arvaken-stop-test-*`), except reading your stop
-  policy, and four reads AWS allows only on every resource: CloudTrail's event history, the tag listing, the log group
-  listing and IAM's policy simulator.
+  policy, and eight reads that AWS lets a policy grant only on every resource: CloudTrail's event history, the tag
+  listing, the log group listing, IAM's policy simulator, and EC2's listings of network interfaces, subnets, security
+  groups and VPCs.
 
   The two roles a run makes carry a permissions boundary,
   [`permissions/aws-boundary.json`](permissions/aws-boundary.json), which allows only writing and reading a run's own
   bucket and assuming a run's own role. The policy lets its holder make a role, or give one a policy, only under that
-  boundary, so it cannot be used to make a role that reaches anything else. Create the boundary once, with an
-  administrator's credentials, under its own name:
+  boundary or one of the kit's three below. So in an account that holds only this one, it cannot be used to make a role
+  that reaches anything else. Create the boundary once, with an administrator's credentials, under its own name:
 
   ```
   aws iam create-policy --policy-name arvaken-stop-test-boundary --policy-document file://permissions/aws-boundary.json
   ```
 
-  Before a run makes anything, the kit checks that the boundary is there and is the kit's.
+  A run in your subnet (`--subnet`), or one that calls a model (`--model`), needs a boundary of its own instead, which
+  allows more. Create one only to use that option, the same way, under the name given here:
+
+  - `arvaken-stop-test-boundary-via`, from [`permissions/aws-boundary-via.json`](permissions/aws-boundary-via.json), for
+    a run in your subnet. It also allows the six network actions Lambda takes to make the test agent's network
+    interfaces, on every resource, so any role made under it can create and delete network interfaces, and change their
+    private addresses, anywhere in your account. It denies them to any call from a function's own code, so neither the
+    test agent's code nor any other function's under it can make them. The kit's policy doesn't limit whom such a role
+    trusts, so anyone it trusts can do the same. <!-- [source: aws-lambda-vpc-permissions-all-resources,
+    aws-lambda-source-function-arn-injected, aws-lambda-source-function-arn-not-on-eni] -->
+  - `arvaken-stop-test-boundary-model`, from
+    [`permissions/aws-boundary-model.json`](permissions/aws-boundary-model.json), for a run that calls a model. It also
+    allows calling any Bedrock model, so any role made under it can call any model, billed to your account.
+  - `arvaken-stop-test-boundary-via-model`, from
+    [`permissions/aws-boundary-via-model.json`](permissions/aws-boundary-via-model.json), for a run that does both. It
+    allows what each of the two allows.
+
+  Before a run makes anything, the kit checks that the boundary its options need is there and is the kit's.
 - **Google Cloud:** [`permissions/google-role.yaml`](permissions/google-role.yaml), a custom role for your test project:
 
   ```

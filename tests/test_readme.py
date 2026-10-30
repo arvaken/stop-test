@@ -69,3 +69,24 @@ WHAT_COUNTS = (
 def test_the_readme_says_what_counts_as_stopped_as_the_founder_approved_it():
     for words in WHAT_COUNTS:
         assert words in flat(README), words[:60]
+
+
+# Through your gateway (D655, the founder's ruling on a gateway's refusal, 30 October 2026): his own words for (b) and open
+# tunnels 3, and the words he approved for (c), the table's row, and the model section's sentence on what counts
+GATEWAY_WORDS = (
+    "Switching your gateway off can't be measured as a stop: to the kit it looks the same as a broken network. Use a "
+    "rule on your gateway that refuses calls, such as a filter or a closed port.",
+    "A rule on your gateway may not reach a connection already open through it. The kit keeps its connections open, as "
+    "AWS's own libraries do, so its times include that.",
+    'A refusal from a gateway that inspects TLS (`--ca-bundle`), made inside the connection it opened, and any refusal from a gateway reached over `https://`, read "not measured" for now: the kit can\'t yet tell them from AWS\'s own.',
+    "| `--via`, your gateway | its own refusal of the test agent's connection through it: a `403`, or a `407` where your gateway's address carries a user name and password, read only where Lambda runs the test agent on the Python, botocore and urllib3 the kit was tested with |",
+    "After the stop, a call counts as stopped only when the stop refused it, as access denied; every other failure, a "
+    "throttle among them, is not counted, and the page shows the errors seen.",
+    "stop-test aws plan --via http://gateway.example:8888 --product-attachment all-outbound",
+)
+
+
+def test_the_readme_says_what_counts_through_a_gateway_as_the_founder_approved_it():
+    for words in GATEWAY_WORDS:
+        assert words in flat(README), words[:60]
+    assert "a throttle included" not in flat(README)
