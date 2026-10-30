@@ -147,3 +147,38 @@ def test_each_failure_keeps_its_record_and_whether_it_counted():
                   token_expires=4500.0)
     r = judged(beats((990, 1012, True)) + [Beat(1012.0, False, "ThrottlingException"), record])
     assert r.failures == (Beat(1012.0, False, "ThrottlingException"), record) and r.refused == ()
+
+
+# -- through a gateway: tries set aside never decide the at-the-mark rule (D655, open tunnels 2) ----------------------
+
+def kept_and_new(*spans: tuple[float, float, bool, bool], error: str = "Refused403") -> list[Beat]:
+    """Heartbeats a second over each span [start, end): ok or failing, and with the kept client (made at 900) or one made
+    after the mark (at FIRED + 0.25), as when Lambda gave the agent a new environment."""
+    out = []
+    for start, end, ok, new in spans:
+        t = start
+        while t < end:
+            out.append(Beat(t, ok, None if ok else error, client_at=FIRED + 0.25 if new else 900.0))
+            t += 1.0
+    return out
+
+
+def gateway_judged(beats):
+    from arvaken_stop_test.timing import REFUSED_AT_THE_MARK
+    return judge(beats, FIRED, window=WINDOW, counts=lambda b, before: b.error == "Refused403",
+                 refused_at_mark=NOT_MEASURED, set_aside=lambda b: b.client_at is not None and b.client_at > FIRED), \
+        REFUSED_AT_THE_MARK
+
+
+def test_a_new_clients_failure_first_after_the_mark_is_not_the_kept_clients_refusal_at_the_mark():
+    # the kept client works before the mark; a new environment's client fails first after it; the kept client then works
+    r, at_mark = gateway_judged(kept_and_new((990, 1000, True, False), (1000.5, 1001.5, False, True),
+                                             (1001.5, 1930.5, True, False)))
+    assert r.reason != at_mark and r.outcome == NOT_STOPPED
+
+
+def test_a_new_clients_success_first_after_the_mark_does_not_hide_the_kept_client_refused_at_it():
+    # a new environment's client succeeds first after the mark; the kept client is refused from its first try after it
+    r, at_mark = gateway_judged(kept_and_new((990, 1000, True, False), (1000.5, 1001.5, True, True),
+                                             (1002, 1930, False, False)))
+    assert (r.outcome, r.reason) == (NOT_MEASURED, at_mark)

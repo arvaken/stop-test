@@ -144,7 +144,7 @@ GATEWAY = {"kind": "gateway", "attachment": "all its outbound traffic", "name": 
 def a_gateway_result(**over) -> dict:
     """A run through a gateway, as the kit's aws/run.py writes one: a product's control, fired by your own trigger, from
     your mark; the key's path failed through the gateway before the stop, and the own calls failed through it after
-    the mark, which counts nothing until the founder's ruling on a gateway's refusal (30 October 2026) is built."""
+    the mark, with no status of the gateway's own, so nothing counts (D655, (b))."""
     failed = [Beat(FIRED - 1, True)] + [Beat(FIRED + 1 + i, i < 5, None if i < 5 else "ProxyConnectionError")
                                         for i in range(120)]
     paths = {"own_calls": judge(failed, FIRED, window=60, counts=lambda b, before: False),

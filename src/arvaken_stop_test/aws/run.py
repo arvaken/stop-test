@@ -47,8 +47,10 @@ paths, exactly as before.
 record of your action shows (`identify`), or none, where the kit finds no such record, and then nothing counts. Each path
 is judged from its heartbeats before the firing moment as well as after it: a refusal counts only on a path that
 succeeded before it, and Lambda's KMSAccessDeniedException only where the agent ran before the stop and it first came
-after. Through a gateway nothing counts yet (Run.counted_kind): the founder's ruling on a gateway's refusal (30 October
-2026) is not built, so a path that fails after the mark reads "not measured", never "stopped".
+after. Through a gateway the refusal is the gateway's own (the founder's ruling, D655, 30 October 2026): its 403 to the
+CONNECT, or its 407 where its address signs in, from a combination the parse was tested on (refusals.gateway_counts);
+through an https:// gateway nothing counts yet (Run.counted_kind); and a try made with a client made after the mark is
+set aside, never setting the result (new_connections_only).
 """
 from __future__ import annotations
 
@@ -881,13 +883,14 @@ def details(r: Run, doc: dict) -> dict:
 
 def client_mode(r: Run, rep: Repeat, p: str) -> dict[str, Any]:
     """Which client a path through the gateway was timed with (D655, open tunnels 3): one kept from before the mark, its
-    connection and tunnel reused; and the tries made with a client made after the mark, "new connections only", shown
-    beside it and never setting the result."""
+    connection and tunnel reused, or None where no client was kept from before the mark (every try after it on a new
+    client, or none made); and the tries made with a client made after the mark, "new connections only", shown beside it
+    and never setting the result."""
     at = _moment(rep, p)[0]
     made = sorted({b.client_at for b in rep.beats.get(p, []) if b.client_at is not None and (at is None or
                                                                                           b.client_at <= at)})
     fresh = new_connections_only(r, rep, p)
-    return {"mode": "kept from before the mark", "made": [_iso(m) for m in made],
+    return {"mode": "kept from before the mark" if made else None, "made": [_iso(m) for m in made],
             "new_connections_only": {"tries": len(fresh), "failures": dict(Counter(b.error or "unknown"
                                                                                     for b in fresh if not b.ok))}}
 

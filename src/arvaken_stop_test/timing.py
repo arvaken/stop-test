@@ -185,7 +185,9 @@ def judge(beats: Iterable[Beat], fired_at: float | None, window: float, hold: fl
     after = [b for b in ordered if fired_at < b.at <= end]
     if not after:
         return PathResult(NOT_RUN, window, reason="no heartbeat came after the stop was fired")
-    if refused_at_mark is not None and not after[0].ok:
+    aside = {id(b) for b in after if set_aside is not None and set_aside(b)}
+    first = next((b for b in after if id(b) not in aside), None)        # the first try not set aside
+    if refused_at_mark is not None and first is not None and not first.ok:
         failed = [b for b in after if not b.ok]
         codes = dict(Counter(b.error or "unknown" for b in failed))
         return PathResult(refused_at_mark, window, tries_after=len(after), failures_after=len(failed), errors=codes,
@@ -193,7 +195,6 @@ def judge(beats: Iterable[Beat], fired_at: float | None, window: float, hold: fl
     # the successes and counted refusals, in order: a refusal counts only on a path that succeeded before it
     kept: list[Beat] = []
     succeeded = any(b.ok for b in before)
-    aside = {id(b) for b in after if set_aside is not None and set_aside(b)}
     for b in after:
         if id(b) in aside:
             continue

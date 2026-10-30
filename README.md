@@ -381,8 +381,8 @@ The kit runs with your own credentials. To give it only what a run needs, use th
     interfaces, on every resource, so any role made under it can create and delete network interfaces, and change their
     private addresses, anywhere in your account. It denies them to any call from a function's own code, so neither the
     test agent's code nor any other function's under it can make them. The kit's policy doesn't limit whom such a role
-    trusts, so anyone it trusts can do the same. <!-- [source: aws-lambda-vpc-permissions-all-resources,
-    aws-lambda-source-function-arn-injected, aws-lambda-source-function-arn-not-on-eni] -->
+    trusts, so anyone it trusts can do the same. <!-- [source: aws-lambda-vpc-permissions,
+    aws-lambda-source-function-arn, aws-lambda-source-function-arn-not-enis] -->
   - `arvaken-stop-test-boundary-model`, from
     [`permissions/aws-boundary-model.json`](permissions/aws-boundary-model.json), for a run that calls a model. It also
     allows calling any Bedrock model, so any role made under it can call any model, billed to your account.

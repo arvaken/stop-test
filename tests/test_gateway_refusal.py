@@ -183,8 +183,25 @@ def test_tries_with_a_client_made_after_the_mark_never_set_the_result(monkeypatc
     r, doc, _ = through(FakeAWS(clock, gw_status=403, new_environment_after=1.0), clock, via=HTTP_VIA, ca=None)
     assert outcomes(doc) == {p: "not measured" for p in running.AWS_PATHS}
     client = running.details(r, doc)["repeats"][0]["own_calls"]["client"]
-    assert client["new_connections_only"]["tries"] > 0
+    assert client["new_connections_only"]["tries"] > 0 and client["mode"] == "kept from before the mark"
     assert client["new_connections_only"]["failures"] == {"ProxyConnectionError": client["new_connections_only"]["tries"]
                                                           - sum(1 for b in running.new_connections_only(
                                                               r, r.repeats[0], "own_calls") if b.ok)}
     assert GATEWAY["attachment"] == "all its outbound traffic"
+
+
+def test_a_new_environment_at_the_mark_keeps_no_client_from_before_it_and_its_first_failure_is_not_the_kept_ones():
+    """D561's review, 30 October 2026: with a new environment from the switch on, every try after the mark is on a
+    client made after it: none is kept from before it, and no try set aside decides the at-the-mark rule."""
+    monkeypatch_tested = pytest.MonkeyPatch()
+    monkeypatch_tested.setattr(refusals, "TESTED", frozenset({LAMBDA}))
+    try:
+        clock = Clock()
+        r, doc, _ = through(FakeAWS(clock, gw_status=403, new_environment_after=0.0), clock, via=HTTP_VIA, ca=None)
+        found = running.results(r)[0][1]["own_calls"]
+        assert found.reason not in (running.REFUSED_AT_THE_MARK, running.ALREADY_REFUSED_REASON)
+        assert found.outcome == "not measured" and found.reason.startswith("nothing after")
+        client = running.details(r, doc)["repeats"][0]["own_calls"]["client"]
+        assert client["mode"] == "kept from before the mark" and client["new_connections_only"]["tries"] > 0
+    finally:
+        monkeypatch_tested.undo()
