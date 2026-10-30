@@ -55,8 +55,12 @@ LAMBDA_REFUSED = "Lambda refused: "      # the prefix of a beat the kit makes wh
 PRODUCT_CONTROL = "a product's control"    # the kind of stop a gateway's is (result.PRODUCT_CONTROL)
 PROXY_REFUSED = "ProxyConnectionError"     # botocore's error where the gateway refused, or never answered, the CONNECT
 # Each combination of the agent's Python, botocore and urllib3 the gateway's status was read on in a test, against a
-# gateway answering as tinyproxy does (tests/test_gateway_refusal.py and Arvaken's test in Lambda's own python3.12).
-TESTED: frozenset[tuple[str, str, str]] = frozenset()
+# gateway answering as tinyproxy does. Lambda's python3.12, tested in Lambda itself on the founder's approval of 30
+# October 2026 (install-test, the stack arvaken-parse-test-e79c7095, runtime version
+# c4f12692bc26771dc4c7d61f4ebed11236e838b78ffdc4596c3f0aa4ba48c75d, 04:16 UTC): the kit's own agent read 403, 403, 407
+# and 502 as each, and none where nothing listened. When AWS moves the runtime on, its new combination counts nothing
+# until it is tested so.
+TESTED: frozenset[tuple[str, str, str]] = frozenset({("3.12.15", "1.42.97", "2.8.0")})
 LAMBDA_KMS = LAMBDA_REFUSED + "KMSAccessDeniedException"
 
 
