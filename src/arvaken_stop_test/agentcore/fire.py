@@ -144,7 +144,7 @@ def remove(iam: Any, control: Any, run: str, stop_ref: str, runtime_arn: str | N
     try:
         control.delete_resource_policy(resourceArn=runtime_arn)
     except Exception as e:  # noqa: BLE001 - no resource policy, or no runtime, answers ResourceNotFoundException
-        if str(getattr(e, "response", {}).get("Error", {}).get("Code")) == "ResourceNotFoundException":
+        if str((getattr(e, "response", None) or {}).get("Error", {}).get("Code")) == "ResourceNotFoundException":
             return False
         raise
     return True

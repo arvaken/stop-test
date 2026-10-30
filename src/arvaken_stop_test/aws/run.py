@@ -470,7 +470,7 @@ def _gone(call: Callable[[], Any]) -> bool | str:
         call()
         return False
     except Exception as e:  # noqa: BLE001 - each answer is sorted below
-        code = str(getattr(e, "response", {}).get("Error", {}).get("Code") or type(e).__name__)
+        code = str((getattr(e, "response", None) or {}).get("Error", {}).get("Code") or type(e).__name__)
         if code in NOT_FOUND or (code == "ValidationError" and "does not exist" in str(e)):
             return True
         return code

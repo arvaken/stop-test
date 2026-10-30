@@ -90,7 +90,7 @@ def why_no_boundary(iam: Any, sts: Any) -> str | None:
     try:
         version = iam.get_policy(PolicyArn=arn)["Policy"]["DefaultVersionId"]
     except Exception as e:
-        if str(getattr(e, "response", {}).get("Error", {}).get("Code")) == "NoSuchEntity":
+        if str((getattr(e, "response", None) or {}).get("Error", {}).get("Code")) == "NoSuchEntity":
             return NO_BOUNDARY
         raise
     document = iam.get_policy_version(PolicyArn=arn, VersionId=version)["PolicyVersion"]["Document"]

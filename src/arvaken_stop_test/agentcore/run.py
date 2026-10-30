@@ -208,7 +208,7 @@ class Run:
 
 
 def code(e: Exception) -> str:
-    return str(getattr(e, "response", {}).get("Error", {}).get("Code") or type(e).__name__)[:64]
+    return str((getattr(e, "response", None) or {}).get("Error", {}).get("Code") or type(e).__name__)[:64]
 
 
 def _retrying(call: Callable[[], Any], codes: set[str], clock: Clock, limit: float = ROLE_WAIT) -> Any:
