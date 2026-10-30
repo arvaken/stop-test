@@ -10,20 +10,26 @@ is the kit's own clock when the call returned, moved onto the test agent's clock
 warm-up.
 
 **What was made is checked gone by its own name:** the service, the bucket, both accounts and the run's deny policy.
+
+**What counts as the stop's refusal** is refusals.py's, by the kind of stop: for your own trigger, the kind Cloud Audit
+Logs' record of your action shows (`identify`), or none, and then nothing counts. Cloud Run refusing to reach the agent
+(429, 500, 503) is recorded on every path and never counted: a throttle or a server error is not the stop's refusal (the
+founder, 29 October 2026). Each path is judged from its heartbeats before the firing moment as well as after it.
 """
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 
-from arvaken_stop_test import __version__, result
+from arvaken_stop_test import __version__, refusals, result
 from arvaken_stop_test.google import fire as firing
 from arvaken_stop_test.google.api import Google, GoogleError
 from arvaken_stop_test.google.stack import IAM, MEMORY_MB, RUN, RUNTIME, STORAGE, deploy, names, quoted
-from arvaken_stop_test.timing import HOLD, PATH_WORDS, WINDOWS, Beat, PathResult, judge
+from arvaken_stop_test.timing import HOLD, NOT_MEASURED, PATH_WORDS, WINDOWS, Beat, PathResult, judge
 
 GOOGLE_PATHS = ("own_calls", "another_identity", "outside_key", "open_internet")
 WARM_UP = 10
@@ -33,7 +39,7 @@ TRANSIENT_TRIES = 4            # a check Google answers 429 or 5xx is made this 
 LOG_WAIT = 600.0               # seconds to wait, after the last window, for Cloud Audit Logs to record each firing
 LOGGING = "https://logging.googleapis.com/v2/entries:list"
 # Cloud Run's own refusals to reach the test agent: while it refuses, the agent makes no call on any path, so each path
-# counts each refusal as refused, by its status. Anything else is not the stop, and ends the run.
+# records each refusal, by its status, as not counted. Anything else is not the stop, and ends the run.
 REFUSED_STATUSES = (429, 500, 503)
 REFUSED = "Cloud Run refused: "
 
@@ -51,6 +57,9 @@ class Repeat:
     fired_at: float | None = None
     fired_precision: float = 0.0
     session_expires: float | None = None
+    watched_from: float = 0.0           # your own trigger: the kit's clock when it began to watch for it
+    seen: list[tuple[str, str]] = field(default_factory=list)   # and what it saw: the account disabled, or a policy
+    # each path's heartbeats: those since the stop before it was taken off (or the warm-up's), then the repeat's own
     beats: dict[str, list[Beat]] = field(default_factory=lambda: {p: [] for p in GOOGLE_PATHS})
 
 
@@ -73,10 +82,21 @@ class Run:
     repeats: list[Repeat] = field(default_factory=list)
     left_behind: list[str] = field(default_factory=list)
     checked_gone: list[str] = field(default_factory=list)
+    warm_beats: dict[str, list[Beat]] = field(default_factory=dict)     # the warm-up's heartbeats
+    # your own trigger: the kind of stop Cloud Audit Logs' record of your action shows, or None, and that record
+    trigger_kind: str | None = None
+    trigger_record: dict[str, str] | None = None
 
     @property
     def stop_kind(self) -> str:
+        if self.fired_by == "your own trigger" and self.trigger_kind:
+            return self.trigger_kind
         return firing.kind_of(self.stop_ref)
+
+    @property
+    def counted_kind(self) -> str | None:
+        """The kind of stop whose refusals count: the kit's own; for your own trigger, the one identified, or None."""
+        return self.trigger_kind if self.fired_by == "your own trigger" else firing.kind_of(self.stop_ref)
 
 
 def _invoke(g: Google, r: Run, payload: dict, clock: Clock) -> tuple[dict, float, float]:
@@ -118,8 +138,11 @@ def heartbeat(g: Google, r: Run, n: int, session: dict,
             raise
         received = clock.now()
         at = (sent + received) / 2 + r.offset
-        return {p: Beat(at, False, f"{REFUSED}HTTP{e.status}") for p in GOOGLE_PATHS}, sent, received, None
-    beats = {p: Beat(float(b["at"]), bool(b["ok"]), b.get("error")) for p, b in (body.get("beats") or {}).items()}
+        return {p: Beat(at, False, f"{REFUSED}HTTP{e.status}", status=e.status) for p in GOOGLE_PATHS}, sent, received, None
+    beats = {p: Beat(float(b["at"]), bool(b["ok"]), b.get("error"), status=b.get("status"), reason=b.get("reason"),
+                     provider_status=b.get("provider_status"), step=b.get("step"), token_issued=b.get("token_issued"),
+                     token_expires=b.get("token_expires"))
+             for p, b in (body.get("beats") or {}).items()}
     r.calls += len(beats)
     return beats, sent, received, float(body["at"])
 
@@ -128,6 +151,8 @@ def warm_up(g: Google, r: Run, session: dict, clock: Clock) -> None:
     best = None
     for i in range(WARM_UP):
         beats, sent, received, agent_at = heartbeat(g, r, -1 - i, session, clock)
+        for p, b in beats.items():
+            r.warm_beats.setdefault(p, []).append(b)
         r.working |= {p for p, b in beats.items() if b.ok}
         for p, b in beats.items():
             if not b.ok:
@@ -140,13 +165,18 @@ def warm_up(g: Google, r: Run, session: dict, clock: Clock) -> None:
     r.offset = best[1] if best else 0.0
 
 
-def time_one(g: Google, r: Run, clock: Clock, watch_own_trigger: bool, n0: int) -> Repeat:
+def time_one(g: Google, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
+             before: dict[str, list[Beat]] | None = None) -> Repeat:
+    """One repeat, as aws/run.py's: `before` is each path's heartbeats before the firing."""
     rep = Repeat()
+    for p, beats in (before or {}).items():
+        rep.beats.setdefault(p, []).extend(beats)
     session = assume(g, r, clock)
     rep.session_expires = _seconds(session.get("expires"))
     n = n0
     if watch_own_trigger:
-        seen = firing.watch(g, r.run, until=clock.now() + r.window, now=clock.now, sleep=clock.sleep)
+        rep.watched_from = clock.now()
+        seen = firing.watch(g, r.run, until=clock.now() + r.window, now=clock.now, sleep=clock.sleep, found=rep.seen)
         if seen is None:
             return rep
         rep.fired_before = rep.fired_after = seen
@@ -162,14 +192,18 @@ def time_one(g: Google, r: Run, clock: Clock, watch_own_trigger: bool, n0: int) 
     return rep
 
 
-def recover(g: Google, r: Run, clock: Clock) -> None:
-    """Between repeats: take the stop off, then wait until the agent's own calls work again."""
+def recover(g: Google, r: Run, clock: Clock) -> dict[str, list[Beat]]:
+    """Between repeats: take the stop off, then wait until the agent's own calls work again. Returns each path's
+    heartbeats meanwhile, which come before the next repeat's firing."""
     firing.remove(g, r.run, r.stop_ref)
-    end, good = clock.now() + RECOVERY, 0
+    end, good, seen = clock.now() + RECOVERY, 0, {}
     while clock.now() < end and good < 5:
         beats, _, _, _ = heartbeat(g, r, 0, {}, clock)
+        for p, b in beats.items():
+            seen.setdefault(p, []).append(b)
         good = good + 1 if beats.get("own_calls") and beats["own_calls"].ok else 0
         clock.sleep(1.0)
+    return seen
 
 
 def _audit_filter(r: Run, rep: Repeat) -> str:
@@ -194,6 +228,7 @@ def firing_moments(g: Google, r: Run, clock: Clock, wait: float = LOG_WAIT) -> N
         for rep in r.repeats:
             if rep.fired_after:
                 rep.fired_at = rep.fired_after + r.offset
+        identify(g, r, clock, wait)
         return
     pending = [rep for rep in r.repeats if rep.fired_after]
     end = clock.now() + wait
@@ -208,6 +243,53 @@ def firing_moments(g: Google, r: Run, clock: Clock, wait: float = LOG_WAIT) -> N
             clock.sleep(30.0)
     for rep in pending:
         rep.fired_at, rep.fired_precision = rep.fired_before + r.offset, rep.fired_after - rep.fired_before
+
+
+# CUSTOMER TEXT: not yet approved
+NOT_IDENTIFIED = ("Cloud Audit Logs hold no record of your trigger as a kind of stop the kit counts, so nothing counts as "
+                  "stopped")
+# The calls whose record shows your own trigger's kind (the founder's refusal ruling of 29 October 2026, item 5): the
+# test agent's account disabled, or a deny policy made or changed that the kit saw naming it.
+DENY_METHODS = ("google.iam.v2.Policies.CreatePolicy", "google.iam.v2.Policies.UpdatePolicy")
+
+
+def identify(g: Google, r: Run, clock: Clock, wait: float = LOG_WAIT) -> None:
+    """Your own trigger's kind of stop: the last record in Cloud Audit Logs, from when the kit began to watch to just
+    after it saw the change, of the test agent's account disabled, or of the deny policy the kit saw naming it made or
+    changed, where the call was not refused. Waited for up to `wait` seconds. Where there is none, the kind is None and
+    nothing counts as stopped."""
+    rep = next((x for x in r.repeats if x.fired_after), None)
+    if rep is None:
+        return
+    since = datetime.fromtimestamp(rep.watched_from + r.offset - 5, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    until = datetime.fromtimestamp(rep.fired_after + r.offset + 5, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    account = r.outputs.get("AgentAccountId", "")
+    policies = [name.rsplit("/", 1)[-1] for what, name in rep.seen if what == "deny policy"]
+    methods = " OR ".join(f'"{m}"' for m in (firing.METHODS[firing.DISABLE_KIND], *DENY_METHODS))
+    query = (f'logName="projects/{r.project}/logs/cloudaudit.googleapis.com%2Factivity" '
+             f'AND protoPayload.methodName=({methods}) AND timestamp>="{since}" AND timestamp<="{until}"')
+    end = clock.now() + wait
+    while True:
+        entries = g.call("POST", LOGGING, {"resourceNames": [f"projects/{r.project}"], "filter": query,
+                                           "orderBy": "timestamp asc", "pageSize": 100}).get("entries") or []
+        found = []
+        for e in entries:
+            payload = e.get("protoPayload") or {}
+            if (payload.get("status") or {}).get("code"):
+                continue                                    # a refused call changed nothing
+            if payload.get("methodName") == firing.METHODS[firing.DISABLE_KIND]:
+                if account and payload.get("resourceName") == f"projects/-/serviceAccounts/{account}":
+                    found.append((e, firing.DISABLE_KIND))
+            elif any(pid in json.dumps(payload) for pid in policies):
+                found.append((e, firing.DENY_KIND))
+        if found or clock.now() >= end:
+            break
+        clock.sleep(30.0)
+    if found:
+        e, kind = found[-1]
+        r.trigger_kind = kind
+        r.trigger_record = {"source": "Cloud Audit Logs", "insert_id": e.get("insertId", ""),
+                            "method": (e.get("protoPayload") or {}).get("methodName", ""), "timestamp": e.get("timestamp", "")}
 
 
 def _quiet(call: Callable[[], object]) -> bool:
@@ -302,8 +384,12 @@ def check_gone(g: Google, r: Run, clock: Clock, wait: float = 120.0) -> tuple[li
 
 
 def _one(r: Run, rep: Repeat, p: str) -> PathResult:
+    kind = r.counted_kind
     found = judge(rep.beats.get(p, []), rep.fired_at, window=r.window, tried=p in r.working,
-                  setup_errors=r.setup_errors.get(p), fired_precision=rep.fired_precision)
+                  setup_errors=r.setup_errors.get(p), fired_precision=rep.fired_precision,
+                  counts=lambda b, before: refusals.counts(kind, p, b, before))
+    if kind is None and found.outcome == NOT_MEASURED:
+        found = replace(found, reason=NOT_IDENTIFIED)
     keeps = rep.session_expires if p == "another_identity" and found.outcome == "not stopped" else None
     source = ("Cloud Audit Logs' record of the call" if rep.fired_precision == 0.001 else
               f"the kit's own clock, moved onto the agent's; the call took {rep.fired_precision:.3f} seconds")
@@ -330,11 +416,13 @@ def details(r: Run, doc: dict) -> dict:
             "successes_after_first_refusal": f.successes_after_first_refusal,
             "first_refused": _iso(f.first_failure_after), "stopped_from": _iso(f.stopped_at),
             "last_success": _iso(f.last_success_after), "tries_after": f.tries_after, "failures_after": f.failures_after,
-            "errors": f.errors, "reason": f.reason, "keeps_working_until": _iso(f.keeps_working_until)}
+            "errors": f.errors, "not_counted": f.not_counted, "reason": f.reason,
+            "keeps_working_until": _iso(f.keeps_working_until), "failures": result.failure_records(f)}
             for p, f in found.items()})
     return {"format": "stop-test-details/1", "run": r.run, "result_signature": doc["signature"],
             "stop_kind": r.stop_kind, "window_seconds": r.window, "left_behind": r.left_behind,
-            "checked_gone": r.checked_gone, "repeats": repeats}
+            "checked_gone": r.checked_gone, "repeats": repeats,
+            "trigger": {"kind": r.trigger_kind, "record": r.trigger_record} if r.fired_by == "your own trigger" else None}
 
 
 def the_result(r: Run, key=None) -> dict:
@@ -380,11 +468,11 @@ def run(g: Google, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", w
                 codes = ", ".join(f"{code} {k}" for code, k in sorted(r.setup_errors.get(p, {}).items()))
                 say(f"Before the stop, {PATH_WORDS[p]} did not work ({codes or 'no answer'}): it will be reported as "
                     "not run.")
-        n = 0
+        n, before = 0, r.warm_beats
         for i in range(repeats):
             if i:
-                recover(g, r, clock)
-            rep = time_one(g, r, clock, fired_by == "your own trigger", n)
+                before = recover(g, r, clock)
+            rep = time_one(g, r, clock, fired_by == "your own trigger", n, before)
             r.repeats.append(rep)
             n += sum(len(b) for b in rep.beats.values())
         firing_moments(g, r, clock, wait=log_wait)

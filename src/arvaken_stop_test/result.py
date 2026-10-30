@@ -25,11 +25,16 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from arvaken_stop_test.timing import FLAPPED, NOT_RUN, NOT_STOPPED, PATHS, STOPPED, PathResult
+from arvaken_stop_test.timing import FLAPPED, NOT_MEASURED, NOT_RUN, NOT_STOPPED, PATHS, STOPPED, Beat, PathResult
 
 FORMAT = "stop-test-result/1"
-OUTCOMES = (STOPPED, FLAPPED, NOT_STOPPED, NOT_RUN)
+OUTCOMES = (STOPPED, FLAPPED, NOT_STOPPED, NOT_RUN, NOT_MEASURED)
 FIRED_BY = ("the kit", "your own trigger")
+# "Not measured" on a path of any kind of stop (the founder, 29 October 2026) is more than the kit's terms allow: their v4
+# (D595) give it to a product's control alone. His answer of 30 October 2026: no release carries it until a version of
+# the terms allows it for every kind of stop. That version, once it is in force; until then a release is refused
+# (tests/test_result.py, under STOP_TEST_RELEASE).
+TERMS_ALLOWING_NOT_MEASURED: str | None = None
 
 # Every field, by where it sits, and whether it identifies (sealed when submitted) or stays readable.
 SHAPE: dict[str, tuple[str, ...]] = {
@@ -63,6 +68,26 @@ def path_part(r: PathResult, fired_at: float | None) -> dict[str, Any]:
     return {"fired_at": iso(r.fired_at if r.fired_at is not None else fired_at),
             "last_success_after": iso(r.last_success_after),
             "first_refused_after": iso(r.first_failure_after), "outcome": r.outcome}
+
+
+FAILURE_RECORD = ("at", "step", "code", "status", "reason", "reason_given", "provider_status", "token_issued",
+                  "token_expires", "counted")
+
+
+def failure_record(b: Beat, counted: bool) -> dict[str, Any]:
+    """One failed call's record, for the details beside the result, never the result itself (D532: the result holds no
+    error codes), with every field of FAILURE_RECORD (D646, item 4: the founder, 29 October 2026). Where the provider's
+    error gave no reason, the reason is empty and the record says none was given (his answer of 30 October 2026). Where
+    there is no status, nothing answered; where no token's times, the call used none, or the agent is not told them."""
+    return {"at": iso(b.at), "step": b.step, "code": b.error or "unknown", "status": b.status, "reason": b.reason,
+            "reason_given": b.reason is not None, "provider_status": b.provider_status,
+            "token_issued": iso(b.token_issued), "token_expires": iso(b.token_expires), "counted": counted}
+
+
+def failure_records(r: PathResult) -> list[dict[str, Any]]:
+    """Each failure after the stop on a path, in order, with whether it counted as the stop's refusal."""
+    refused = set(r.refused)
+    return [failure_record(b, i in refused) for i, b in enumerate(r.failures)]
 
 
 def build(*, kit_version: str, cloud: str, region: str, began_at: float, ended_at: float, window: float,
