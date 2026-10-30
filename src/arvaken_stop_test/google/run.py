@@ -173,7 +173,7 @@ def recover(g: Google, r: Run, clock: Clock) -> None:
 
 
 def _audit_filter(r: Run, rep: Repeat) -> str:
-    """The firing call's record in Cloud Audit Logs, as Google writes it (read in Arvaken's sandbox, 24 October 2026):
+    """The firing call's record in Cloud Audit Logs, as Arvaken read it in its sandbox (24 October 2026):
     a deny policy's creation names the project's attachment point as its resource, and the policy by its ID in its
     request; an account's disabling names the account by its unique ID, never its email."""
     n = names(r.run, r.project)

@@ -1,0 +1,18 @@
+{
+ "schema": "arvaken.provider-sources/1",
+ "why": "The founder's ruling of 28 October 2026, item 6: any sentence, Why? text or rationale that says or implies a cloud provider documents a behaviour carries the page's URL, the exact sentence quoted and the date read. The kit takes the shape of arvaken/mark's check (mark#914). A claim cites its entries by id, [source: id], in the README or in a comment or docstring, never in words a customer is shown. tests/test_provider_claims_name_their_source.py fails the build on a claim with no source.",
+ "fields": {
+  "cloud": "aws, google_cloud or azure",
+  "url": "the page, https, on the provider's own host",
+  "page": "the page's title",
+  "sentence": "the sentence (or list, table row or entry) quoted whole, no ellipsis",
+  "about": "what the sentence is about, in the provider's own terms",
+  "read": "the day it was read, YYYY-MM-DD (UTC)"
+ },
+ "sources": {},
+ "owed": {
+  "due": "2026-11-04",
+  "why": "Claims on the kit's main branch when the check came: each is sourced by 4 November 2026, after which the build fails if any is left. The list only shrinks.",
+  "claims": []
+ }
+}
