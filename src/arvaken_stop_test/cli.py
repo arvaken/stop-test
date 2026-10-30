@@ -36,9 +36,10 @@ ATTACHMENTS = dict(zip(("model", "outside-services", "all-outbound"), result.PRO
 CA_LIMIT = 64 * 1024            # a certificate bundle's characters: it travels with each of the agent's invocations
 SUBNET = re.compile(r"subnet-[0-9a-f]{8,17}")
 SECURITY_GROUP = re.compile(r"sg-[0-9a-f]{8,17}")
-# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602); the --via help's example, an http://
+# gateway, approved by him word for word on 30 October 2026, as nothing counts through an https:// one yet (D655, (c))
 HELP = {
-    "via": "your gateway's address, such as https://gateway.example:8443: the test agent's calls go through it, as an "
+    "via": "your gateway's address, such as http://gateway.example:8888: the test agent's calls go through it, as an "
            "HTTPS proxy, and your stop is your gateway's own switch, which you fire",
     "product_attachment": "how your gateway is attached: model (its calls to a model), outside-services (its calls to "
                           "outside services) or all-outbound (all its outbound traffic)",
@@ -60,8 +61,9 @@ VIA_NEEDS_PRODUCT = ("With --via, name your gateway: --product-attachment (model
 VIA_ONCE = "--via fires once: only you can take your gateway's stop off, so --repeats is 1."
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 GOES_WITH_VIA = "--product-attachment, --product-name, --ca-bundle, --subnet and --security-group go with --via."
-# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
-NOT_AN_ADDRESS = "--via takes your gateway's address, such as https://gateway.example:8443 or http://10.0.0.5:3128."
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602); its example approved by him word for
+# word on 30 October 2026, as the --via help's
+NOT_AN_ADDRESS = "--via takes your gateway's address, such as http://gateway.example:8888 or http://10.0.0.5:3128."
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 SUBNET_AND_GROUPS = "--subnet takes one subnet's ID (subnet-...), with one or more --security-group (sg-...)."
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)

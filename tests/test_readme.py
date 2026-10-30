@@ -83,6 +83,8 @@ GATEWAY_WORDS = (
     "After the stop, a call counts as stopped only when the stop refused it, as access denied; every other failure, a "
     "throttle among them, is not counted, and the page shows the errors seen.",
     "stop-test aws plan --via http://gateway.example:8888 --product-attachment all-outbound",
+    # every run on Lambda, as the founder approved it word for word, 30 October 2026
+    "On Lambda, the test agent keeps its clients, and their connections to AWS, from one call to the next while Lambda keeps its environment, as AWS's own libraries do.",
 )
 
 

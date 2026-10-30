@@ -62,6 +62,10 @@ During a run, the kit invokes the test agent about once a second, and each time 
 
 With `--model`, it also tries a fifth: a call to a model (see [A call to a model](#a-call-to-a-model)).
 
+<!-- CUSTOMER TEXT: approved by the founder, word for word, 30 October 2026 -->
+On Lambda, the test agent keeps its clients, and their connections to AWS, from one call to the next while Lambda keeps
+its environment, as AWS's own libraries do.
+
 When the run ends, the kit takes off the stop it fired, deletes the stack, and checks each thing it made by its own
 identifier: the stack, the function, both roles, the bucket, the function's log group and the stop. Anything still
 there is named for you to delete.
