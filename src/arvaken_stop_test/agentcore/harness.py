@@ -105,8 +105,6 @@ MODEL_CALLS = ("bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream")
 # Throttles, limits and quotas, server errors, timeouts and network failures never count: such a try is "not counted",
 # neither stopped nor succeeded, and is named among the errors seen.
 REFUSALS = frozenset({"AccessDenied", "AccessDeniedException"})
-# CUSTOMER TEXT: approved by the founder, word for word, 29 October 2026, until "not measured" replaces it
-ALL_NOT_COUNTED = "every call after the stop was not counted"
 
 
 def not_counted(b: Beat) -> bool:
@@ -803,23 +801,10 @@ def check_gone(c: Clients, r: HarnessRun) -> tuple[list[str], list[str]]:
 
 
 def _judged(r: HarnessRun, rep: Repeat, p: str):
-    """A path judged from the stop's moment, its tries not counted set aside: never counted as stopped, nor as
-    working, and each named among the errors seen after the stop. The stopped time is the first refusal with no
-    success after it, whatever was not counted between. Where every call after the stop was not counted, the path was
-    not measured."""
-    beats = rep.beats.get(p, [])
-    found = running._one(r, replace(rep, beats={**rep.beats, p: [b for b in beats if not not_counted(b)]}), p)
-    after = [b for b in beats if rep.fired_at is not None and b.at >= rep.fired_at]
-    set_aside = [b.error for b in after if not_counted(b)]
-    if not set_aside:
-        return found
-    errors = dict(found.errors)
-    for error in set_aside:
-        errors[error] = errors.get(error, 0) + 1
-    found = replace(found, errors=errors)
-    if len(set_aside) == len(after):
-        found = replace(found, reason=ALL_NOT_COUNTED)
-    return found
+    """A path judged from the stop's moment by refusals.py's rule for a policy on a harness's role (the founder's
+    refusal ruling of 29 October 2026): a try not counted is never stopped nor working, moves no time, and is named
+    among the errors seen; where every call after the stop was not counted, the path is not measured."""
+    return running._one(r, rep, p)
 
 
 def results(r: HarnessRun) -> list[tuple[float | None, dict]]:
@@ -839,7 +824,8 @@ def details(r: HarnessRun, doc: dict) -> dict:
             "successes_after_first_refusal": f.successes_after_first_refusal,
             "first_refused": iso(f.first_failure_after), "stopped_from": iso(f.stopped_at),
             "last_success": iso(f.last_success_after), "tries_after": f.tries_after, "failures_after": f.failures_after,
-            "errors": f.errors, "reason": f.reason, "keeps_working_until": iso(f.keeps_working_until)}
+            "errors": f.errors, "not_counted": f.not_counted, "reason": f.reason,
+            "keeps_working_until": iso(f.keeps_working_until), "failures": result.failure_records(f)}
             for p, f in found.items()})
     sessions = [{"session": rep.session, "opened": iso(rep.opened), "ready": iso(rep.ready),
                  "second_role_session_expires": iso(rep.session_expires),

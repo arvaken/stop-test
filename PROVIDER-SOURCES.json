@@ -281,6 +281,38 @@
    "sentence": "authError: This error indicates a problem with the authorization provided in the request to Cloud Storage. The following are some situations where that will occur: The OAuth access token has expired and needs to be refreshed. This can be avoided by refreshing the access token early, but code can also catch this error, refresh the token and retry automatically. Multiple non-matching authorizations were provided; choose one mode only. The OAuth access token's bound project does not match the project associated with the provided developer key. The Authorization header was of an unrecognized format or uses an unsupported credential type.",
    "about": "the 401 Unauthorized reason authError, an expired access token among its situations",
    "read": "2026-10-30"
+  },
+  "aws-agentcore-invoke-access-denied": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/APIReference/API_InvokeAgentRuntime.html",
+   "page": "InvokeAgentRuntime - Amazon Bedrock AgentCore Data Plane",
+   "sentence": "AccessDeniedException The exception that occurs when you do not have sufficient permissions to perform an action. Verify that your IAM policy includes the necessary permissions for the operation you are trying to perform. HTTP Status Code: 403",
+   "about": "InvokeAgentRuntime's error AccessDeniedException",
+   "read": "2026-10-30"
+  },
+  "aws-agentcore-invoke-command-access-denied": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/APIReference/API_InvokeAgentRuntimeCommand.html",
+   "page": "InvokeAgentRuntimeCommand - Amazon Bedrock AgentCore Data Plane",
+   "sentence": "AccessDeniedException The exception that occurs when you do not have sufficient permissions to perform an action. Verify that your IAM policy includes the necessary permissions for the operation you are trying to perform. HTTP Status Code: 403",
+   "about": "InvokeAgentRuntimeCommand's error AccessDeniedException",
+   "read": "2026-10-30"
+  },
+  "aws-agentcore-invoke-harness-access-denied": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/APIReference/API_InvokeHarness.html",
+   "page": "InvokeHarness - Amazon Bedrock AgentCore Data Plane",
+   "sentence": "AccessDeniedException The exception that occurs when you do not have sufficient permissions to perform an action. Verify that your IAM policy includes the necessary permissions for the operation you are trying to perform. HTTP Status Code: 403",
+   "about": "InvokeHarness's error AccessDeniedException",
+   "read": "2026-10-30"
+  },
+  "aws-agentcore-stop-session-not-found": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/APIReference/API_StopRuntimeSession.html",
+   "page": "StopRuntimeSession - Amazon Bedrock AgentCore Data Plane",
+   "sentence": "ResourceNotFoundException The exception that occurs when the specified resource does not exist. This can happen when using an invalid identifier or when trying to access a resource that has been deleted. HTTP Status Code: 404",
+   "about": "StopRuntimeSession's error ResourceNotFoundException",
+   "read": "2026-10-30"
   }
  },
  "owed": {

@@ -7,7 +7,9 @@ removal (in r58051bd3, 29 October 2026, a removed deny went on refusing some new
 `writes_after_close`, a session whose stream the kit closed goes on writing to the run's bucket until its watch ends, as
 sessions did in rbfb0d77a and rcd4c16ca; StopRuntimeSession ends the session and its stream at once; CloudTrail's event
 history shows a management call TRAIL_DELAY seconds after it, IAM's in us-east-1 and AgentCore's in the run's region; a
-trail delivers its data events to its bucket DELIVERY seconds after each.
+trail delivers its data events to its bucket DELIVERY seconds after each. StopRuntimeSession on a session already ended
+is refused as ResourceNotFoundException (`ended_answer`): the kit's confirmation, which Arvaken's trial checks against
+AWS (the founder, 30 October 2026).
 
 What a deny of calls does to a session already running, AWS's pages do not say (the founder, 28 October 2026: no AWS
 claim either way). It is what the run measures. The fake leaves the stream open by default, and with
@@ -106,7 +108,8 @@ class FakeStream:
             if ended is not None and t >= ended:
                 if self.ended is None:
                     self.ended = (ended, "ResponseStreamingError")
-                break
+                if not self.aws.writes_after_end:
+                    break
             if self.aws.dies_in is not None and t >= self.start + self.aws.dies_in:
                 if self.ended is None:
                     self.ended = (self.start + self.aws.dies_in, "RuntimeClientError")
@@ -131,8 +134,9 @@ class FakeStream:
 
 class FakeAWS:
     def __init__(self, clock: Clock, *, boundary=True, trail_records_stop=True, deny_cuts_stream=False,
-                 trail_records=True):
+                 trail_records=True, ended_answer="ResourceNotFoundException"):
         self.clock = clock
+        self.ended_answer = ended_answer          # StopRuntimeSession's answer for a session already ended; None: done
         self.roles: dict[str, dict] = {}
         self.buckets: dict[str, dict[str, tuple[bytes, float]]] = {}
         self.bucket_policies: dict[str, str] = {}
@@ -160,6 +164,7 @@ class FakeAWS:
         self.removed_at: list[float] = []
         # a session whose stream the kit closed goes on with its watch, writing every second, until it ends
         self.writes_after_close = False
+        self.writes_after_end = False           # a session that goes on writing after AWS ended it: the cross-check
         self.writing: list[FakeStream] = []
         self.last_write: float | None = None
         self.bucket_deleted_at: float | None = None
@@ -424,6 +429,10 @@ class FakeAWS:
 
     def stop_runtime_session(self, agentRuntimeArn, runtimeSessionId, qualifier):
         self._runtime(arn=agentRuntimeArn)
+        if self.sessions[runtimeSessionId].get("ended") is not None:
+            if self.ended_answer:
+                raise Error(self.ended_answer)
+            return
         self.sessions[runtimeSessionId]["ended"] = self.clock.now()
         if self.trail_records_stop:
             self._data("StopRuntimeSession", runtimeSessionId, self.clock.now(), None)
@@ -585,7 +594,12 @@ def test_the_trail_records_the_runtimes_data_events_alone_into_a_bucket_only_clo
     assert made["selectors"] == [{"Name": "The stop test's runtime alone", "FieldSelectors": [
         {"Field": "eventCategory", "Equals": ["Data"]},
         {"Field": "resources.type", "Equals": ["AWS::BedrockAgentCore::Runtime"]},
-        {"Field": "resources.ARN", "Equals": [r.outputs["Runtime"]]}]}]
+        {"Field": "resources.ARN", "Equals": [r.outputs["Runtime"]]}]},
+        # and the run's bucket's objects alone, for the cross-check after a session ended (the founder, 30 Oct 2026)
+        {"Name": "The stop test's bucket's objects alone", "FieldSelectors": [
+            {"Field": "eventCategory", "Equals": ["Data"]},
+            {"Field": "resources.type", "Equals": ["AWS::S3::Object"]},
+            {"Field": "resources.ARN", "StartsWith": [f"arn:aws:s3:::{stack.names(r.run)['bucket']}/"]}]}]
     assert made["validation"] and not made["multi"] and not made["global"]
     policy = json.loads(trail.bucket_policy(r.run, REGION, ACCOUNT))
     arn = trail.trail_arn(r.run, REGION, ACCOUNT)
@@ -612,11 +626,13 @@ def test_a_deny_alone_refuses_new_calls_and_the_running_session_keeps_going(tmp_
     assert d["repeats"][0]["own_calls"]["fired_at"] == d["repeats"][0]["new_calls"]["fired_at"]
 
 
-def test_a_deny_alone_that_ends_the_running_session_is_measured_as_stopped_and_the_page_expected_nothing():
+def test_a_deny_alone_that_ends_the_running_session_counts_nothing_on_it_and_the_page_expected_nothing():
+    """The founder's refusal ruling of 29 October 2026, item 2: under a deny of calls alone, "On the running session's
+    four paths nothing counts as stopped": a stream that closed is probe silence."""
     clock = Clock()
     aws = FakeAWS(clock, deny_cuts_stream=True)
     r, doc = a_run(aws, clock, fire.DENY)
-    assert outcomes(doc) == {p: "stopped" for p in running.PATHS}
+    assert outcomes(doc) == {**{p: "not measured" for p in running.SESSION_PATHS}, "new_calls": "stopped"}
     d = running.details(r, doc)
     assert d["sessions"][0]["stream_ended_by"] == "ResponseStreamingError"
     assert d["sessions"][0]["writes_after_stream_ended"] == 0
@@ -1085,3 +1101,50 @@ def test_the_policy_reaches_only_the_runs_own_things():
                 (resource, s["Sid"]) in named or _by_the_runs_tag(s), resource
         if resources == ["*"]:
             assert s["Sid"] == "ReadsAwsTakesOnEveryResourceOnly" or _by_the_runs_tag(s), s["Sid"]
+
+
+# -- ending the session counts only once AWS confirms it (the founder's refusal ruling of 29 October 2026, item 3) -----
+
+def test_ending_the_session_counts_from_awss_confirmation_and_the_details_say_the_test_address_was_not_checked():
+    clock = Clock()
+    aws = FakeAWS(clock)
+    r, doc = a_run(aws, clock, fire.DENY_AND_END)
+    assert outcomes(doc) == {p: "stopped" for p in running.PATHS}
+    rep = r.repeats[0]
+    found = running.results(r)[0][1]["own_calls"]
+    # from the confirmation (the fake's clock stands still within a call, so its first second falls on the stop's own
+    # moment, which is not after it)
+    assert rep.end_confirmed is not None
+    assert rep.end_confirmed + r.offset <= found.stopped_at <= rep.end_confirmed + r.offset + 1.0
+    session = running.details(r, doc)["sessions"][0]
+    assert session["confirm_answers"] == {"ResourceNotFoundException": 1} and session["test_address_checked"] is False
+    assert session["seen_after_confirmation"] == {}
+
+
+def test_ending_the_session_without_awss_confirmation_is_not_measured_on_its_four_paths():
+    """Probe silence without AWS confirmation never counts: here StopRuntimeSession, asked again, answers each time."""
+    clock = Clock()
+    aws = FakeAWS(clock, ended_answer=None)
+    r, doc = a_run(aws, clock, fire.DENY_AND_END)
+    assert outcomes(doc) == {**{p: "not measured" for p in running.SESSION_PATHS}, "new_calls": "stopped"}
+    assert r.repeats[0].end_confirmed is None
+    assert set(running.details(r, doc)["sessions"][0]["confirm_answers"]) == {"answered"}
+
+
+def test_a_path_seen_calling_after_the_confirmation_is_not_stopped():
+    """The cross-check: "Any call seen after it means the path is not stopped". Here the session goes on writing its
+    own objects after AWS ended it."""
+    clock = Clock()
+    aws = FakeAWS(clock)
+    aws.writes_after_end = True
+    r, doc = a_run(aws, clock, fire.DENY_AND_END)
+    assert outcomes(doc)["own_calls"] == "not stopped"
+    assert outcomes(doc)["another_identity"] == "stopped" and outcomes(doc)["open_internet"] == "stopped"
+    assert running.details(r, doc)["sessions"][0]["seen_after_confirmation"]["own_calls"]
+
+
+def test_a_deny_alone_records_any_access_denied_on_the_session_for_jeff_and_amanda():
+    clock = Clock()
+    aws = FakeAWS(clock)
+    r, doc = a_run(aws, clock, fire.DENY)
+    assert "access_denied_on_the_session" in running.details(r, doc)["sessions"][0]

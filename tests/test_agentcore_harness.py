@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 import test_agentcore as ta
+from arvaken_stop_test import timing
 from arvaken_stop_test import report, result
 from arvaken_stop_test.agentcore import fire, harness, probe
 from arvaken_stop_test.agentcore import run as running
@@ -598,10 +599,10 @@ def test_only_the_stops_own_refusal_counts_as_stopped_and_every_other_failure_is
     aws = FakeHarnessAWS(clock)
     aws.refused_by, aws.at_once = refused_by, True     # every model call after the stop fails with this
     r, doc = a_run(aws, clock, fire.INLINE)
-    assert ta.outcomes(doc)["model"] == "not run" and ta.outcomes(doc)["own_calls"] == "stopped"
+    assert ta.outcomes(doc)["model"] == "not measured" and ta.outcomes(doc)["own_calls"] == "stopped"
     model = harness.details(r, doc)["repeats"][0]["model"]
-    assert model["errors"].get(recorded, 0) > 0 and model["failures_after"] == 0
-    assert model["reason"] == harness.ALL_NOT_COUNTED
+    assert model["errors"].get(recorded, 0) > 0 and model["not_counted"] == model["errors"]
+    assert model["reason"] == timing.ALL_NOT_COUNTED and model["first_refused"] is None
 
 
 def test_access_denied_counts_and_calls_not_counted_between_do_not_move_the_stopped_time():

@@ -119,6 +119,22 @@ def end_session(data: Any, runtime_arn: str, session: str, now: Callable[[], flo
     return before, now()
 
 
+# AWS confirms a session ended (the founder's refusal ruling of 29 October 2026, item 3: "the stop call's success, and a
+# later call to that session ID refused as ended") where StopRuntimeSession, called on it again, is refused as naming a
+# session that does not exist [source: aws-agentcore-stop-session-not-found]. AWS does not say a session it ended
+# answers so: Arvaken's trial shows it (the founder, 30 October 2026).
+ENDED = frozenset({"ResourceNotFoundException"})
+
+
+def confirm_end(data: Any, runtime_arn: str, session: str) -> str | None:
+    """StopRuntimeSession on the session again: the code it is refused with, or None where AWS answered it."""
+    try:
+        data.stop_runtime_session(agentRuntimeArn=runtime_arn, runtimeSessionId=session, qualifier="DEFAULT")
+        return None
+    except Exception as e:  # noqa: BLE001 - each answer is the confirmation's, by its code
+        return str(getattr(e, "response", {}).get("Error", {}).get("Code") or type(e).__name__)[:64]
+
+
 def remove(iam: Any, control: Any, run: str, stop_ref: str, runtime_arn: str | None) -> bool:
     """Take off the stop the kit fired, where it still is. Returns whether it was there."""
     if on_the_role(stop_ref):

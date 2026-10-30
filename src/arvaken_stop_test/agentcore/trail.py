@@ -53,12 +53,19 @@ def trail_arn(run: str, region: str, account: str, partition: str = "aws") -> st
     return f"arn:{partition}:cloudtrail:{region}:{account}:trail/{names(run)['trail']}"
 
 
-def selectors(runtime_arn: str) -> list[dict[str, Any]]:
-    """Data events, of the run's runtime alone."""
-    return [{"Name": "The stop test's runtime alone", "FieldSelectors": [
+def selectors(runtime_arn: str, objects: str = "") -> list[dict[str, Any]]:
+    """Data events, of the run's runtime alone; and where `objects` names the run's bucket's objects (an ARN ending
+    "/"), of those alone: what a session ended still calls, for the cross-check (the founder, 30 October 2026)."""
+    chosen = [{"Name": "The stop test's runtime alone", "FieldSelectors": [
         {"Field": "eventCategory", "Equals": ["Data"]},
         {"Field": "resources.type", "Equals": ["AWS::BedrockAgentCore::Runtime"]},
         {"Field": "resources.ARN", "Equals": [runtime_arn]}]}]
+    if objects:
+        chosen.append({"Name": "The stop test's bucket's objects alone", "FieldSelectors": [
+            {"Field": "eventCategory", "Equals": ["Data"]},
+            {"Field": "resources.type", "Equals": ["AWS::S3::Object"]},
+            {"Field": "resources.ARN", "StartsWith": [objects]}]})
+    return chosen
 
 
 def bucket_policy(run: str, region: str, account: str, partition: str = "aws") -> str:
@@ -78,15 +85,16 @@ def bucket_policy(run: str, region: str, account: str, partition: str = "aws") -
 
 
 def make(cloudtrail: Any, s3: Any, run: str, region: str, account: str, runtime_arn: str,
-         partition: str = "aws") -> dict[str, str]:
-    """The trail and its bucket, logging the runtime's data events. Returns their names."""
+         partition: str = "aws", objects: str = "") -> dict[str, str]:
+    """The trail and its bucket, logging the runtime's data events, and those of the run's bucket's objects where
+    `objects` names them. Returns their names."""
     n = names(run)
     private_bucket(s3, n["bucket"], region, run)
     s3.put_bucket_policy(Bucket=n["bucket"], Policy=bucket_policy(run, region, account, partition))
     cloudtrail.create_trail(Name=n["trail"], S3BucketName=n["bucket"], IsMultiRegionTrail=False,
                             IncludeGlobalServiceEvents=False, EnableLogFileValidation=True,
                             TagsList=[{"Key": TAG, "Value": run}])
-    cloudtrail.put_event_selectors(TrailName=n["trail"], AdvancedEventSelectors=selectors(runtime_arn))
+    cloudtrail.put_event_selectors(TrailName=n["trail"], AdvancedEventSelectors=selectors(runtime_arn, objects))
     cloudtrail.start_logging(Name=n["trail"])
     return n
 
@@ -113,7 +121,7 @@ def records(s3: Any, bucket: str) -> list[dict[str, Any]]:
     return out
 
 
-def _at(t: str) -> float:
+def at(t: str) -> float:
     return datetime.fromisoformat(t.replace("Z", "+00:00")).timestamp()
 
 
@@ -126,9 +134,9 @@ def find(found: list[dict[str, Any]], event: str, session: str, before: float, a
             continue
         if params.get("runtimeSessionId") not in (None, session):
             continue
-        at = _at(e["eventTime"])
-        if before - 5 <= at <= after + 5:
-            return at
+        when = at(e["eventTime"])
+        if before - 5 <= when <= after + 5:
+            return when
     return None
 
 

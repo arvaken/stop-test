@@ -43,6 +43,14 @@ TRAIL_WAIT, its moment is the kit's own clock.
 seconds in a row, up to RECOVERY (recover). Each repeat opens a new session, which must work before its stop. The kit
 never calls a repeat's session again once the repeat is over.
 
+**What counts as the stop's refusal** is refusals.py's, by the kind of stop (the founder's refusal ruling of 29 October
+2026, items 1 to 3). Where the deny is followed by ending the session, the session's four paths count only once AWS
+confirms the session ended: StopRuntimeSession answered, then refused on the same session as naming none (firing.ENDED),
+asked about once a second through the window (`confirm`). They are timed from that confirmation, never from the last
+probe report, and only where the cross-check sees no call of the path's after it: the session's objects in the bucket,
+and with `--trail` S3's records of them (the founder, 30 October 2026). Arvaken's test address keeps no log, so its two
+paths rest on the confirmation alone, and the details say the address was not checked.
+
 **What was made is checked gone by its own identifier** (the founder, 23 October 2026, as on Lambda): the runtime, its
 endpoints, its workload identity, its code in S3, the bucket, both roles, any log group AgentCore made for the runtime
 (none is expected: its role may not write logs), the stop, and with `--trail` the trail and its bucket, once its records
@@ -62,7 +70,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from arvaken_stop_test import __version__, result
+from arvaken_stop_test import __version__, refusals, result
 from arvaken_stop_test.agentcore import fire as firing
 from arvaken_stop_test.agentcore import trail as trailing
 from arvaken_stop_test.agentcore.agent import LONGEST
@@ -158,6 +166,11 @@ class Repeat:
     stream_ended: float | None = None   # the kit's clock when the session's stream closed before its watch was done
     stream_ended_by: str | None = None  # "done", or how it closed
     writes_after_close: int | None = None
+    # where the session was ended: the kit's clock when AWS confirmed it, each answer to the confirming call by its code,
+    # and each of the session's paths seen calling after the confirmation, with when, on the agent's clock
+    end_confirmed: float | None = None
+    confirm_answers: dict[str, int] = field(default_factory=dict)
+    seen_after_confirmation: dict[str, list[float]] = field(default_factory=dict)
     new_calls: int = 0
     beats: dict[str, list[Beat]] = field(default_factory=lambda: {p: [] for p in PATHS})
 
@@ -476,6 +489,8 @@ def time_one(c: Clients, r: Run, clock: Clock, say: Callable[[str], None] = lamb
         end = max(rep.fired_after, rep.end_after) + r.window + HOLD
         while clock.now() < end:
             new.tick()
+            if r.stop_ref == firing.DENY_AND_END:
+                confirm(c, r, rep, clock)
             _take(r, rep, stream.poll())
             clock.sleep(1.0)
         found = new.finish()
@@ -505,7 +520,42 @@ def time_one(c: Clients, r: Run, clock: Clock, say: Callable[[str], None] = lamb
                     for p in SESSION_PATHS:
                         rep.beats[p].append(Beat(t, False, SESSION_ENDED))
                     t += 1.0
+    if rep.end_confirmed is not None:           # the cross-check: the session's objects written after the confirmation
+        since = rep.end_confirmed + r.offset + WRITE_GRACE
+        for path, prefix in (("own_calls", "own"), ("another_identity", "another")):
+            seen = written_since(c, r, f"{prefix}/{rep.session}/", since)
+            if seen:
+                rep.seen_after_confirmation[path] = seen
     return rep
+
+
+def confirm(c: Clients, r: Run, rep: Repeat, clock: Clock) -> None:
+    """Once the session was ended, until AWS confirms it: StopRuntimeSession on it again, each answer counted by its
+    code, and the kit's clock kept when it is refused as naming no session (firing.ENDED)."""
+    if not rep.end_after or rep.end_confirmed is not None:
+        return
+    answer = firing.confirm_end(c.data, r.outputs["Runtime"], rep.session) or "answered"
+    if answer in KIT_CREDENTIALS:
+        raise RuntimeError(f"the kit's own credentials failed: {answer}")
+    rep.confirm_answers[answer] = rep.confirm_answers.get(answer, 0) + 1
+    if answer in firing.ENDED:
+        rep.end_confirmed = clock.now()
+
+
+def written_since(c: Clients, r: Run, prefix: str, since: float) -> list[float]:
+    """When each object under `prefix` was written after `since`, by S3's clock."""
+    seen, token = [], None
+    while True:
+        page = c.s3.list_objects_v2(Bucket=r.outputs["Bucket"], Prefix=prefix,
+                                    **({"ContinuationToken": token} if token else {}))
+        for o in page.get("Contents", []):
+            modified = o["LastModified"]
+            at = modified.timestamp() if hasattr(modified, "timestamp") else float(modified)
+            if at > since:
+                seen.append(at)
+        token = page.get("NextContinuationToken")
+        if not token:
+            return sorted(seen)
 
 
 def _codes(rep: Repeat, p: str) -> str:
@@ -596,6 +646,7 @@ def firing_moments(c: Clients, r: Run, clock: Clock, wait: float = TRAIL_WAIT) -
     pending = [(rep, "fired", fired, AUDIT_RECORD) for rep in r.repeats if rep.fired_after]
     if r.trail:
         pending += [(rep, "end", ended, TRAIL_RECORD) for rep in r.repeats if rep.end_after]
+        seen_in_trail(c, r)
     end = clock.now() + wait
     while pending and clock.now() < end:
         for item in list(pending):
@@ -616,6 +667,25 @@ def firing_moments(c: Clients, r: Run, clock: Clock, wait: float = TRAIL_WAIT) -
                 setattr(rep, prefix + "_precision", after - before)
                 setattr(rep, prefix + "_source", f"the kit's own clock, moved onto the agent's; the call took "
                                                   f"{after - before:.3f} seconds")
+
+
+def seen_in_trail(c: Clients, r: Run) -> None:
+    """The cross-check in the run's trail: S3's record of each call on a session's objects after AWS confirmed it ended,
+    by the object's prefix: its own calls', or its work under another identity's."""
+    confirmed = [rep for rep in r.repeats if rep.end_confirmed is not None]
+    if not confirmed:
+        return
+    found = trailing.records(c.s3, trailing.names(r.run)["bucket"])
+    for rep in confirmed:
+        since = rep.end_confirmed + r.offset + WRITE_GRACE
+        for path, prefix in (("own_calls", "own"), ("another_identity", "another")):
+            for e in found:
+                key = str((e.get("requestParameters") or {}).get("key", ""))
+                if e.get("eventSource") == "s3.amazonaws.com" and key.startswith(f"{prefix}/{rep.session}/") \
+                        and trailing.at(e["eventTime"]) > since and not e.get("errorCode"):
+                    seen = rep.seen_after_confirmation.setdefault(path, [])
+                    if trailing.at(e["eventTime"]) not in seen:
+                        seen.append(trailing.at(e["eventTime"]))
 
 
 def _gone(call: Callable[[], Any]) -> bool | str:
@@ -820,9 +890,21 @@ def _moment(r: Run, rep: Repeat, p: str) -> tuple[float | None, float, str | Non
 
 
 def _one(r: Run, rep: Repeat, p: str) -> PathResult:
+    """A path judged by its kind of stop's refusals (refusals.py). Where AWS confirmed the session ended, each of its
+    four paths that the cross-check saw no call of after it is refused from the confirmation on; one seen calling after
+    it is not stopped (the founder's refusal ruling of 29 October 2026, item 3)."""
     at, precision, source = _moment(r, rep, p)
-    found = judge(rep.beats.get(p, []), at, window=r.window, tried=p in rep.working,
-                  setup_errors=rep.setup_errors.get(p), fired_precision=precision)
+    kind, beats = r.stop_kind, list(rep.beats.get(p, []))
+    seen = rep.seen_after_confirmation.get(p, [])
+    if rep.end_confirmed is not None and p in SESSION_PATHS and not seen and at is not None:
+        t = rep.end_confirmed + r.offset
+        while t <= at + r.window + HOLD:
+            beats.append(Beat(t, False, refusals.SESSION_CONFIRMED_ENDED))
+            t += 1.0
+    found = judge(beats, at, window=r.window, tried=p in rep.working, setup_errors=rep.setup_errors.get(p),
+                  fired_precision=precision, counts=lambda b, before: refusals.counts(kind, p, b, before))
+    if seen:
+        found = replace(found, outcome=NOT_STOPPED, stopped_at=None, effect_between=None)
     keeps = rep.session_expires if p == "another_identity" and found.outcome == NOT_STOPPED else None
     return replace(found, fired_source=source if at is not None else None, keeps_working_until=keeps, fired_at=at)
 
@@ -845,13 +927,26 @@ def details(r: Run, doc: dict) -> dict:
             "successes_after_first_refusal": f.successes_after_first_refusal,
             "first_refused": iso(f.first_failure_after), "stopped_from": iso(f.stopped_at),
             "last_success": iso(f.last_success_after), "tries_after": f.tries_after, "failures_after": f.failures_after,
-            "errors": f.errors, "reason": f.reason, "keeps_working_until": iso(f.keeps_working_until)}
+            "errors": f.errors, "not_counted": f.not_counted, "reason": f.reason,
+            "keeps_working_until": iso(f.keeps_working_until), "failures": result.failure_records(f)}
             for p, f in found.items()})
     sessions = [{"session": rep.session, "opened": iso(rep.opened), "ready": iso(rep.ready),
                  "second_role_session_expires": iso(rep.session_expires),
                  "stream_ended": iso(rep.stream_ended), "stream_ended_by": rep.stream_ended_by,
                  "writes_after_stream_ended": rep.writes_after_close, "new_calls": rep.new_calls,
-                 "ended_by_the_kit": iso(rep.end_at) if rep.end_after else None} for rep in r.repeats]
+                 "ended_by_the_kit": iso(rep.end_at) if rep.end_after else None,
+                 **({"end_confirmed": iso(rep.end_confirmed + r.offset) if rep.end_confirmed is not None else None,
+                     "confirm_answers": rep.confirm_answers,
+                     "seen_after_confirmation": {p: [iso(x) for x in ts]
+                                                 for p, ts in rep.seen_after_confirmation.items()},
+                     "test_address_checked": False} if rep.end_after else {}),
+                 # a deny of calls alone: any access denied on the session's paths, which goes to Jeff and Amanda (the
+                 # founder's refusal ruling of 29 October 2026, item 2)
+                 **({"access_denied_on_the_session": {
+                     p: n for p in SESSION_PATHS
+                     if (n := sum(1 for b in rep.beats.get(p, []) if rep.fired_at is not None and b.at > rep.fired_at
+                                  and b.error in ("AccessDenied", "AccessDeniedException")))}}
+                    if r.stop_kind == firing.DENY_KIND else {})} for rep in r.repeats]
     out = {"format": "stop-test-details/1", "run": r.run, "result_signature": doc["signature"],
            "stop_kind": r.stop_kind, "window_seconds": r.window, "left_behind": r.left_behind,
            "checked_gone": r.checked_gone, "repeats": repeats,
@@ -861,11 +956,16 @@ def details(r: Run, doc: dict) -> dict:
            "sessions": sessions}
     if r.trail:
         out["trail"] = {"name": trailing.names(r.run)["trail"], "bucket": trailing.names(r.run)["bucket"],
-                        "selectors": trailing.selectors(r.outputs.get("Runtime", "")),
+                        "selectors": trailing.selectors(r.outputs.get("Runtime", ""), _objects(r)),
                         "recording_from": iso(r.trail_recording),
                         "end_session_found": [rep.end_source == TRAIL_RECORD for rep in r.repeats if rep.end_after],
                         "records": r.trail_records, "kept": r.trail_kept}
     return out
+
+
+def _objects(r: Run) -> str:
+    """The run's bucket's objects, as the trail's selector names them."""
+    return f"arn:{r.partition}:s3:::{names(r.run)['bucket']}/"
 
 
 def the_result(r: Run, key=None) -> dict:
@@ -910,7 +1010,8 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, window: float = WINDOWS["aw
     try:
         make(c, r, endpoint, clock)
         if trail:
-            trailing.make(c.cloudtrail, c.s3, r.run, r.region, r.account, r.outputs["Runtime"], r.partition)
+            trailing.make(c.cloudtrail, c.s3, r.run, r.region, r.account, r.outputs["Runtime"], r.partition,
+                          _objects(r))
         warm_up(c, r, clock)
         if trail:
             trail_recording(c, r, clock)
