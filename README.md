@@ -36,6 +36,11 @@ reply. What is kept of each call is Arvaken's one description of what Cloudflare
 If you choose, you can send Arvaken a result at https://app.arvaken.com/stop-test/submit, under the kit's terms:
 https://arvaken.com/stop-test/terms.
 
+<!-- CUSTOMER TEXT: approved by the founder, word for word, 02:00 UTC on 31 October 2026: Arvaken's record takes only
+Lambda's kinds of stop for now (mark's record.stop_test_kinds()), so it refuses AgentCore's and Google Cloud's -->
+For now, Arvaken can take a result only from AWS Lambda. A result from Amazon Bedrock AgentCore or Google Cloud can't be
+sent yet: keep it as your own record.
+
 AWS, with Lambda and Amazon Bedrock AgentCore, and Google Cloud. Azure follows.
 
 ## What it makes in your account

@@ -164,3 +164,12 @@ TINYPROXY_WORDS = ("If your gateway is tinyproxy on Ubuntu, load a changed rule 
 
 def test_the_readme_says_how_to_reload_tinyproxy_on_ubuntu_as_the_founder_approved_it():
     assert TINYPROXY_WORDS in flat(README)
+
+
+# Which results Arvaken can take for now (the founder's words, approved word for word at 02:00 UTC on 31 October 2026)
+SEND_FOR_NOW = ("For now, Arvaken can take a result only from AWS Lambda. A result from Amazon Bedrock AgentCore or "
+                "Google Cloud can't be sent yet: keep it as your own record.")
+
+
+def test_the_readme_says_which_results_arvaken_can_take_for_now_as_the_founder_approved_it():
+    assert SEND_FOR_NOW in flat(README)
