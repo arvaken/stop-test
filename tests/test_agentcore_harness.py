@@ -6,7 +6,8 @@ calls to its model DELAY seconds after the call, as it refuses the session's own
 in a new session is answered whatever the role holds; the running session's probe is the runtime's fake stream, as the
 real one reads the probe's lines of JSON as the runtime's stream reads events (tested on its own, CommandStream). The
 probe itself is tested against fakes of the microVM's metadata, STS, S3 and the test endpoint, and its signature
-against botocore's.
+against botocore's. With `noop_fails`, the kth new call sent once the stop has taken hold raises the error given for k,
+as botocore raises a call that timed out or lost its connection.
 """
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ import urllib.parse
 from dataclasses import replace
 from pathlib import Path
 
+import botocore.exceptions
 import pytest
 
 import test_agentcore as ta
@@ -33,10 +35,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FakeHarnessAWS(ta.FakeAWS):
-    def __init__(self, clock, *, harness_boundary=True, model_answers=True, **kw):
+    def __init__(self, clock, *, harness_boundary=True, model_answers=True, noop_fails=None, **kw):
         super().__init__(clock, **kw)
         self.harness_boundary = harness_boundary
         self.model_answers = model_answers
+        self.noop_fails, self.noops_after = dict(noop_fails or {}), 0
         self.harness: dict | None = None
         self.harness_requests: list[dict] = []
         self.turns: list[tuple[float, bool]] = []
@@ -147,6 +150,10 @@ class FakeHarnessAWS(ta.FakeAWS):
         now = self.clock.now()
         assert agentRuntimeArn == self.harness["arn"] and accept == harness.COMMAND_ACCEPT
         self.commands.append((now, body["command"]))
+        if body["command"] == harness.NOOP and self.role_denied(now):
+            self.noops_after += 1
+            if (failed := self.noop_fails.get(self.noops_after)) is not None:
+                raise failed
         out = json.dumps({"at": now + ta.SKEW}) + "\n" if body["command"].endswith(" clock") else ""
         return {"stream": [{"chunk": {"contentStart": {}}}, {"chunk": {"contentDelta": {"stdout": out}}},
                            {"chunk": {"contentStop": {"exitCode": 0, "status": "COMPLETED"}}}]}
@@ -402,6 +409,11 @@ def _run_with(stream) -> tuple[running.Clients, running.Run]:
                                     "https://strandsagents.com/docs/#maxtokensreachedexception"), "runtimeClientError"),
     (ta.Error("ExpiredTokenException", "The security token included in the request is expired"),
      "ExpiredTokenException"),
+    # a turn that timed out or lost its connection: botocore's error, whose response is None, kept by its own name
+    (botocore.exceptions.ReadTimeoutError(endpoint_url=f"https://bedrock-agentcore.{ta.REGION}.amazonaws.com/"),
+     "ReadTimeoutError"),
+    (botocore.exceptions.ConnectionClosedError(endpoint_url=f"https://bedrock-agentcore.{ta.REGION}.amazonaws.com/"),
+     "ConnectionClosedError"),
 ])
 def test_a_turn_worked_only_where_the_model_answered_and_a_failure_keeps_its_code_alone(events, found):
     c, r = _run_with(_raising([{"messageStart": {}}], events) if isinstance(events, Exception) else events)
@@ -661,3 +673,38 @@ def test_the_kits_agentcore_policy_lets_it_make_a_harnesss_roles_under_their_own
     [roles] = [s for s in policy["Statement"] if s["Sid"] == "TheRunsRolesEachUnderTheKitsBoundary"]
     assert roles["Condition"]["StringLike"]["iam:PermissionsBoundary"] == [
         "arn:aws:iam::*:policy/arvaken-stop-test-boundary", f"arn:aws:iam::*:policy/{harness.HARNESS_BOUNDARY}"]
+
+
+# -- a call that timed out or lost its connection (the founder's ruling of 31 October 2026 on the harness runs) ----------
+URL = f"https://bedrock-agentcore.{ta.REGION}.amazonaws.com/"
+
+
+def test_a_new_call_that_timed_out_or_lost_its_connection_is_recorded_as_not_counted():
+    """His condition 5: "Push the fix with a test that a timed-out or disconnected new call is recorded as "not
+    counted"." At 6430c4f, NewCommands.one read such a call's code with getattr(e, "response", {}): botocore's
+    ReadTimeoutError and ConnectionClosedError carry `response` as None, so it raised AttributeError, which the pool's
+    future kept, and the try was dropped, recorded nowhere."""
+    clock = ta.Clock()
+    whole_r, whole = a_run(FakeHarnessAWS(clock), clock, fire.INLINE)
+    clock = ta.Clock()
+    aws = FakeHarnessAWS(clock, noop_fails={5: botocore.exceptions.ReadTimeoutError(endpoint_url=URL),
+                                            6: botocore.exceptions.ConnectionClosedError(endpoint_url=URL)})
+    r, doc = a_run(aws, clock, fire.INLINE)
+    assert result.check(doc) is doc and aws.noops_after > 6
+    new_calls = harness.details(r, doc)["repeats"][0]["new_calls"]
+    assert new_calls["not_counted"] == {"ReadTimeoutError": 1, "ConnectionClosedError": 1} == new_calls["errors"]
+    assert new_calls["outcome"] == "not stopped" == ta.outcomes(whole)["new_calls"]
+    assert new_calls["tries_after"] == harness.details(whole_r, whole)["repeats"][0]["new_calls"]["tries_after"]
+    assert [f["code"] for f in new_calls["failures"]] == ["ReadTimeoutError", "ConnectionClosedError"]
+    assert not any(f["counted"] for f in new_calls["failures"])
+
+
+@pytest.mark.parametrize("error", [botocore.exceptions.ReadTimeoutError(endpoint_url=URL),
+                                   botocore.exceptions.ConnectionClosedError(endpoint_url=URL)])
+def test_the_probes_stream_that_timed_out_or_lost_its_connection_says_how_it_ended(error):
+    """At 6430c4f, CommandStream._read named how the stream ended with getattr(e, "response", {}), which raised on
+    these, so the reader's thread died before it set `ended`, and the stream's end went unrecorded."""
+    c, r = _run_with(_raising([_stdout(json.dumps({"at": 2.0, "n": 0, "beats": {}}) + "\n")], error))
+    stream = harness.CommandStream(c, r, "s" * 40, 600.0, ta.Clock())
+    stream.thread.join(timeout=5)
+    assert stream.ended is not None and stream.ended[1] == type(error).__name__
