@@ -91,21 +91,21 @@ SHA-256: the kit's own package and each package it needs. pip then installs exac
 2. Download the release's requirements file and its signature (in Windows PowerShell, type `curl.exe`):
 
    ```
-   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.3.0/requirements-0.3.0.txt
-   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.3.0/requirements-0.3.0.txt.sigstore.json
+   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.3.1/requirements-0.3.1.txt
+   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.3.1/requirements-0.3.1.txt.sigstore.json
    ```
 
 3. Check that this repository's release workflow signed it, for that version. The signature is also recorded in the
    public Rekor log:
 
    ```
-   stop-test/bin/python -m sigstore verify github requirements-0.3.0.txt --cert-identity https://github.com/arvaken/stop-test/.github/workflows/release.yml@refs/tags/v0.3.0
+   stop-test/bin/python -m sigstore verify github requirements-0.3.1.txt --cert-identity https://github.com/arvaken/stop-test/.github/workflows/release.yml@refs/tags/v0.3.1
    ```
 
 4. Install exactly what it names. pip refuses any file whose SHA-256 differs:
 
    ```
-   stop-test/bin/python -m pip install --require-hashes -r requirements-0.3.0.txt
+   stop-test/bin/python -m pip install --require-hashes -r requirements-0.3.1.txt
    ```
 
 The kit is then `stop-test/bin/stop-test`. Each release also lists its files' SHA-256 in `SHA256SUMS`, signed the same
