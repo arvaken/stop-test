@@ -181,6 +181,18 @@ def test_the_owed_list_only_shrinks_and_ends_on_its_day():
         assert not owed["claims"], f"the owed claims were due a source by {DUE}"
 
 
+def test_every_id_cited_anywhere_is_an_entry():
+    """A citation names an entry, wherever it is: in a claim, or beside words that make none (D561's review, 30 October
+    2026, found three ids in the README's comment beside a boundary that named no entry)."""
+    sources = register()["sources"]
+    units = [u for _, text, python in read_texts()
+             for _, u in (units_of_python(text) if python else units_of_markdown(text))]
+    # each citation as the kit writes one, "[source: a, b]", its list free to run on past a comment's "#"
+    citations = [m for u in units for m in re.findall(r"\[source:[^\]]*\]", u)]
+    unknown = sorted({i for c in citations for i in cited(c)} - set(sources))
+    assert citations and not unknown, unknown
+
+
 def test_every_source_is_cited_somewhere():
     used = {i for _, text, _ in read_texts() for i in cited(text)}
     assert not sorted(set(register()["sources"]) - used)

@@ -8,7 +8,9 @@ that); "Each counted code has a source entry"; "Anything else is 'not counted'".
 
 **A policy on a role, attached or written on it, and revoking its sessions** (item 1): the denial code of the service
 each path calls, by its code. The agent's own calls and its work under another identity call Amazon S3, which refuses
-as AccessDenied [source: aws-s3-access-denied, aws-s3-access-denied-example]. Outside the cloud (a key for a service
+as AccessDenied [source: aws-s3-access-denied, aws-s3-access-denied-example]. A run's call to a model (`--model`)
+calls Amazon Bedrock's Converse, which refuses as AccessDeniedException [source: aws-bedrock-converse-access-denied]:
+the code Arvaken's record counts on r47b181d2's model path (D646). Outside the cloud (a key for a service
 outside it, the open internet) the agent calls Arvaken's endpoint, which no stop on a role refuses: nothing there counts.
 And on every path, Lambda refusing to run the agent at all with KMSAccessDeniedException
 [source: aws-lambda-invoke-kms-access-denied], "only if it first appears after the firing moment and the function ran
@@ -41,8 +43,16 @@ the second role, as on Lambda; new calls to the agent call AgentCore itself, whi
 **Your own trigger** (item 5): the kit identifies the kind of stop from the cloud's audit record of your own action, and
 uses that kind's refusals. Where it cannot identify one, nothing counts as stopped (`counts` with kind None).
 
-The gateway option (`--via`) is outside these: the founder's ruling on the gateway's refusal, 30 October 2026, lives on
-its own branch.
+**Through your gateway** (`--via`; the founder's ruling on a gateway's refusal, D655, 30 October 2026, and his answers
+of the same day): a call through the gateway counts as stopped only where the gateway itself refused the kit's CONNECT
+with 403 (`gateway_counts`), read strictly from the error beneath botocore's ProxyConnectionError (aws/agent.py), after
+the mark, on a path that went through the gateway before it; a 407 the same way, only where the gateway's address
+carries a user name and password, so that calls went through signed in before the mark. A gateway that does not answer,
+refuses the connection, times out or answers anything else is not counted; switched off, it reads "not measured". A
+refusal from inside the tunnel, as from a gateway that inspects TLS, never reaches this rule, and through an https://
+gateway nothing counts (aws/run.py), both until a test shows the kit can tell them from AWS's own. And a failure counts
+only where the Python, botocore and urllib3 the agent ran on are a combination the parse was tested on (TESTED; his
+answer: "Count only tested versions").
 """
 from __future__ import annotations
 
@@ -61,6 +71,15 @@ SESSION_PATHS = ("own_calls", "another_identity", "outside_key", "open_internet"
 SESSION_CONFIRMED_ENDED = "SessionConfirmedEnded"   # a beat the kit adds once AWS confirms a session ended
 
 LAMBDA_REFUSED = "Lambda refused: "      # the prefix of a beat the kit makes where Lambda refused to run the agent
+PRODUCT_CONTROL = "a product's control"    # the kind of stop a gateway's is (result.PRODUCT_CONTROL)
+PROXY_REFUSED = "ProxyConnectionError"     # botocore's error where the gateway refused, or never answered, the CONNECT
+# Each combination of the agent's Python, botocore and urllib3 the gateway's status was read on in a test, against a
+# gateway answering as tinyproxy does. Lambda's python3.12, tested in Lambda itself on the founder's approval of 30
+# October 2026 (install-test, the stack arvaken-parse-test-e79c7095, runtime version
+# c4f12692bc26771dc4c7d61f4ebed11236e838b78ffdc4596c3f0aa4ba48c75d, 04:16 UTC): the kit's own agent read 403, 403, 407
+# and 502 as each, and none where nothing listened. When AWS moves the runtime on, its new combination counts nothing
+# until it is tested so.
+TESTED: frozenset[tuple[str, str, str]] = frozenset({("3.12.15", "1.42.97", "2.8.0")})
 LAMBDA_KMS = LAMBDA_REFUSED + "KMSAccessDeniedException"
 
 
@@ -81,6 +100,7 @@ class Refusal:
 
 
 S3_DENIED = Refusal("AccessDenied")
+BEDROCK_DENIED = Refusal("AccessDeniedException")
 STORAGE_DENIED = Refusal("HTTP403", reasons=frozenset({"forbidden", "insufficientPermissions"}),
                          steps=frozenset({"write", "read"}))
 STORAGE_UNAUTHENTICATED = Refusal("HTTP401", reasons=frozenset({"authError"}), steps=frozenset({"write", "read"}),
@@ -89,7 +109,7 @@ TOKEN_NOT_FOUND = Refusal("HTTP404", steps=frozenset({"token"}))
 AGENTCORE_DENIED = Refusal("AccessDeniedException")
 CONFIRMED_ENDED = Refusal(SESSION_CONFIRMED_ENDED)
 
-_ON_A_ROLE = {"own_calls": (S3_DENIED,), "another_identity": (S3_DENIED,)}
+_ON_A_ROLE = {"own_calls": (S3_DENIED,), "another_identity": (S3_DENIED,), "model": (BEDROCK_DENIED,)}
 COUNTED: dict[str, dict[str, tuple[Refusal, ...]]] = {
     AWS_POLICY: _ON_A_ROLE,
     AWS_INLINE: _ON_A_ROLE,
@@ -104,6 +124,13 @@ COUNTED: dict[str, dict[str, tuple[Refusal, ...]]] = {
 }
 # Where Lambda's KMSAccessDeniedException counts, on every path
 LAMBDA_KINDS = (AWS_POLICY, AWS_INLINE, AWS_REVOKE)
+
+
+def gateway_counts(through: bool, signed_in: bool, b: Beat) -> bool:
+    """Whether a failed call is your gateway's own refusal (D655, (a)): on a path through the gateway, the gateway's
+    403 to the CONNECT, or its 407 where its address carries a user name and password, from a tested combination."""
+    return (through and not b.ok and b.error == PROXY_REFUSED and b.status in ({403, 407} if signed_in else {403})
+            and b.versions in TESTED)
 
 
 def counts(kind: str | None, path: str, b: Beat, before: Sequence[Beat]) -> bool:

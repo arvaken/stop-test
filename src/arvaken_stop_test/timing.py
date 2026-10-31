@@ -23,6 +23,10 @@ For each path, after the stop is fired, from its successes and counted refusals:
 - **not measured**: every call after the stop was not counted; or the path's last success or counted refusal was
   followed only by not-counted calls, for at least HOLD seconds from within the window, so the kit cannot say whether
   the stop stopped it (the founder, 29 October 2026, items 2 and 3, and his answer to the kit session's proposal).
+  Through a gateway (the kit's `--via`; D561), also a path that could not be set up (`untried`), or whose first
+  heartbeat after the customer's mark was already refused (`refused_at_mark`; the founder, 28 October 2026: "A path
+  already refused at the mark is 'not measured'"): the gateway did not carry it before the stop, or it was refused
+  before anything after the mark could be timed, so nothing can say the stop stopped it.
 - **not run**: the path was not tried (it could not be set up), or no heartbeat came after the stop was fired.
 
 An outcome is worded by its window (D532: "an outcome is worded by its window ('not stopped within 15 minutes')").
@@ -46,6 +50,9 @@ HOLD = 30.0                 # seconds a run of refusals must last to count as st
 # timed once the stop is fired. Each cloud has its own, set for it before its module runs: a cloud with none here has no
 # default, and the command line offers no cloud without one (tests/test_cli_and_page.py).
 WINDOWS = {"aws": 15 * 60.0, "google_cloud": 15 * 60.0}
+# Through a gateway the window is fixed before the run, and is at least this (the founder, 28 October 2026: "at least
+# 15 minutes").
+GATEWAY_WINDOW = 15 * 60.0
 
 # The stop map's four paths, the optional model call (the design's section 4), and on AgentCore new calls to the agent
 # (agentcore/run.py; D618), in their order.
@@ -65,6 +72,7 @@ NOT_MEASURED = "not measured"       # the stop's effect could not be counted (th
 # CUSTOMER TEXT: approved by the founder, word for word, 30 October 2026
 ALL_NOT_COUNTED = "every call after the stop was not counted"
 NOTHING_COUNTED_AFTER = "nothing after {time} was counted"
+REFUSED_AT_THE_MARK = "it was already refused at the mark"   # through a gateway (judge's refused_at_mark)
 
 
 @dataclass(frozen=True)
@@ -82,6 +90,8 @@ class Beat:
     step: str | None = None         # the step of the path that failed, where it has steps: "token", "write" or "read"
     token_issued: float | None = None       # the token the call used: when it was issued and when it expires, by the
     token_expires: float | None = None      # agent's clock, or for a token taken from AWS or Google, by theirs
+    client_at: float | None = None          # when the client the call used was made, by the agent's clock
+    versions: tuple[str, ...] | None = None     # the agent's Python, botocore and urllib3, where it names them
 
 
 @dataclass(frozen=True)
@@ -159,12 +169,17 @@ def _clock(t: float) -> str:
 
 def judge(beats: Iterable[Beat], fired_at: float | None, window: float, hold: float = HOLD,
           tried: bool = True, setup_errors: dict[str, int] | None = None, fired_precision: float = 0.0, *,
-          counts: Callable[[Beat, Sequence[Beat]], bool]) -> PathResult:
+          counts: Callable[[Beat, Sequence[Beat]], bool], untried: str = NOT_RUN,
+          refused_at_mark: str | None = None, set_aside: Callable[[Beat], bool] | None = None) -> PathResult:
     """What the test found on one path, from its heartbeats, before the stop and after it, and the moment the stop was
     fired. `counts` says whether a failed call is the stop's own refusal (refusals.py), given the path's heartbeats
-    before the firing moment; a refusal counts only where the path succeeded before it."""
+    before the firing moment; a refusal counts only where the path succeeded before it. A path that could not be set up
+    reads `untried`: "not run", or through a gateway "not measured" (D561). Where `refused_at_mark` is given (through a
+    gateway, "not measured"), a path whose first heartbeat after the mark was refused reads it. A try `set_aside` says
+    to set aside (through a gateway, one made with a client made after the mark: "new connections only", D655) is
+    neither a success nor a refusal: it moves nothing, sets nothing, and where it fails it is named, not counted."""
     if not tried:
-        return PathResult(NOT_RUN, window, errors=dict(setup_errors or {}), reason="the path could not be set up")
+        return PathResult(untried, window, errors=dict(setup_errors or {}), reason="the path could not be set up")
     if fired_at is None:
         return PathResult(NOT_RUN, window, reason="the stop was not fired")
     end = fired_at + window + hold
@@ -173,10 +188,19 @@ def judge(beats: Iterable[Beat], fired_at: float | None, window: float, hold: fl
     after = [b for b in ordered if fired_at < b.at <= end]
     if not after:
         return PathResult(NOT_RUN, window, reason="no heartbeat came after the stop was fired")
+    aside = {id(b) for b in after if set_aside is not None and set_aside(b)}
+    first = next((b for b in after if id(b) not in aside), None)        # the first try not set aside
+    if refused_at_mark is not None and first is not None and not first.ok:
+        failed = [b for b in after if not b.ok]
+        codes = dict(Counter(b.error or "unknown" for b in failed))
+        return PathResult(refused_at_mark, window, tries_after=len(after), failures_after=len(failed), errors=codes,
+                          not_counted=codes, failures=tuple(failed), reason=REFUSED_AT_THE_MARK)
     # the successes and counted refusals, in order: a refusal counts only on a path that succeeded before it
     kept: list[Beat] = []
     succeeded = any(b.ok for b in before)
     for b in after:
+        if id(b) in aside:
+            continue
         if b.ok or (succeeded and counts(b, before)):
             kept.append(b)
             succeeded = succeeded or b.ok
@@ -184,7 +208,7 @@ def judge(beats: Iterable[Beat], fired_at: float | None, window: float, hold: fl
     refusals = [b for b in kept if not b.ok]
     counted = {id(b) for b in refusals}
     refused = [i for i, b in enumerate(failures) if id(b) in counted]
-    successes = [b.at for b in after if b.ok]
+    successes = [b.at for b in after if b.ok and id(b) not in aside]
     first_refusal = refusals[0].at if refusals else None
     common = dict(window=window, last_success_after=max(successes, default=None), first_failure_after=first_refusal,
                   tries_after=len(after), failures_after=len(failures),

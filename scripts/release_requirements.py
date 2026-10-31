@@ -7,7 +7,7 @@ with `--require-hashes`, installs those bytes or nothing. The release workflow s
 files, so checking that one signature checks everything installed.
 
     uv export --format requirements-txt --frozen --extra aws --no-dev --no-emit-project > deps.txt
-    python scripts/release_requirements.py 0.2.1 dist/arvaken_stop_test-0.2.1-py3-none-any.whl deps.txt > dist/requirements-0.2.1.txt
+    python scripts/release_requirements.py 0.3.0 dist/arvaken_stop_test-0.3.0-py3-none-any.whl deps.txt > dist/requirements-0.3.0.txt
 """
 from __future__ import annotations
 

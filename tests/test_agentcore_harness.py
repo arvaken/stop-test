@@ -181,7 +181,7 @@ def test_a_policy_on_the_harness_role_stops_its_own_calls_and_its_model_and_new_
     aws = FakeHarnessAWS(clock)
     r, doc = a_run(aws, clock, stop, repeats=2)
     assert result.check(doc) is doc
-    assert doc["stop"] == {"kind": harness.HARNESS_KIND, "fired_by": "the kit", "ref": stop}
+    assert doc["stop"] == {"kind": harness.HARNESS_KIND, "fired_by": "the kit", "ref": stop, "product": None}
     assert doc["agent"]["kind"] == harness.AGENT_KIND and doc["agent"]["ref"].endswith(":harness/arvaken_stop_test_"
                                                                                         "r0a1b2c3d-HaRnEsS123")
     for i in range(2):

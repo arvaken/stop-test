@@ -8,13 +8,31 @@ anything the stack could not delete keeps its tag. Each case's expectations are 
 What is gone is answered as AWS answers it, by each service's own error code (NoSuchEntity, ResourceNotFoundException,
 404, and CloudFormation's ValidationError "does not exist"). Revoking a role's sessions (AWSRevokeOlderSessions) denies
 each session of that role issued before its moment, after the same propagation delay; the agent's own session was
-issued before the run, and the second role's when the kit asked the agent to assume it."""
+issued before the run, and the second role's when the kit asked the agent to assume it.
+
+Through a gateway (--via; D561): an invocation that names the gateway has each path's call made through it; a path the
+gateway refuses fails by ProxyConnectionError, and so does every path once the customer's own switch is on, `gw_delay`
+seconds after they turn it on (3 here). The session for the other identity is taken through it too: where the gateway
+refuses it, the agent answers with Lambda's error payload, and no session. In a subnet: Lambda makes one network
+interface for the function, in the subnet with its security groups, described by the function's name; AWS removes it
+`eni_after` seconds after the function is deleted (10 minutes here), or never. With `stack_after_eni`, CloudFormation
+finishes deleting the stack that many seconds after AWS removes that interface, as it does for a function in a subnet:
+until then the stack reads DELETE_IN_PROGRESS and its roles and bucket are still there, though Lambda already answers
+that the function is gone.
+
+A heartbeat whose invocation got no answer: `lose` names each by its number (n) and the error botocore raised for it
+after its retries; `tagging_error`, the error the search for anything tagged with the run raises.
+
+With a model (--model): where the stack's function names one (MODEL), each heartbeat also has the model's call, made as
+the agent's own role, so it is refused (AccessDeniedException) once its own calls are; `model_error` is a code the call
+fails with throughout, as a wrong model ID's or one not enabled in the account."""
 from __future__ import annotations
 
 import io
 import json
 from datetime import datetime, timezone
 
+import botocore.exceptions
 import pytest
 
 from arvaken_stop_test import result
@@ -25,6 +43,8 @@ from arvaken_stop_test.aws.stack import INLINE_LIMIT, TAG, agent_code, names, te
 T0 = 1_761_220_000.0
 STOP = "arn:aws:iam::111122223333:policy/agent-stop"
 OWN_KEY = "ASIAOWNSESSIONKEY001"
+# Bedrock's HTTP status for each code the fake's model call fails with
+MODEL_STATUS = {"AccessDeniedException": 403, "ValidationException": 400, "ThrottlingException": 429}
 
 
 class ClientError(Exception):
@@ -55,7 +75,11 @@ class FakeAWS:
 
     def __init__(self, clock: Clock, *, delay=8.0, trail_delay=120.0, skew=0.05, left=(), role_tagged=True,
                  endpoint_error=None, log_group=False, bucket_stays=False, cold_after=None, invoke_error=None,
-                 stop_denies=("s3:PutObject", "s3:GetObject"), boundary="the kit's"):
+                 stop_denies=("s3:PutObject", "s3:GetObject"), boundary="the kit's", boundary_via="the kit's",
+                 boundary_model="the kit's", boundary_via_model="the kit's", gateway_refuses=(), gateway_breaks=None,
+                 gw_delay=3.0, eni_after=600.0, eni_described=True, subnet_has=(), stack_stays=False, model_error=None,
+                 gw_status=None, agent_versions=("3.12.15", "1.42.97", "2.8.0"), new_environment_after=None,
+                 stack_after_eni=None, lose=None, tagging_error=None):
         self.clock, self.delay, self.trail_delay, self.skew = clock, delay, trail_delay, skew
         self.left, self.role_tagged, self.endpoint_error = list(left), role_tagged, endpoint_error
         self.stack = None
@@ -76,19 +100,52 @@ class FakeAWS:
         # what the declared managed policy denies, as IAM's policy simulator decides it (the kit's check before a run)
         self.stop_denies = tuple(stop_denies)
         self.stopped_from: float | None = None
-        # the account's policy arvaken-stop-test-boundary: the kit's own, another document, or none
-        self.boundary = boundary
+        # the account's policies arvaken-stop-test-boundary, and -via, -model and -via-model (a run in a subnet's,
+        # with a model's, or with both's): each the kit's own, another document, or none
+        self.boundaries = {(False, False): boundary, (True, False): boundary_via, (False, True): boundary_model,
+                           (True, True): boundary_via_model}
         self.made_roles: list[dict] = []
         self.concurrency: int | None = None
+        # the customer's gateway: paths it refuses throughout; paths it refuses from the nth invocation; when their own
+        # switch was turned on; and every invocation's payload, as the kit sent it
+        self.gateway_refuses, self.gateway_breaks = set(gateway_refuses), dict(gateway_breaks or {})
+        self.gw_delay, self.switch_at = gw_delay, None
+        # what the gateway answers the CONNECT with once the switch is on: None, as a gateway switched off answers
+        # nothing; or a status of its own, as a rule refusing calls does (the agent reads it, aws/agent.py's _tunnel)
+        self.gw_status = gw_status
+        # what the agent runs on, as each reply names it; when its clients were made; and, with
+        # `new_environment_after`, Lambda giving it a new environment that many seconds after the switch, its clients
+        # then made anew
+        self.agent_versions, self.new_environment_after = list(agent_versions), new_environment_after
+        self.clients_made: float | None = None
+        self.payloads: list[dict] = []
+        # a subnet of the customer's: its network interfaces, by ID; when the function was deleted; the EC2 calls made
+        self.eni_after, self.eni_described = eni_after, eni_described
+        self.enis: dict[str, dict] = {i["NetworkInterfaceId"]: dict(i) for i in subnet_has}
+        self.function_deleted_at: float | None = None
+        self.ec2_calls: list[str] = []
+        self.stack_stays, self.stack_after_eni = stack_stays, stack_after_eni
+        self.lose = dict(lose or {})
+        self.tagging_error = tagging_error
+        self.model_error = model_error
         # the customer's own actions on the agent's role, as CloudTrail records them: (call, when, policy's name)
         self.customer_calls: list[tuple[str, float, str]] = []
 
     # cloudformation
     def create_stack(self, StackName, TemplateBody, Capabilities, Tags):
         self.stack = {"name": StackName, "template": json.loads(TemplateBody), "status": "CREATE_COMPLETE",
-                      "run": Tags[0]["Value"]}
+                      "run": Tags[0]["Value"], "body": TemplateBody}
+        network = self.stack["template"]["Resources"]["Agent"]["Properties"].get("VpcConfig")
+        if network:                              # Lambda makes the function's interface in the subnet, as its role
+            function = names(self.stack["run"])["function"]
+            self.enis["eni-0aaa1111"] = {
+                "NetworkInterfaceId": "eni-0aaa1111", "SubnetId": network["SubnetIds"][0],
+                "Description": f"AWS Lambda VPC ENI-{function}-0f1e2d3c" if self.eni_described else "",
+                "Groups": [{"GroupId": g} for g in network["SecurityGroupIds"]], "InterfaceType": "lambda"}
 
     def gone(self) -> bool:
+        if self.stack and self.stack["status"] == "DELETE_IN_PROGRESS" and self.eni_after is not None and                 self.clock.now() >= self.function_deleted_at + self.eni_after + self.stack_after_eni:
+            self.stack["status"] = "DELETED"             # CloudFormation saw the interface gone, then deleted the rest
         return not self.stack or self.stack["status"] == "DELETED"
 
     def describe_stacks(self, StackName):
@@ -101,23 +158,48 @@ class FakeAWS:
             {"OutputKey": "AgentRole", "OutputValue": f"arn:aws:iam::111122223333:role/{n['agent_role']}"}]}]}
 
     def delete_stack(self, StackName):
-        self.stack["status"] = "DELETED"
+        if self.stack_stays:
+            return
+        waits = self.stack_after_eni is not None and "eni-0aaa1111" in self.enis
+        self.stack["status"] = "DELETE_IN_PROGRESS" if waits else "DELETED"
+        self.function_deleted_at = self.clock.now()
+
+    # ec2, read only
+    def describe_network_interfaces(self, Filters, NextToken=None):
+        self.ec2_calls.append("describe_network_interfaces")
+        if self.function_deleted_at is not None and self.eni_after is not None and \
+                self.clock.now() >= self.function_deleted_at + self.eni_after:
+            self.enis.pop("eni-0aaa1111", None)          # AWS removes the function's interface, some time after
+        (subnet,) = [f["Values"][0] for f in Filters if f["Name"] == "subnet-id"]
+        found = [i for _, i in sorted(self.enis.items()) if i["SubnetId"] == subnet]
+        at = int(NextToken or 0)                          # one a page, so the kit must read every page
+        return {"NetworkInterfaces": found[at:at + 1], **({"NextToken": str(at + 1)} if at + 1 < len(found) else {})}
 
     # sts
     def get_caller_identity(self):
         return {"Account": "123456789012", "Arn": "arn:aws:sts::123456789012:assumed-role/runner/you"}
 
     # iam
+    def _boundary(self, PolicyArn):
+        """Which of the kit's boundaries PolicyArn names (a run in a subnet's, with a model's), and what the account
+        holds there; or None where it names none."""
+        for (network, model), held in self.boundaries.items():
+            name = "arvaken-stop-test-boundary" + ("-via" if network else "") + ("-model" if model else "")
+            if PolicyArn.endswith(f":policy/{name}"):
+                return network, model, held
+        return None
+
     def get_policy(self, PolicyArn):
-        if PolicyArn.endswith(":policy/arvaken-stop-test-boundary") and self.boundary is None:
+        if (found := self._boundary(PolicyArn)) and found[2] is None:
             raise ClientError("NoSuchEntity")
         return {"Policy": {"Arn": PolicyArn, "DefaultVersionId": "v1"}}
 
     def get_policy_version(self, PolicyArn, VersionId):
-        if PolicyArn.endswith(":policy/arvaken-stop-test-boundary"):
+        if found := self._boundary(PolicyArn):
             from arvaken_stop_test.aws.stack import boundary_document
-            document = boundary_document() if self.boundary == "the kit's" else {"Version": "2012-10-17", "Statement": [
-                {"Effect": "Allow", "Action": "*", "Resource": "*"}]}
+            network, model, held = found
+            document = boundary_document(network, model) if held == "the kit's" else \
+                {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]}
             return {"PolicyVersion": {"VersionId": VersionId, "Document": document}}
         return {"PolicyVersion": {"VersionId": VersionId, "Document": {"Version": "2012-10-17", "Statement": [
             {"Effect": "Deny", "Action": list(self.stop_denies), "Resource": "*"}]}}}
@@ -177,6 +259,9 @@ class FakeAWS:
     def invoke(self, FunctionName, Payload):
         self.invocations += 1
         self.clock.t += 0.1                       # the call's way there; the agent stamps its time; and back (below)
+        if (lost := self.lose.get(json.loads(Payload).get("n"))) is not None:
+            self.clock.t += 0.1
+            raise lost
         stopped = self.stopped()
         self.stopped_from = (self.stopped_from or self.clock.now()) if stopped else None
         refusal = None
@@ -192,33 +277,63 @@ class FakeAWS:
             self.clock.t += 0.1
             raise refusal
         event = json.loads(Payload)
+        self.payloads.append(event)
         agent_now = self.clock.now() + self.skew
+
+        def through(p: str) -> bool:
+            """Whether the gateway the invocation names carries this path's call now; True without one, or for a path
+            the invocation does not send through it (its call goes directly)."""
+            if "via" not in event or p not in event.get("through", ()):
+                return True
+            return not (p in self.gateway_refuses or self.invocations >= self.gateway_breaks.get(p, 10 ** 9) or
+                        (self.switch_at is not None and self.clock.now() >= self.switch_at + self.gw_delay))
+
+        if self.clients_made is None or (self.new_environment_after is not None and self.switch_at is not None and
+                                         self.clients_made < self.switch_at + self.new_environment_after <= agent_now):
+            self.clients_made = agent_now
+
+        def beat(p: str, ok: bool, error: str | None, status: int | None = None) -> dict:
+            """A path's beat, each failure with its record as the agent gives it: the code, the status, and no reason
+            where the service gives none; and when its client was made."""
+            made = {"client_at": self.clients_made}
+            if not through(p):
+                switched = self.switch_at is not None and self.clock.now() >= self.switch_at + self.gw_delay
+                return {"at": agent_now, "ok": False, "error": "ProxyConnectionError",
+                        "status": self.gw_status if switched else None, "reason": None, **made}
+            return {"at": agent_now, "ok": ok, **({} if ok else {"error": error, "status": status, "reason": None}),
+                    **made}
         if event.get("action") == "assume":
             if self.stopped():
                 raise RuntimeError("AccessDenied on sts:AssumeRole")
+            if not through("another_identity"):          # the agent's error, as Lambda returns it: no session
+                body = {"errorMessage": "Failed to connect to proxy URL", "errorType": "ProxyConnectionError"}
+                self.clock.t += 0.1
+                return {"Payload": io.BytesIO(json.dumps(body).encode()), "FunctionError": "Unhandled"}
             self.session_issued = agent_now
             body = {"at": agent_now, "session": {"key": "k", "secret": "s", "token": "t", "expires": agent_now + 3600}}
         else:
             own = not self.stopped()
             revoked = self.session_issued is not None and self.revoked_for("-second", self.session_issued)
             other = bool(event.get("session")) and not revoked
-            # each failure with its record, as the agent gives it: S3's code and status, and no reason, as S3 has none
+            # S3's code and status, and no reason, as S3 has none
             body = {"at": agent_now, "beats": {
-                "own_calls": {"at": agent_now, "ok": own,
-                              **({} if own else {"error": "AccessDenied", "status": 403, "reason": None})},
-                "another_identity": {"at": agent_now, "ok": other, **({} if other else {
-                    "error": "AccessDenied" if revoked else "RuntimeError", "status": 403 if revoked else None,
-                    "reason": None})},
-                **{p: ({"at": agent_now, "ok": False, "error": self.endpoint_error} if self.endpoint_error else
-                       {"at": agent_now, "ok": True}) for p in ("outside_key", "open_internet")}}}
+                "own_calls": beat("own_calls", own, "AccessDenied", 403),
+                "another_identity": beat("another_identity", other, "AccessDenied" if revoked else "RuntimeError",
+                                         403 if revoked else None),
+                **{p: (beat(p, False, self.endpoint_error) if self.endpoint_error else beat(p, True, None))
+                   for p in ("outside_key", "open_internet")}}}
+            if self.stack["template"]["Resources"]["Agent"]["Properties"]["Environment"]["Variables"].get("MODEL"):
+                code = self.model_error or "AccessDeniedException"
+                body["beats"]["model"] = beat("model", own and not self.model_error, code, MODEL_STATUS.get(code))
             body["key"] = OWN_KEY                 # the access key ID of the role's credentials Lambda gave it
-            if own:
+            body["v"] = self.agent_versions
+            if body["beats"]["own_calls"]["ok"]:
                 self.objects.add(f"own/{event['n']}")
         self.clock.t += 0.1
         return {"Payload": io.BytesIO(json.dumps(body).encode())}
 
     def get_function(self, FunctionName):
-        if self.gone():
+        if self.gone() or self.function_deleted_at is not None:
             raise ClientError("ResourceNotFoundException", f"Function not found: {FunctionName}")
         return {"Configuration": {"State": "Active"},
                 **({"Concurrency": {"ReservedConcurrentExecutions": self.concurrency}}
@@ -274,12 +389,14 @@ class FakeAWS:
 
     # tagging
     def get_resources(self, TagFilters):
+        if self.tagging_error is not None:
+            raise self.tagging_error
         return {"ResourceTagMappingList": [{"ResourceARN": a} for a in self.left]}
 
 
 def clients(aws: FakeAWS) -> running.Clients:
     return running.Clients(cloudformation=aws, iam=aws, lambda_=aws, s3=aws, cloudtrail=aws, tagging=aws,
-                           region="eu-central-1", logs=aws, sts=aws, cloudtrail_here=aws)
+                           region="eu-central-1", logs=aws, sts=aws, ec2=aws, cloudtrail_here=aws)
 
 
 def a_run(aws: FakeAWS, clock: Clock, **over):
@@ -498,7 +615,8 @@ def test_revoking_sessions_reaches_the_session_the_agent_took_for_the_role_it_be
     clock = Clock()
     aws = FakeAWS(clock)
     r, doc = a_run(aws, clock, stop_ref=firing.REVOKE, repeats=2)
-    assert doc["stop"] == {"kind": "revoke active sessions", "fired_by": "the kit", "ref": "revoke active sessions"}
+    assert doc["stop"] == {"kind": "revoke active sessions", "fired_by": "the kit", "ref": "revoke active sessions",
+                           "product": None}
     assert [{p: v["outcome"] for p, v in rep.items()} for rep in doc["repeats"]] == [{
         "own_calls": "stopped", "another_identity": "stopped", "outside_key": "not stopped",
         "open_internet": "not stopped"}] * 2
@@ -517,7 +635,8 @@ def test_a_policy_written_on_the_agents_role_is_a_kind_of_its_own_and_stops_its_
     clock = Clock()
     aws = FakeAWS(clock)
     r, doc = a_run(aws, clock, stop_ref=firing.INLINE, repeats=2)
-    assert doc["stop"] == {"kind": "policy written on the role", "fired_by": "the kit", "ref": firing.INLINE}
+    assert doc["stop"] == {"kind": "policy written on the role", "fired_by": "the kit", "ref": firing.INLINE,
+                           "product": None}
     assert [rep["own_calls"]["outcome"] for rep in doc["repeats"]] == ["stopped", "stopped"]
     assert [rep["another_identity"]["outcome"] for rep in doc["repeats"]] == ["not stopped", "not stopped"]
     assert len(aws.put_calls) == 2 and not aws.inline and not aws.attach_calls
@@ -614,3 +733,66 @@ def test_each_own_calls_failure_holds_the_times_of_the_credentials_it_used_from_
     assert all(x["token_issued"] is None for x in running.details(r, doc)["repeats"][0]["outside_key"]["failures"])
     assert not other or all(x["token_expires"] for x in other)
     assert OWN_KEY not in json.dumps(running.details(r, doc)) and OWN_KEY not in json.dumps(doc)
+
+
+LAMBDA_URL = "https://lambda.eu-central-1.amazonaws.com/2015-03-31/functions/arvaken-stop-test-r0123abcd-agent/invocations"
+
+
+def test_a_heartbeat_that_got_no_answer_is_counted_by_its_code_and_never_ends_the_run():
+    """Google's run r37f2ed13 (30 October 2026) ended on a heartbeat that got no answer, and wrote no result; on AWS,
+    botocore's retries narrow that but do not close it. A heartbeat the kit could not complete gives no beat to any path,
+    is counted in the details by its code, and the run goes on (the founder's answer of 30 October 2026). Any other
+    error that is not Lambda's refusal still ends the run."""
+    clock = Clock()
+    whole, whole_doc = a_run(FakeAWS(clock), clock)
+    lose = {-2: botocore.exceptions.ConnectTimeoutError(endpoint_url=LAMBDA_URL),
+            5: botocore.exceptions.ReadTimeoutError(endpoint_url=LAMBDA_URL),
+            6: botocore.exceptions.ReadTimeoutError(endpoint_url=LAMBDA_URL),
+            20: botocore.exceptions.EndpointConnectionError(endpoint_url=LAMBDA_URL)}
+    clock = Clock()
+    r, doc = a_run(FakeAWS(clock, lose=lose), clock)
+    assert result.check(doc) == doc
+    assert [{p: v["outcome"] for p, v in d["repeats"][0].items()} for d in (doc, whole_doc)] == [
+        {"own_calls": "stopped", "another_identity": "not stopped", "outside_key": "not stopped",
+         "open_internet": "not stopped"}] * 2
+    assert r.calls == whole.calls - 4 * len(r.paths)                  # no beat for any path from the four
+    lost = running.details(r, doc)["heartbeats_lost"]
+    assert lost["by_code"] == {"ConnectTimeoutError": 1, "ReadTimeoutError": 2, "EndpointConnectionError": 1}
+    assert [e["code"] for e in lost["each"]] == [
+        "ConnectTimeoutError", "ReadTimeoutError", "ReadTimeoutError", "EndpointConnectionError"]
+    assert all(e["at"] < lost["each"][i + 1]["at"] for i, e in enumerate(lost["each"][:-1]))
+    assert running.details(whole, whole_doc)["heartbeats_lost"] == {"by_code": {}, "each": []}
+    clock = Clock()
+    with pytest.raises(ClientError):
+        a_run(FakeAWS(clock, lose={5: ClientError("ServiceException")}), clock)
+
+
+
+def test_a_search_for_what_is_tagged_with_the_run_that_got_no_answer_is_named_and_the_result_is_written():
+    """The teardown's last check, every resource tagged with the run, was the one call of AWS's teardown not guarded:
+    an error there, botocore's retries spent, left run()'s finally and no result was written, as Google's run r5a229643
+    lost its (30 October 2026). Now it is named, in the founder's words, and the result is written."""
+    clock = Clock()
+    aws = FakeAWS(clock, tagging_error=botocore.exceptions.ReadTimeoutError(
+        endpoint_url="https://tagging.eu-central-1.amazonaws.com/"))
+    r, doc = a_run(aws, clock)
+    assert result.check(doc) == doc and aws.stack["status"] == "DELETED"
+    assert doc["run"]["left_behind"] == [
+        "anything else tagged with the run r0123abcd (could not be checked: ReadTimeoutError)"]
+    assert doc["run"]["left_anything"] is True
+    clock = Clock()
+    _, doc = a_run(FakeAWS(clock, tagging_error=ClientError("AccessDeniedException")), clock)
+    assert doc["run"]["left_behind"] == [
+        "anything else tagged with the run r0123abcd (could not be checked: AccessDeniedException)"]
+
+
+def test_botocore_errors_whose_response_is_none_are_read_by_their_name():
+    """ReadTimeoutError and ConnectionClosedError carry `response`, as None: the kit reads their code by their name,
+    never failing on it, so a check of the teardown's that got no answer is named as could not be checked."""
+    for e in (botocore.exceptions.ReadTimeoutError(endpoint_url=LAMBDA_URL),
+              botocore.exceptions.ConnectionClosedError(endpoint_url=LAMBDA_URL),
+              botocore.exceptions.ConnectTimeoutError(endpoint_url=LAMBDA_URL)):
+        def call(e=e):
+            raise e
+        assert running._code(e) == type(e).__name__ and running._gone(call) == type(e).__name__
+    assert running._gone(lambda: (_ for _ in ()).throw(ClientError("NoSuchEntity"))) is True

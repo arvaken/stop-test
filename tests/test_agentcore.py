@@ -547,7 +547,7 @@ def test_deny_and_end_refuses_new_calls_from_the_deny_and_ends_the_session_from_
     r, doc = a_run(aws, clock, fire.DENY_AND_END, tmp_path, trail=True)
     assert result.check(doc) is doc
     assert doc["stop"] == {"kind": "deny calls to an AgentCore agent and end its sessions", "fired_by": "the kit",
-                           "ref": fire.DENY_AND_END}
+                           "ref": fire.DENY_AND_END, "product": None}
     assert doc["agent"]["kind"] == "aws-agentcore-runtime" and doc["agent"]["runtime"] == "PYTHON_3_13"
     assert outcomes(doc) == {p: "stopped" for p in running.PATHS}
     d = running.details(r, doc)

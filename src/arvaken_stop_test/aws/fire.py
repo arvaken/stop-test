@@ -27,11 +27,20 @@ from typing import Any
 
 from datetime import datetime, timezone
 
-from arvaken_stop_test.aws.stack import BOUNDARY, TAG, boundary_document, names
+from arvaken_stop_test.aws.stack import BOUNDARY, TAG, boundary_document, boundary_file, boundary_name, names
 
 MANAGED_POLICY = re.compile(r"arn:aws(-[a-z]+)*:iam::(\d{12}|aws):policy/[\w+=,.@/-]{1,512}")
 OWN_TRIGGER_WARNING = ("Your own trigger may stop more than the test agent. It runs as you made it, and the kit cannot "
                        "see what else it reaches. Type the run's name to go on.")
+# Through a gateway (--via; D561): "The kit warns first, in stronger words than K4's, that a gateway's switch may stop
+# every agent behind it, and goes on only when the customer types the run's name."
+# CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
+GATEWAY_WARNING = (
+    "Warning: your gateway's switch may stop every agent behind it, not only the test agent. Whatever else sends its "
+    "calls through your gateway, your own agents and services among them, may be stopped too, for as long as your "
+    "switch is on. The kit cannot see, limit or undo what your switch reaches, and it never fires it itself. Fire it "
+    "only where stopping everything behind your gateway is safe, as on a gateway you use for testing. Type the run's "
+    "name to go on.")
 
 
 REVOKE = "revoke active sessions"                     # the second kind's declared stop, in place of a policy's ARN
@@ -81,22 +90,52 @@ NOT_THE_BOUNDARY = (f"Your account's policy {BOUNDARY} is not the kit's permissi
                     "differs from permissions/aws-boundary.json.")
 
 
-def why_no_boundary(iam: Any, sts: Any) -> str | None:
+def _for(network: bool, model: bool) -> str:
+    return "a run" + (" in your subnet" if network else "") + (" that calls a model" if model else "")
+
+
+def no_boundary(network: bool = False, model: bool = False) -> str:
+    """What the kit says where the account has no boundary for this run: for a run with neither, as to 0.2.1."""
+    if not (network or model):
+        return NO_BOUNDARY
+    # CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
+    return (f"Your account has no policy {boundary_name(network, model)}, the permissions boundary the kit puts on the "
+            f"roles it makes for {_for(network, model)}. Create it once from {boundary_file(network, model)}, as the "
+            "README's \"The permissions it needs\" says.")
+
+
+def not_the_boundary(network: bool = False, model: bool = False) -> str:
+    """What the kit says where that boundary is not the kit's: for a run with neither, as to 0.2.1."""
+    if not (network or model):
+        return NOT_THE_BOUNDARY
+    # CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
+    return (f"Your account's policy {boundary_name(network, model)} is not the kit's permissions boundary for "
+            f"{_for(network, model)}: its default version differs from {boundary_file(network, model)}.")
+
+
+NO_BOUNDARY_VIA, NOT_THE_BOUNDARY_VIA = no_boundary(network=True), not_the_boundary(network=True)
+
+
+def why_no_boundary(iam: Any, sts: Any, network: bool = False, model: bool = False) -> str | None:
     """Why a run cannot make its roles under the kit's permissions boundary, or None: the policy must be in your
-    account, and its default version must be the kit's, statement for statement."""
+    account, and its default version must be the kit's, statement for statement. A run in a subnet, with a model, or
+    both takes a boundary of its own (stack.py), and only that one; any other run takes arvaken-stop-test-boundary, as
+    to 0.2.1."""
     import json
     caller = sts.get_caller_identity()
-    arn = f"arn:{caller['Arn'].split(':')[1]}:iam::{caller['Account']}:policy/{BOUNDARY}"
+    arn = f"arn:{caller['Arn'].split(':')[1]}:iam::{caller['Account']}:policy/{boundary_name(network, model)}"
     try:
         version = iam.get_policy(PolicyArn=arn)["Policy"]["DefaultVersionId"]
     except Exception as e:
         if str((getattr(e, "response", None) or {}).get("Error", {}).get("Code")) == "NoSuchEntity":
-            return NO_BOUNDARY
+            return no_boundary(network, model)
         raise
     document = iam.get_policy_version(PolicyArn=arn, VersionId=version)["PolicyVersion"]["Document"]
     document = json.loads(document) if isinstance(document, str) else document
     statements = lambda d: sorted(json.dumps(s, sort_keys=True) for s in d["Statement"])  # noqa: E731
-    return None if statements(document) == statements(boundary_document()) else NOT_THE_BOUNDARY
+    if statements(document) == statements(boundary_document(network, model)):
+        return None
+    return not_the_boundary(network, model)
 
 
 def covers(iam: Any, stop_ref: str, run: str) -> bool:
