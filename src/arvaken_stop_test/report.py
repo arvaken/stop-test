@@ -28,7 +28,8 @@ def _found(f: PathResult) -> str:
         low, high = f.effect_between
         said.append(f"took effect {low:.1f} to {high:.1f} seconds after the stop was fired")
     if f.first_failure_after is not None:
-        said.append(f"{f.successes_after_first_refusal} successful call(s) after its first refusal"
+        n = f.successes_after_first_refusal
+        said.append(("1 successful call" if n == 1 else f"{n} successful calls") + " after its first refusal"
                     + ("" if not f.successes_after_first_refusal else ": not yet stopped at its first refusal"))
     if f.keeps_working_until:
         said.append(f"keeps working until {_clock(f.keeps_working_until)}, when its session expires")
@@ -44,7 +45,30 @@ REVOKE_NOTE = ("Revoking sessions denies the sessions issued before the moment i
                "unaffected, so what is expected here is of the sessions the test agent held when the stop was fired.")
 
 
-EXPECTED_HEADING = "A stop on its role would be expected"
+# On AgentCore (AGENTCORE-MEASUREMENT.md, section 3; D618), each kind's expectation, path by path, only where it
+# follows from what the stop is: a policy on the role reaches the running session's own calls as on Lambda; a deny of
+# calls refuses new calls; ending the session ends its four paths (AWS: StopRuntimeSession "instantly terminates the
+# specified session" [source: aws-agentcore-stop-session-terminates]). None where it does not follow from what the stop
+# is, which is what the run measures (the founder, 28 October 2026: no AWS claim either way): what a deny does to a
+# session already running, and whether new calls are answered while the runtime's role is denied.
+AGENTCORE: dict[str, dict[str, str | None]] = {
+    "policy on an AgentCore agent's role": {**EXPECTED, "new_calls": None},
+    "deny calls to an AgentCore agent": {"own_calls": None, "another_identity": None, "outside_key": None,
+                                         "open_internet": None, "new_calls": "stopped"},
+    "deny calls to an AgentCore agent and end its sessions": {"own_calls": "stopped", "another_identity": "stopped",
+                                                              "outside_key": "stopped", "open_internet": "stopped",
+                                                              "new_calls": "stopped"},
+    # A harness's model calls are not expected to stop with a policy on its role until a harness is measured: a deny on
+    # a Lambda agent's role left model calls succeeding for up to about 10 minutes (r47b181d2; the founder, 29 October
+    # 2026).
+    "policy on an AgentCore harness's role": {**EXPECTED, "model": None, "new_calls": None},
+}
+# CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
+EXPECTED_HEADING = {False: "A stop on its role would be expected", True: "This kind of stop would be expected"}
+# CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
+NOT_KNOWN = "not known before measuring"
+
+
 # Through a gateway (--via; D561), only the calls its declared attachment covers are sent through it (result.
 # GATEWAY_ROUTES; the founder's condition a, 28 October 2026), so its switch would be expected to stop those paths, and
 # not the others, which go directly; a path that did not work through it before the stop, or was already refused at
@@ -76,8 +100,11 @@ LOST_NOTE = ("The kit got no answer to {count} of its heartbeats to the test age
              "timed out on the way there or back. No path has a result from them.")
 
 
-def expected(kind: str, path: str, attachment: str | None = None) -> str:
-    """What the declared stop would be expected to do on a path: through a gateway, by how it is attached."""
+def expected(kind: str, path: str, attachment: str | None = None) -> str | None:
+    """What the declared stop would be expected to do on a path: through a gateway, by how it is attached; on
+    AgentCore, None where it does not follow from what the stop is (AGENTCORE)."""
+    if kind in AGENTCORE:
+        return AGENTCORE[kind][path]
     if kind == PRODUCT_KIND:
         return "stopped" if path in GATEWAY_ROUTES.get(attachment or "", ()) else "not stopped"
     return "stopped" if kind == REVOKE_KIND and path == "another_identity" else EXPECTED[path]
@@ -152,7 +179,8 @@ def page(doc: Mapping[str, Any], details: list[Mapping[str, PathResult]] | None 
     rows = []
     for i, repeat in enumerate(doc["repeats"]):
         for path, part in repeat.items():
-            expected_here = worded(expected(doc["stop"]["kind"], path, attachment), window)
+            expectation = expected(doc["stop"]["kind"], path, attachment)
+            expected_here = NOT_KNOWN if expectation is None else worded(expectation, window)
             actual = worded(part["outcome"], window)
             errors = ""
             if details and i < len(details) and path in details[i]:
@@ -165,7 +193,7 @@ def page(doc: Mapping[str, Any], details: list[Mapping[str, PathResult]] | None 
                     errors = f"{errors}; not counted: {rest}" if errors else f"not counted: {rest}"
                 if found.reason and part["outcome"] in ("not run", "not measured"):
                     errors = f"{found.reason}: {errors}" if errors else found.reason
-            mark = "" if expected(doc["stop"]["kind"], path, attachment) == part["outcome"] else ' class="differs"'
+            mark = "" if expectation in (None, part["outcome"]) else ' class="differs"'
             if details and i < len(details) and path in details[i] and _found(details[i][path]):
                 actual = f"{actual} ({_found(details[i][path])})"
             rows.append(f"<tr{mark}><td>{i + 1}</td><td>{html.escape(PATH_WORDS[path])}</td>"
@@ -173,7 +201,8 @@ def page(doc: Mapping[str, Any], details: list[Mapping[str, PathResult]] | None 
                         f"<td>{html.escape(part['first_refused_after'] or '')}</td><td>{html.escape(errors)}</td></tr>")
     left = ("Nothing the kit made was left." if not doc["run"]["left_anything"] else
             "Left for you to delete: " + ", ".join(html.escape(x) for x in doc["run"]["left_behind"]))
-    heading = GATEWAY_HEADING if doc["stop"]["kind"] == PRODUCT_KIND else EXPECTED_HEADING
+    stop_kind = doc["stop"]["kind"]
+    heading = GATEWAY_HEADING if stop_kind == PRODUCT_KIND else EXPECTED_HEADING[stop_kind in AGENTCORE]
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Stop test {html.escape(doc['run']['began_at'] or '')}</title>
 <style>body{{font:15px/1.5 system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem}}

@@ -45,7 +45,12 @@ jobs:
           test "$GITHUB_REF_NAME" = "v$version" || { echo "the tag $GITHUB_REF_NAME is not v$version"; exit 1; }
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "$GITHUB_SHA is not on main"; exit 1; }
       - run: uv sync --locked --extra aws
+      # STOP_TEST_RELEASE: a release publishes only with a passing record of IAM's policy simulator, run in install-test,
+      # for the very policy and case files it releases; and with a passing run of each kind of AgentCore agent, made in
+      # install-test as a role holding only those policy files (tests/test_policy_cases.py; the founder, 29 October 2026).
       - run: uv run python -m pytest -q -rsf
+        env:
+          STOP_TEST_RELEASE: "1"
       - run: uv build --out-dir dist
       # The hash-pinned requirements file the README installs from (the founder's README changes, item 7): the wheel by
       # its address and SHA-256, every package by its hashes from uv.lock. Signed below with the other files.

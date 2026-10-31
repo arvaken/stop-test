@@ -137,6 +137,254 @@
    "sentence": "The maximum number of connections to keep in a connection pool. If this value is not set, the default value of 10 is used.",
    "about": "botocore's Config max_pool_connections: the connections a client keeps in its pool",
    "read": "2026-10-30"
+  },
+  "aws-agentcore-stop-session-terminates": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-stop-session.html",
+   "page": "Stop a running session - Amazon Bedrock AgentCore",
+   "sentence": "When called, this operation instantly terminates the specified session and stops any ongoing streaming responses.",
+   "about": "StopRuntimeSession",
+   "read": "2026-10-28"
+  },
+  "aws-agentcore-streaming-limit": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/bedrock-agentcore-limits.html",
+   "page": "Quotas for Amazon Bedrock AgentCore - Amazon Bedrock AgentCore",
+   "sentence": "Streaming maximum duration | 60 mins | No | Maximum time for streaming connections (Response streaming, WebSocket connections)",
+   "about": "a runtime's invocation limits: how long one streaming response may last (a table row)",
+   "read": "2026-10-28"
+  },
+  "aws-agentcore-http-container": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-http-protocol-contract.html",
+   "page": "HTTP protocol contract - Amazon Bedrock AgentCore",
+   "sentence": "Your agent must be deployed as a containerized application meeting these specifications: Host : 0.0.0.0 Port : 8080 - Standard port for HTTP-based agent communication Platform : ARM64 container - Required for compatibility with the AgentCore Runtime environment",
+   "about": "the HTTP protocol's container requirements (a list, quoted whole)",
+   "read": "2026-10-28"
+  },
+  "aws-agentcore-healthy-busy": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-http-protocol-contract.html",
+   "page": "HTTP protocol contract - Amazon Bedrock AgentCore",
+   "sentence": "While the status is HealthyBusy, the runtime session is considered active and is kept alive.",
+   "about": "the /ping status HealthyBusy",
+   "read": "2026-10-28"
+  },
+  "aws-agentcore-ping-last-update": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-http-protocol-contract.html",
+   "page": "HTTP protocol contract - Amazon Bedrock AgentCore",
+   "sentence": "Do not set time_of_last_update to the current time on every ping.",
+   "about": "the /ping response's optional time_of_last_update",
+   "read": "2026-10-28"
+  },
+  "aws-agentcore-trust-policy": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-permissions.html",
+   "page": "IAM Permissions for AgentCore Runtime - Amazon Bedrock AgentCore",
+   "sentence": "The AgentCore Runtime execution role must include the following trust policy which allows the AgentCore Runtime to assume the role.",
+   "about": "the trust policy of a runtime's execution role, with its conditions on aws:SourceAccount and aws:SourceArn",
+   "read": "2026-10-28"
+  },
+  "aws-cloudtrail-event-history": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/awscloudtrail/latest/userguide/view-cloudtrail-events.html",
+   "page": "Working with CloudTrail event history - AWS CloudTrail",
+   "sentence": "The event history provides a viewable, searchable, downloadable, and immutable record of the past 90 days of management events in an AWS Region.",
+   "about": "CloudTrail's event history: management events, by Region",
+   "read": "2026-10-28"
+  },
+  "aws-agentcore-harness-tools-reasoning": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-security.html",
+   "page": "Security and access controls - Amazon Bedrock AgentCore",
+   "sentence": "Tools run only as a result of model reasoning.",
+   "about": "A harness's tools, and what dispatches them",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-harness-execution-role": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-security.html",
+   "page": "Security and access controls - Amazon Bedrock AgentCore",
+   "sentence": "The harness assumes an IAM role you own, configurable to include Bedrock, ECR, CloudWatch, and the AgentCore primitives it touches.",
+   "about": "The harness's IAM execution role",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-harness-ecr-public": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-security.html",
+   "page": "Security and access controls - Amazon Bedrock AgentCore",
+   "sentence": "The following sample covers a harness on the public network, which pulls its managed container image from Amazon ECR Public.",
+   "about": "The sample execution role policy, for a harness on the public network",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-harness-execute-command": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-environment.html",
+   "page": "Environment and filesystem - Amazon Bedrock AgentCore",
+   "sentence": "InvokeAgentRuntimeCommand gives you direct shell access to the harness microVM: deterministic command execution with no model reasoning, no token cost, no ambiguity.",
+   "about": "InvokeAgentRuntimeCommand on a harness session",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-harness-base-environment": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-environment.html",
+   "page": "Environment and filesystem - Amazon Bedrock AgentCore",
+   "sentence": "The base environment includes Python and bash.",
+   "about": "The harness's base environment",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-harness-bedrock-role": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-models.html",
+   "page": "Models and instructions - Amazon Bedrock AgentCore",
+   "sentence": "Bedrock uses the execution role and does not accept a model API key.",
+   "about": "A harness's Amazon Bedrock model and its credentials",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-harness-default-tools": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-tools.html",
+   "page": "Tools - Amazon Bedrock AgentCore",
+   "sentence": "Default tools shell and file_operations are available in every session unless you restrict them with allowedTools.",
+   "about": "The harness's default tools, and allowedTools",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-command-limits": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-execute-command.html",
+   "page": "Execute shell commands in AgentCore Runtime sessions - Amazon Bedrock AgentCore",
+   "sentence": "The command must be between 1 byte and 64 KB, the timeout must be between 1 and 3600 seconds, and the session ID must be at least 33 characters.",
+   "about": "InvokeAgentRuntimeCommand's ValidationException",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-command-concurrent": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-execute-command.html",
+   "page": "Execute shell commands in AgentCore Runtime sessions - Amazon Bedrock AgentCore",
+   "sentence": "Command execution doesn't block agent invocations.",
+   "about": "InvokeAgentRuntimeCommand, and invocations of the same session",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-harness-runs-the-loop": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-vs-runtime.html",
+   "page": "AgentCore harness vs. Runtime - Amazon Bedrock AgentCore",
+   "sentence": "You declare what the agent is (model, system prompt, tools, memory, limits) as configuration, and AgentCore runs the loop.",
+   "about": "AgentCore harness",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-harness-inside-runtime": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-vs-runtime.html",
+   "page": "AgentCore harness vs. Runtime - Amazon Bedrock AgentCore",
+   "sentence": "The harness is a managed abstraction that runs inside Runtime - CloudTrail records harness operations under AWS::BedrockAgentCore::Runtime.",
+   "about": "AgentCore harness, and AgentCore Runtime",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-harness-create-permissions": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-security.html",
+   "page": "Security and access controls - Amazon Bedrock AgentCore",
+   "sentence": "CreateHarness | bedrock-agentcore:CreateHarness, bedrock-agentcore:CreateAgentRuntime, bedrock-agentcore:CreateMemory",
+   "about": "Required IAM permissions for callers: the CreateHarness row",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-harness-delete-permissions": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-security.html",
+   "page": "Security and access controls - Amazon Bedrock AgentCore",
+   "sentence": "DeleteHarness | bedrock-agentcore:DeleteHarness, bedrock-agentcore:DeleteAgentRuntime, bedrock-agentcore:DeleteMemory",
+   "about": "Required IAM permissions for callers: the DeleteHarness row",
+   "read": "2026-10-29"
+  },
+  "aws-sar-agentcore-create-harness": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_bedrock-agentcore.html",
+   "page": "Actions, resources, and condition keys for Amazon Bedrock Agentcore - Service Authorization Reference",
+   "sentence": "CreateHarness | bedrock-agentcore-control | bedrock-agentcore:CreateAgentRuntime, bedrock-agentcore:CreateHarness, bedrock-agentcore:CreateMemory, bedrock-agentcore:GetMemory, bedrock-agentcore:TagResource, iam:PassRole (iam:PassedToService bedrock-agentcore.amazonaws.com)",
+   "about": "The CreateHarness operation, and the actions it requires",
+   "read": "2026-10-29"
+  },
+  "aws-sar-agentcore-create-agent-runtime": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_bedrock-agentcore.html",
+   "page": "Actions, resources, and condition keys for Amazon Bedrock Agentcore - Service Authorization Reference",
+   "sentence": "CreateAgentRuntime | bedrock-agentcore-control | bedrock-agentcore:CreateAgentRuntime, bedrock-agentcore:CreateAgentRuntimeEndpoint, bedrock-agentcore:PassCapacityProvider, bedrock-agentcore:TagResource, iam:PassRole (iam:PassedToService bedrock-agentcore.amazonaws.com)",
+   "about": "The CreateAgentRuntime operation, and the actions it requires",
+   "read": "2026-10-29"
+  },
+  "aws-sar-agentcore-delete-agent-runtime": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_bedrock-agentcore.html",
+   "page": "Actions, resources, and condition keys for Amazon Bedrock Agentcore - Service Authorization Reference",
+   "sentence": "DeleteAgentRuntime | bedrock-agentcore-control | bedrock-agentcore:DeleteAgentRuntime, bedrock-agentcore:DeleteAgentRuntimeEndpoint, bedrock-agentcore:DeleteWorkloadIdentity",
+   "about": "The DeleteAgentRuntime operation, and the actions it requires",
+   "read": "2026-10-29"
+  },
+  "aws-sar-agentcore-invoke-agent-runtime": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_bedrock-agentcore.html",
+   "page": "Actions, resources, and condition keys for Amazon Bedrock Agentcore - Service Authorization Reference",
+   "sentence": "InvokeAgentRuntime | bedrock-agentcore | bedrock-agentcore:InvokeAgentRuntime, bedrock-agentcore:InvokeAgentRuntimeForUser",
+   "about": "The InvokeAgentRuntime operation, and the actions it requires",
+   "read": "2026-10-29"
+  },
+  "aws-sar-agentcore-delete-workload-identity": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_bedrock-agentcore.html",
+   "page": "Actions, resources, and condition keys for Amazon Bedrock Agentcore - Service Authorization Reference",
+   "sentence": "DeleteWorkloadIdentity | Grants permission to delete a registered Workload Identity | Write | workload-identity* | aws:ResourceTag/${TagKey} | workload-identity-directory* | aws:ResourceTag/${TagKey}",
+   "about": "The DeleteWorkloadIdentity action: both its resource types required, the identity and its directory",
+   "read": "2026-10-29"
+  },
+  "aws-sar-agentcore-get-workload-identity": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_bedrock-agentcore.html",
+   "page": "Actions, resources, and condition keys for Amazon Bedrock Agentcore - Service Authorization Reference",
+   "sentence": "GetWorkloadIdentity | Grants permission to fetch details for a specific Workload identity, including its name and allowed OAuth2 return URLs | Read | workload-identity* | aws:ResourceTag/${TagKey} | workload-identity-directory* | aws:ResourceTag/${TagKey}",
+   "about": "The GetWorkloadIdentity action: both its resource types required, the identity and its directory",
+   "read": "2026-10-29"
+  },
+  "aws-iam-managed-policy-size": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_iam-quotas.html",
+   "page": "IAM and AWS STS quotas - AWS Identity and Access Management",
+   "sentence": "The size of each managed policy can't exceed 6,144 characters. IAM doesn't count white space when calculating the size of a policy against this limit.",
+   "about": "The size of a customer managed policy",
+   "read": "2026-10-29"
+  },
+  "aws-agentcore-invoke-access-denied": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/APIReference/API_InvokeAgentRuntime.html",
+   "page": "InvokeAgentRuntime - Amazon Bedrock AgentCore Data Plane",
+   "sentence": "AccessDeniedException The exception that occurs when you do not have sufficient permissions to perform an action. Verify that your IAM policy includes the necessary permissions for the operation you are trying to perform. HTTP Status Code: 403",
+   "about": "InvokeAgentRuntime's error AccessDeniedException",
+   "read": "2026-10-30"
+  },
+  "aws-agentcore-invoke-command-access-denied": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/APIReference/API_InvokeAgentRuntimeCommand.html",
+   "page": "InvokeAgentRuntimeCommand - Amazon Bedrock AgentCore Data Plane",
+   "sentence": "AccessDeniedException The exception that occurs when you do not have sufficient permissions to perform an action. Verify that your IAM policy includes the necessary permissions for the operation you are trying to perform. HTTP Status Code: 403",
+   "about": "InvokeAgentRuntimeCommand's error AccessDeniedException",
+   "read": "2026-10-30"
+  },
+  "aws-agentcore-invoke-harness-access-denied": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/APIReference/API_InvokeHarness.html",
+   "page": "InvokeHarness - Amazon Bedrock AgentCore Data Plane",
+   "sentence": "AccessDeniedException The exception that occurs when you do not have sufficient permissions to perform an action. Verify that your IAM policy includes the necessary permissions for the operation you are trying to perform. HTTP Status Code: 403",
+   "about": "InvokeHarness's error AccessDeniedException",
+   "read": "2026-10-30"
+  },
+  "aws-agentcore-stop-session-not-found": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/APIReference/API_StopRuntimeSession.html",
+   "page": "StopRuntimeSession - Amazon Bedrock AgentCore Data Plane",
+   "sentence": "ResourceNotFoundException The exception that occurs when the specified resource does not exist. This can happen when using an invalid identifier or when trying to access a resource that has been deleted. HTTP Status Code: 404",
+   "about": "StopRuntimeSession's error ResourceNotFoundException",
+   "read": "2026-10-30"
   }
  },
  "owed": {

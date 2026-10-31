@@ -54,14 +54,17 @@ WINDOWS = {"aws": 15 * 60.0, "google_cloud": 15 * 60.0}
 # 15 minutes").
 GATEWAY_WINDOW = 15 * 60.0
 
-# The stop map's four paths, and the optional model call (the design's section 4), in their order.
-PATHS = ("own_calls", "another_identity", "outside_key", "open_internet", "model")
+# The stop map's four paths, the optional model call (the design's section 4), and on AgentCore new calls to the agent
+# (agentcore/run.py; D618), in their order.
+PATHS = ("own_calls", "another_identity", "outside_key", "open_internet", "model", "new_calls")
 PATH_WORDS = {
     "own_calls": "its own calls to the cloud",
     "another_identity": "work under another identity",
     "outside_key": "a key for a service outside the cloud",
     "open_internet": "the open internet",
     "model": "a call to a model",
+    # CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
+    "new_calls": "new calls to the agent",
 }
 
 STOPPED, FLAPPED, NOT_STOPPED, NOT_RUN = "stopped", "stopped, then succeeded again", "not stopped", "not run"

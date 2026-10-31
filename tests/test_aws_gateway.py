@@ -103,7 +103,7 @@ def test_a_cloud_stops_page_says_nothing_of_a_gateway_or_a_mark():
     clock = Clock()
     r, doc = a_run(FakeAWS(clock), clock)
     page = report.page(doc, [d for _, d in running.results(r)])
-    assert report.MARK_NOTE not in page and report.GATEWAY_HEADING not in page and report.EXPECTED_HEADING in page
+    assert report.MARK_NOTE not in page and report.GATEWAY_HEADING not in page and report.EXPECTED_HEADING[False] in page
 
 
 def test_the_products_name_is_shown_as_text_never_as_markup():

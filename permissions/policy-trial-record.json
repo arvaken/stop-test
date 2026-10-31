@@ -1,0 +1,34 @@
+{
+ "about": "The kit's AgentCore policies, each run made in Arvaken's install-test account as a role holding only the policy files named; a release publishes only with a passing entry for each kind of agent, for its files (scripts/policy_trials.py)",
+ "trials": [
+  {
+   "run": "r57d569f4",
+   "agent": "aws-agentcore-runtime",
+   "commit": "deaa1a14fc718caedd171058128dfbb2871e000a",
+   "policies": {
+    "permissions/aws-agentcore-policy.json": "fb89aee76dd812ab3274d641e026d85074010cbddcde4db7f965f6c2a794f18d"
+   },
+   "began_at": "2026-10-29T20:30:43.283Z",
+   "ended_at": "2026-10-29T20:38:22.525Z",
+   "left": 0,
+   "refused": {},
+   "passed": true,
+   "checked": "2026-10-29T20:55:43+00:00"
+  },
+  {
+   "run": "r24ba4223",
+   "agent": "aws-agentcore-harness",
+   "commit": "b212c20dd1cd8a261ce1b03e9e64baf949480a6a",
+   "policies": {
+    "permissions/aws-agentcore-policy.json": "fb89aee76dd812ab3274d641e026d85074010cbddcde4db7f965f6c2a794f18d",
+    "permissions/aws-agentcore-harness-policy.json": "048a482de912b7908230049e7fc251e25263956b50d756e77b136b2bb1c6e825"
+   },
+   "began_at": "2026-10-29T20:42:27.581Z",
+   "ended_at": "2026-10-29T20:51:01.670Z",
+   "left": 0,
+   "refused": {},
+   "passed": true,
+   "checked": "2026-10-29T20:56:00+00:00"
+  }
+ ]
+}

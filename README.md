@@ -41,7 +41,7 @@ Lambda's kinds of stop for now (mark's record.stop_test_kinds()), so it refuses 
 For now, Arvaken can take a result only from AWS Lambda. A result from Amazon Bedrock AgentCore or Google Cloud can't be
 sent yet: keep it as your own record.
 
-AWS and Google Cloud. Azure follows.
+AWS, with Lambda and Amazon Bedrock AgentCore, and Google Cloud. Azure follows.
 
 ## What it makes in your account
 
@@ -96,21 +96,21 @@ SHA-256: the kit's own package and each package it needs. pip then installs exac
 2. Download the release's requirements file and its signature (in Windows PowerShell, type `curl.exe`):
 
    ```
-   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.3.1/requirements-0.3.1.txt
-   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.3.1/requirements-0.3.1.txt.sigstore.json
+   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.4.0/requirements-0.4.0.txt
+   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.4.0/requirements-0.4.0.txt.sigstore.json
    ```
 
 3. Check that this repository's release workflow signed it, for that version. The signature is also recorded in the
    public Rekor log:
 
    ```
-   stop-test/bin/python -m sigstore verify github requirements-0.3.1.txt --cert-identity https://github.com/arvaken/stop-test/.github/workflows/release.yml@refs/tags/v0.3.1
+   stop-test/bin/python -m sigstore verify github requirements-0.4.0.txt --cert-identity https://github.com/arvaken/stop-test/.github/workflows/release.yml@refs/tags/v0.4.0
    ```
 
 4. Install exactly what it names. pip refuses any file whose SHA-256 differs:
 
    ```
-   stop-test/bin/python -m pip install --require-hashes -r requirements-0.3.1.txt
+   stop-test/bin/python -m pip install --require-hashes -r requirements-0.4.0.txt
    ```
 
 The kit is then `stop-test/bin/stop-test`. Each release also lists its files' SHA-256 in `SHA256SUMS`, signed the same
@@ -285,6 +285,117 @@ and checks them:
 stop-test aws clean --run <run> --region eu-central-1 --subnet <subnet-id>
 ```
 
+## On Amazon Bedrock AgentCore
+
+### What it makes in your account
+
+Each thing is named with the run and tagged `arvaken-stop-test=<run>`:
+
+- the test agent: an AgentCore runtime, `arvaken_stop_test_<run>`, made from the kit's own code (Python 3.13) in
+  AgentCore's public network mode, with a role of its own that AgentCore may take on for this runtime alone. A session
+  of it ends after a minute idle, and lives at most an hour;
+- a second role, which only the test agent's role may assume;
+- an S3 bucket, `arvaken-stop-test-<run>`, private and encrypted, holding the test agent's code and the objects its
+  paths write.
+
+Both roles carry the kit's permissions boundary, as on Lambda. The test agent writes no logs of its own, and its role
+may not write any. CloudTrail records what the kit does, as it records any change. The kit touches nothing it did not
+make, except to attach your stop to the test agent's role when your stop is a policy of yours.
+
+For every stop, the kit measures two things:
+
+- **New calls to the agent.** About once a second, the kit calls the test agent, each call starting a session of its
+  own, and the agent answers at once.
+- **A session already running.** Before each stop, the kit opens one session of the test agent's. Its agent tries each
+  of the four paths about once a second, as on Lambda, and reports each try on the call's streaming response. If the
+  session ends, each of its paths reads as refused from then on.
+
+When the run ends, the kit takes off the stop it fired, deletes what it made, and checks each thing by its own
+identifier: the runtime, its endpoints, its workload identity, its code, the bucket, both roles, any log group and the
+stop. Anything still there is named for you to delete.
+
+### Run it
+
+Run it in an account you use for testing.
+
+```
+stop-test agentcore plan --deny-calls --region eu-central-1
+stop-test agentcore run --deny-calls --region eu-central-1
+```
+
+Name the stop with one of:
+
+- `--stop <ARN>`: your declared stop, a managed policy, attached to the test agent's role alone, as on Lambda.
+- `--inline-deny`: a policy the kit writes on the test agent's role, denying every action.
+- `--deny-calls`: a resource policy the kit writes on the test agent, denying every call to it, from anyone.
+- `--deny-calls-and-end-sessions`: the same, then the session the test agent is running ended.
+
+`--window` and `--repeats` work as on Lambda. On AgentCore a window is at most 54 minutes, because the running session
+is watched on one streaming response. Each call to the test agent starts a session of its own, about a thousand in a run
+of one repeat, and AWS bills each session's use to your account.
+
+The moment each stop was fired is CloudTrail's record of the call: IAM's for a policy on the role, AgentCore's for the
+deny. Ending a session is recorded as a data event, which CloudTrail's event history does not hold. With `--trail`, the
+kit makes a trail of the run's own, recording only the data events of the test agent and of its bucket's objects, into a
+bucket only CloudTrail may write to. It fires nothing until the trail has recorded a call to the agent, which can take some minutes. Before deleting the
+trail and its bucket, it copies their records into a folder beside the result, `stop-test-<run>-trail`, each with its
+SHA-256. Without `--trail`, that moment is the kit's own clock, and the details say so. AWS charges for a trail's data
+events.
+
+A run writes the same three files as on Lambda. If a run could not clean up, remove what it made by the run's name:
+
+```
+stop-test agentcore clean --run <run> --region eu-central-1
+```
+
+### On a harness
+
+A harness is AgentCore's configured agent: AWS runs its agent loop, with the model you name.
+<!-- [source: aws-agentcore-harness-runs-the-loop] --> The kit tests a policy on a harness's role:
+
+```
+stop-test agentcore-harness plan --inline-deny --model openai.gpt-oss-20b-1:0 --region eu-central-1
+stop-test agentcore-harness run --inline-deny --model openai.gpt-oss-20b-1:0 --region eu-central-1
+```
+
+Name the stop with `--stop <ARN>` or `--inline-deny`, as on a runtime. On a harness, the kit times only a policy on its
+role. The deny-calls stops it times on a runtime aren't offered. Name its model with `--model` and its Bedrock model ID
+or inference profile ID.
+
+The kit makes, each named with the run and tagged `arvaken-stop-test=<run>`:
+
+- the test agent: an AgentCore harness, `arvaken_stop_test_<run>`, which calls your model and has no tools and no
+  memory, with a role of its own that AgentCore may take on for this harness alone. A harness runs inside AgentCore
+  Runtime, and the kit checks that the runtime it runs in is gone with the harness;
+  <!-- [source: aws-agentcore-harness-inside-runtime] -->
+- a second role and an S3 bucket, as on a runtime.
+
+Both roles carry a permissions boundary of their own, `arvaken-stop-test-boundary-harness` (see
+[The permissions it needs](#the-permissions-it-needs)): a harness's role also calls its model, takes AWS's image for the
+harness, and takes the harness's workload token.
+
+For every stop, the kit measures three things:
+
+- **A session already running.** Before each stop, the kit opens one session of the harness's and runs its own probe
+  in it, as one command. About once a second, the probe tries each of the four paths as the harness's role. A harness
+  runs a tool only when its model chooses one, so the paths are tried by the probe, not by the model.
+  <!-- [source: aws-agentcore-harness-tools-reasoning, aws-agentcore-harness-execute-command] -->
+- **Its model.** About once a second, the kit asks the harness something in that session, and the harness calls its
+  model as its role. <!-- [source: aws-agentcore-harness-bedrock-role] --> AWS bills each call to your account. A call
+  refused for a limit on your account is never counted as stopped.
+- **New calls to the agent.** About once a second, the kit runs a command that does nothing, each in a new session of
+  the harness's.
+
+`--window` and `--repeats` work as on a runtime. A window is at most 3295 seconds, just under 55 minutes: the kit
+watches the running session with one command, and AWS lets a command run for at most an hour, which also has to cover
+the time before the stop and the report after the window. <!-- [source: aws-agentcore-command-limits] --> The moment
+each stop was fired is CloudTrail's record of the IAM call. A run writes the same three files. If a run could not clean
+up, remove what it made by the run's name:
+
+```
+stop-test agentcore-harness clean --run <run> --region eu-central-1
+```
+
 ## On Google Cloud
 
 ### What it makes in your project
@@ -360,15 +471,20 @@ it by its code. A refusal counts only on a path that worked before it.
 | Stop | What counts as its refusal |
 |---|---|
 | `--stop`, `--inline-deny` or `--revoke-sessions`, on AWS | `AccessDenied` from Amazon S3, on the test agent's own calls and its work under another identity; `AccessDeniedException` from Amazon Bedrock, on its call to a model; and on every path, Lambda refusing to run the test agent with `KMSAccessDeniedException`, where the agent ran before the stop |
+| `--stop` or `--inline-deny`, on AgentCore | `AccessDenied` from Amazon S3, on the running session's own calls and its work under another identity; `AccessDeniedException` from AgentCore, on new calls to the agent and, on a harness, on its model |
+| `--deny-calls` | `AccessDeniedException` from AgentCore, on new calls to the agent. On the running session, nothing counts |
+| `--deny-calls-and-end-sessions` | that, on new calls; on the running session, its end, from when AWS confirms it: asked to end the session again, AWS answers that there is no such session. A path seen calling after that, in the bucket or the run's trail, is not stopped. Calls to Arvaken's test address can't be seen, so its two paths rest on that confirmation |
 | `--stop` or `--deny-all`, on Google Cloud | a `403` from Cloud Storage whose reason is `forbidden` or `insufficientPermissions` |
 | `--disable-account` | those, a `401` whose reason is `authError` from a token not yet expired, and a `404` when the test agent asks for its own token |
 | `--via`, your gateway | its own refusal of the test agent's connection through it: a `403`, or a `407` where your gateway's address carries a user name and password, read only where Lambda runs the test agent on the Python, botocore and urllib3 the kit was tested with |
 | `--own-trigger` | those of the kind of stop the cloud's record of your action shows: CloudTrail's on AWS, Cloud Audit Logs' on Google Cloud. If it shows none of these, nothing counts as stopped |
 
 <!-- [source: aws-s3-access-denied-example, aws-lambda-invoke-kms-access-denied, google-storage-403-forbidden,
-google-storage-403-insufficient-permissions, google-storage-401-auth-error, aws-bedrock-converse-access-denied] -->
+google-storage-403-insufficient-permissions, google-storage-401-auth-error, aws-bedrock-converse-access-denied,
+aws-agentcore-invoke-access-denied, aws-agentcore-invoke-harness-access-denied, aws-agentcore-stop-session-not-found] -->
 <!-- CUSTOMER TEXT: the AWS row's model path approved by the founder, word for word, 30 October 2026 -->
 <!-- CUSTOMER TEXT: the --via row approved by the founder, word for word, 30 October 2026 (D655) -->
+<!-- CUSTOMER TEXT: the three AgentCore rows approved by the founder, word for word, 30 October 2026 -->
 
 A path whose calls after the stop were all not counted, or that was answered after the stop and then had nothing counted
 until the window ended, reads "not measured": the kit cannot say whether the stop stopped it.
@@ -412,6 +528,35 @@ The kit runs with your own credentials. To give it only what a run needs, use th
     allows what each of the two allows.
 
   Before a run makes anything, the kit checks that the boundary its options need is there and is the kit's.
+- **AgentCore:** [`permissions/aws-agentcore-policy.json`](permissions/aws-agentcore-policy.json), an IAM policy that
+  lets its holder make a role only under the kit's boundary, `arvaken-stop-test-boundary`, or the harness's below. Each
+  statement names only what a run makes, except reading your stop policy, the reads AWS allows only on every resource,
+  and your default workload-identity directory, which AWS checks beside each workload identity a run reads or deletes.
+  Its last two statements are needed only with `--trail`.
+  <!-- [source: aws-sar-agentcore-create-agent-runtime, aws-sar-agentcore-delete-agent-runtime,
+  aws-sar-agentcore-invoke-agent-runtime, aws-sar-agentcore-delete-workload-identity,
+  aws-sar-agentcore-get-workload-identity] -->
+  <!-- CUSTOMER TEXT: "an IAM policy that lets its holder make a role only under the kit's boundary, ...", in place of
+  "an IAM policy under the same boundary", approved by the founder, word for word, 01:41 UTC on 31 October 2026 -->
+
+  On a harness, attach a second policy beside it,
+  [`permissions/aws-agentcore-harness-policy.json`](permissions/aws-agentcore-harness-policy.json). Its statements name
+  only the run's harness, the runtime AWS makes for it and the memory AWS requires to make it, except reading inference
+  profiles, which the kit does only for a profile you give as the model. The two are kept apart because IAM allows a
+  managed policy at most 6,144 characters; create each as a managed policy. <!-- [source: aws-iam-managed-policy-size] -->
+
+  A harness's two roles carry a boundary of their own,
+  [`permissions/aws-boundary-harness.json`](permissions/aws-boundary-harness.json): the kit's boundary, and calling a
+  model, taking AWS's image for a harness and taking a harness's workload token. Create it once, as the kit's:
+
+  ```
+  aws iam create-policy --policy-name arvaken-stop-test-boundary-harness --policy-document file://permissions/aws-boundary-harness.json
+  ```
+
+  AWS lists permission to create and delete a memory as required to create and delete a harness, so the kit's harness
+  policy grants it, for the run's own resources only. The kit's harness has no memory, and after each run the kit checks that
+  none is left. <!-- [source: aws-agentcore-harness-create-permissions, aws-agentcore-harness-delete-permissions,
+  aws-sar-agentcore-create-harness] -->
 - **Google Cloud:** [`permissions/google-role.yaml`](permissions/google-role.yaml), a custom role for your test project:
 
   ```
