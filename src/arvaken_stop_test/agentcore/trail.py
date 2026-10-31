@@ -147,7 +147,7 @@ def counted(found: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def _code(e: Exception) -> str:
-    return str(getattr(e, "response", {}).get("Error", {}).get("Code") or type(e).__name__)
+    return str((getattr(e, "response", None) or {}).get("Error", {}).get("Code") or type(e).__name__)
 
 
 def _unless(codes: set[str], call: Callable[[], Any]) -> Any:

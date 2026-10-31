@@ -132,7 +132,7 @@ def confirm_end(data: Any, runtime_arn: str, session: str) -> str | None:
         data.stop_runtime_session(agentRuntimeArn=runtime_arn, runtimeSessionId=session, qualifier="DEFAULT")
         return None
     except Exception as e:  # noqa: BLE001 - each answer is the confirmation's, by its code
-        return str(getattr(e, "response", {}).get("Error", {}).get("Code") or type(e).__name__)[:64]
+        return str((getattr(e, "response", None) or {}).get("Error", {}).get("Code") or type(e).__name__)[:64]
 
 
 def remove(iam: Any, control: Any, run: str, stop_ref: str, runtime_arn: str | None) -> bool:
@@ -144,7 +144,7 @@ def remove(iam: Any, control: Any, run: str, stop_ref: str, runtime_arn: str | N
     try:
         control.delete_resource_policy(resourceArn=runtime_arn)
     except Exception as e:  # noqa: BLE001 - no resource policy, or no runtime, answers ResourceNotFoundException
-        if str(getattr(e, "response", {}).get("Error", {}).get("Code")) == "ResourceNotFoundException":
+        if str((getattr(e, "response", None) or {}).get("Error", {}).get("Code")) == "ResourceNotFoundException":
             return False
         raise
     return True
