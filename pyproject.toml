@@ -1,6 +1,6 @@
 [project]
 name = "arvaken-stop-test"
-version = "0.3.1+agentcore"
+version = "0.4.0"
 description = "A kit you run in your own cloud account: it fires your declared stop on a test agent it deploys, and times what actually stops."
 readme = "README.md"
 license = "Apache-2.0"

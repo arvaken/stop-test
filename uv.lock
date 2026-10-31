@@ -14,7 +14,7 @@ build-constraints = [
 
 [[package]]
 name = "arvaken-stop-test"
-version = "0.3.1+agentcore"
+version = "0.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
