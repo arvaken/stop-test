@@ -81,8 +81,10 @@ AGENTCORE = (
     "details say so. AWS charges for a trail's data events.",
     "A run writes the same three files as on Lambda. If a run could not clean up, remove what it made by the run's "
     'name: ``` stop-test agentcore clean --run <run> --region eu-central-1 ```',
+    # its first sentence's end reworded by the founder, word for word, at 01:41 UTC on 31 October 2026
     '- **AgentCore:** [`permissions/aws-agentcore-policy.json`](permissions/aws-agentcore-policy.json), an IAM policy'
-    ' under the same boundary. Each statement names only what a run makes, except reading your stop policy, the reads'
+    " that lets its holder make a role only under the kit's boundary, `arvaken-stop-test-boundary`, or the harness's"
+    ' below. Each statement names only what a run makes, except reading your stop policy, the reads'
     ' AWS allows only on every resource, and your default workload-identity directory, which AWS checks beside each '
     'workload identity a run reads or deletes. Its last two statements are needed only with `--trail`.',
     'On a harness, attach a second policy beside it, '

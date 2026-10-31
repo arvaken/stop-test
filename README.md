@@ -512,13 +512,16 @@ The kit runs with your own credentials. To give it only what a run needs, use th
     allows what each of the two allows.
 
   Before a run makes anything, the kit checks that the boundary its options need is there and is the kit's.
-- **AgentCore:** [`permissions/aws-agentcore-policy.json`](permissions/aws-agentcore-policy.json), an IAM policy under
-  the same boundary. Each statement names only what a run makes, except reading your stop policy, the reads AWS allows
-  only on every resource, and your default workload-identity directory, which AWS checks beside each workload identity
-  a run reads or deletes. Its last two statements are needed only with `--trail`.
+- **AgentCore:** [`permissions/aws-agentcore-policy.json`](permissions/aws-agentcore-policy.json), an IAM policy that
+  lets its holder make a role only under the kit's boundary, `arvaken-stop-test-boundary`, or the harness's below. Each
+  statement names only what a run makes, except reading your stop policy, the reads AWS allows only on every resource,
+  and your default workload-identity directory, which AWS checks beside each workload identity a run reads or deletes.
+  Its last two statements are needed only with `--trail`.
   <!-- [source: aws-sar-agentcore-create-agent-runtime, aws-sar-agentcore-delete-agent-runtime,
   aws-sar-agentcore-invoke-agent-runtime, aws-sar-agentcore-delete-workload-identity,
   aws-sar-agentcore-get-workload-identity] -->
+  <!-- CUSTOMER TEXT: "an IAM policy that lets its holder make a role only under the kit's boundary, ...", in place of
+  "an IAM policy under the same boundary", approved by the founder, word for word, 01:41 UTC on 31 October 2026 -->
 
   On a harness, attach a second policy beside it,
   [`permissions/aws-agentcore-harness-policy.json`](permissions/aws-agentcore-harness-policy.json). Its statements name
