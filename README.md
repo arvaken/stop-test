@@ -253,6 +253,17 @@ Switching your gateway off can't be measured as a stop: to the kit it looks the 
 your gateway that refuses calls, such as a filter or a closed port. A rule on your gateway may not reach a connection
 already open through it. The kit keeps its connections open, as AWS's own libraries do, so its times include that.
 
+<!-- CUSTOMER TEXT: approved by the founder, word for word, 01:22 UTC on 31 October 2026 -->
+<!-- Sources, read 31 October 2026: tinyproxy 1.11.1's src/main.c, lines 317-318 (-d sets daemonized = FALSE) and
+399-400 (SIGHUP's handler is set only if daemonized, SIGUSR1's always; both reload),
+https://github.com/tinyproxy/tinyproxy/blob/1.11.1/src/main.c ; Ubuntu noble-updates' debian/tinyproxy.service
+(ExecStart=/usr/bin/tinyproxy -d $FLAGS, ExecReload=/bin/kill -USR1 $MAINPID),
+https://git.launchpad.net/ubuntu/+source/tinyproxy/tree/debian/tinyproxy.service?h=ubuntu/noble-updates . Seen in
+install-test on 30 October 2026 (package 1.11.1-3ubuntu0.1): a SIGHUP stopped the unit; a SIGUSR1 reloaded it. -->
+If your gateway is tinyproxy on Ubuntu, load a changed rule with `sudo systemctl reload tinyproxy`, which sends it
+SIGUSR1. A SIGHUP stops it there: Ubuntu's service runs tinyproxy in the foreground (`-d`), and tinyproxy 1.11.1 takes
+SIGHUP as a reload only when it runs as a daemon.
+
 <!-- CUSTOMER TEXT: approved by the founder, word for word, 30 October 2026 (D655, (c)) -->
 A refusal from a gateway that inspects TLS (`--ca-bundle`), made inside the connection it opened, and any refusal
 from a gateway reached over `https://`, read "not measured" for now: the kit can't yet tell them from AWS's own.

@@ -92,3 +92,14 @@ def test_the_readme_says_what_counts_through_a_gateway_as_the_founder_approved_i
     for words in GATEWAY_WORDS:
         assert words in flat(README), words[:60]
     assert "a throttle included" not in flat(README)
+
+
+# Reloading tinyproxy on Ubuntu (D561's finding, 30 October 2026): the founder's words, approved word for word at 01:22 UTC
+# on 31 October 2026
+TINYPROXY_WORDS = ("If your gateway is tinyproxy on Ubuntu, load a changed rule with `sudo systemctl reload tinyproxy`, "
+                   "which sends it SIGUSR1. A SIGHUP stops it there: Ubuntu's service runs tinyproxy in the foreground "
+                   "(`-d`), and tinyproxy 1.11.1 takes SIGHUP as a reload only when it runs as a daemon.")
+
+
+def test_the_readme_says_how_to_reload_tinyproxy_on_ubuntu_as_the_founder_approved_it():
+    assert TINYPROXY_WORDS in flat(README)
