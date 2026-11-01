@@ -34,7 +34,7 @@ only-include = ["src", "tests", "LICENSE", "README.md", "pyproject.toml", "PROVI
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["tests"]
+pythonpath = ["tests", "probe/src"]                 # the probe (D575), tested here from its source
 
 [tool.uv]
 # The build backend and its own dependencies, exactly, so `uv build` makes the same bytes every time: a release's
