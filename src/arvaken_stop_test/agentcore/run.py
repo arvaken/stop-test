@@ -197,6 +197,13 @@ class Run:
     trail_recording: float | None = None    # the kit's clock when the run's trail was seen recording the agent's calls
     trail_records: dict[str, int] = field(default_factory=dict)
     watched_until: float | None = None      # the kit's clock when the last watch it asked for ends
+    # a test copy of the customer's own runtime (D575; your_copy.py): its ARN, which is outputs["Runtime"] too; the role
+    # it ran as before the test; the run's key for the outside path, which the kit sends in its marker; and which
+    # clients the probe used, by kind (KC2). The kit never deletes, changes or reads the logs of a copy's runtime.
+    copy: str = ""
+    copy_role: str = ""
+    outside_key: str = field(default="", repr=False)
+    clients: dict[str, set[str]] = field(default_factory=dict)
 
     @property
     def stop_kind(self) -> str:
@@ -272,10 +279,22 @@ def make(c: Clients, r: Run, endpoint: str, clock: Clock) -> None:
         clock.sleep(5.0)
 
 
+MARKER = "arvaken_stop_test"        # what the probe takes as the kit's own call (the probe's core.MARKER)
+
+
+def payload_of(r: Run, payload: dict) -> dict:
+    """What a call to the test agent carries: the kit's own agent, its action; a copy of the customer's, the action
+    with the run's settings, in the kit's marker (the probe's heartbeat.run)."""
+    if not r.copy:
+        return payload
+    return {MARKER: {"run": r.run, "bucket": r.outputs.get("Bucket", ""), "second_role": r.outputs.get("SecondRole", ""),
+                     "key": r.outside_key, **payload}}
+
+
 def _invoke(c: Clients, r: Run, session: str, payload: dict, accept: str = "application/json") -> dict:
     return c.data.invoke_agent_runtime(agentRuntimeArn=r.outputs["Runtime"], runtimeSessionId=session,
                                        qualifier="DEFAULT", contentType="application/json", accept=accept,
-                                       payload=json.dumps(payload).encode())
+                                       payload=json.dumps(payload_of(r, payload)).encode())
 
 
 def answer(c: Clients, r: Run, session: str) -> float:
@@ -359,6 +378,8 @@ class Stream:
 def _take(r: Run, rep: Repeat, events: list[dict]) -> None:
     """The session's events into the repeat: when its second role's session expires, and each try."""
     for e in events:
+        for kind, whose in (e.get("clients") or {}).items():       # a copy's probe: whose clients it used, by kind
+            r.clients.setdefault(str(kind), set()).add(str(whose))
         if "session_expires" in e:
             rep.session_expires = e.get("session_expires")
             if e.get("error"):              # the second role's session could not be taken
@@ -755,10 +776,13 @@ def writes_stopped(c: Clients, r: Run, clock: Clock) -> None:
 
 
 def tear_down(c: Clients, r: Run, clock: Clock, trail_folder: Path | None = None,
-              say: Callable[[str], None] = lambda _: None) -> None:
+              say: Callable[[str], None] = lambda _: None, keeps_the_role: Callable[[], bool] | None = None) -> None:
     """Remove the stop the kit fired and everything it made; name anything left (D532, K4). With a trail, its records
     are kept first (trail.keep), and the trail and its bucket are deleted only once they are. The run's bucket is
-    emptied only once the sessions have stopped writing to it (writes_stopped)."""
+    emptied only once the sessions have stopped writing to it (writes_stopped).
+
+    For a copy of the customer's own runtime, the runtime, its workload identity and its logs are the customer's: none
+    is deleted or touched. The agent's role is deleted only where `keeps_the_role` says the copy no longer runs as it."""
     n = names(r.run)
     try:
         firing.remove(c.iam, c.control, r.run, r.stop_ref, r.outputs.get("Runtime"))
@@ -773,7 +797,7 @@ def tear_down(c: Clients, r: Run, clock: Clock, trail_folder: Path | None = None
         except Exception as e:  # noqa: BLE001 - what is not kept is not deleted, and is named below as left
             r.trail_kept = {**(r.trail_kept or {}), "error": code(e)}
     try:
-        rid = runtime_id(c, r)
+        rid = runtime_id(c, r) if not r.copy else None          # a copy's runtime is the customer's: never deleted
         if rid:
             c.control.delete_agent_runtime(agentRuntimeId=rid)
             end = clock.now() + MAKE_WAIT
@@ -781,7 +805,7 @@ def tear_down(c: Clients, r: Run, clock: Clock, trail_folder: Path | None = None
                 clock.sleep(5.0)
     except Exception:  # noqa: BLE001 - what could not be deleted is named below as left
         pass
-    identity = r.outputs.get("WorkloadIdentity", "").rpartition("/")[2]
+    identity = r.outputs.get("WorkloadIdentity", "").rpartition("/")[2] if not r.copy else ""
     if identity and _gone(lambda: c.control.get_workload_identity(name=identity)) is False:
         try:        # AgentCore removes it with the runtime; one still there is removed by its name
             c.control.delete_workload_identity(name=identity)
@@ -797,8 +821,11 @@ def tear_down(c: Clients, r: Run, clock: Clock, trail_folder: Path | None = None
         c.s3.delete_bucket(Bucket=n["bucket"])
     except Exception:  # noqa: BLE001 - named below as left
         pass
+    kept = keeps_the_role is not None and keeps_the_role()
     for which in ("agent_role", "second_role"):
         role = n[which]
+        if which == "agent_role" and kept:
+            continue                        # the copy still runs as it: left, and named below
         try:
             for name in c.iam.list_role_policies(RoleName=role).get("PolicyNames", []):
                 c.iam.delete_role_policy(RoleName=role, PolicyName=name)
@@ -807,7 +834,7 @@ def tear_down(c: Clients, r: Run, clock: Clock, trail_folder: Path | None = None
             c.iam.delete_role(RoleName=role)
         except Exception:  # noqa: BLE001 - named below as left
             pass
-    if c.logs is not None and r.outputs.get("RuntimeId"):
+    if c.logs is not None and r.outputs.get("RuntimeId") and not r.copy:
         try:
             for group in _log_groups(c, r):
                 c.logs.delete_log_group(logGroupName=group)
@@ -823,7 +850,9 @@ def _log_groups(c: Clients, r: Run) -> list[str]:
 
 def check_gone(c: Clients, r: Run) -> tuple[list[str], list[str]]:
     """Each thing the run made, checked gone by its own identifier; then the run's tag, for anything else. Returns what
-    is left (each named, and why where it could not be checked) and what was checked gone."""
+    is left (each named, and why where it could not be checked) and what was checked gone. A copy's runtime, its
+    endpoints, its workload identity and its logs are the customer's, and the kit put no code in the bucket for it: none
+    of them is the run's to check."""
     n, t = names(r.run), trailing.names(r.run)
     rid, arn = r.outputs.get("RuntimeId"), r.outputs.get("Runtime", "")
 
@@ -832,22 +861,24 @@ def check_gone(c: Clients, r: Run) -> tuple[list[str], list[str]]:
             raise _NotFound()
 
     things: list[tuple[str, Callable[[], Any]]] = []
-    if rid:
+    if rid and not r.copy:
         things += [(f"the runtime {arn or rid}", lambda: c.control.get_agent_runtime(agentRuntimeId=rid)),
                    (f"the runtime's endpoints ({rid})",
                     lambda: there(c.control.list_agent_runtime_endpoints(agentRuntimeId=rid)
                                   .get("runtimeEndpoints", [])))]
-    else:
+    elif not r.copy:
         things.append((f"the runtime {n['runtime']}", lambda: there([runtime_id(c, r)] if runtime_id(c, r) else [])))
-    identity = r.outputs.get("WorkloadIdentity", "")
+    identity = r.outputs.get("WorkloadIdentity", "") if not r.copy else ""
     if identity:
         things.append((f"the workload identity {identity}",
                        lambda: c.control.get_workload_identity(name=identity.rpartition("/")[2])))
-    things += [(f"the code s3://{n['bucket']}/{CODE_KEY}", lambda: c.s3.head_object(Bucket=n["bucket"], Key=CODE_KEY)),
-               (f"the bucket {n['bucket']}", lambda: c.s3.head_bucket(Bucket=n["bucket"])),
+    if not r.copy:
+        things.append((f"the code s3://{n['bucket']}/{CODE_KEY}",
+                       lambda: c.s3.head_object(Bucket=n["bucket"], Key=CODE_KEY)))
+    things += [(f"the bucket {n['bucket']}", lambda: c.s3.head_bucket(Bucket=n["bucket"])),
                (f"the role {n['agent_role']}", lambda: c.iam.get_role(RoleName=n["agent_role"])),
                (f"the role {n['second_role']}", lambda: c.iam.get_role(RoleName=n["second_role"]))]
-    if c.logs is not None and rid:
+    if c.logs is not None and rid and not r.copy:
         things.append((f"the log groups /aws/bedrock-agentcore/runtimes/{rid}*", lambda: there(_log_groups(c, r))))
     if r.trail:
         things += [(f"the trail {t['trail']}", lambda: c.cloudtrail.get_trail(Name=t["trail"])),

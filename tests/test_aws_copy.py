@@ -282,3 +282,15 @@ def test_a_copy_whose_probe_refuses_the_marker_has_no_path_working_and_nothing_i
 
 def test_the_kits_marker_is_the_probes():
     assert running.MARKER == core.MARKER
+
+
+def test_the_kits_policy_does_not_reach_a_copy_which_waits_for_a_policy_of_its_own():
+    """The kit's policy invokes the run's own functions alone; a copy is the customer's, so calling it and reading its
+    configuration go in a policy of their own naming the copy, with the copy's customer words (D575, step 4)."""
+    from pathlib import Path
+    policy = json.loads((Path(__file__).resolve().parents[1] / "permissions" / "aws-policy.json")
+                        .read_text(encoding="utf-8"))
+    reach = {r for s in policy["Statement"] for r in ([s["Resource"]] if isinstance(s["Resource"], str) else
+                                                      s["Resource"])
+             if "lambda:InvokeFunction" in ([s["Action"]] if isinstance(s["Action"], str) else s["Action"])}
+    assert reach and all(":function:arvaken-stop-test-" in r for r in reach)

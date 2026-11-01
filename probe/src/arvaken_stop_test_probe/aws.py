@@ -45,10 +45,17 @@ def settings(m) -> dict:
         raise NotTheKits("second_role")
     if model is not None and not (isinstance(model, str) and MODEL_ID.fullmatch(model)):
         raise NotTheKits("model")
-    if m.get("action") not in (None, "assume"):
+    action, tag, seconds = m.get("action"), m.get("tag"), m.get("seconds")
+    if action not in (None, "assume", "answer", "watch"):
         raise NotTheKits("action")
-    return {"bucket": bucket, "second_role": role, "model": model, "n": str(m.get("n", 0)), "action": m.get("action"),
-            "session": m.get("session")}
+    if action == "watch":
+        # an AgentCore run's session, as the kit names it (the kit's agentcore/run._session), and how long to watch it
+        if not (isinstance(tag, str) and re.fullmatch(re.escape(m["run"]) + r"-[a-z]+-[0-9a-f]{32}", tag)):
+            raise NotTheKits("tag")
+        if not (isinstance(seconds, (int, float)) and not isinstance(seconds, bool) and 0 < seconds):
+            raise NotTheKits("seconds")
+    return {"bucket": bucket, "second_role": role, "model": model, "n": str(m.get("n", 0)), "action": action,
+            "session": m.get("session"), "tag": tag, "seconds": seconds}
 
 
 def _errors():
@@ -117,22 +124,25 @@ def assume(s, make) -> dict:
             "expires": c["Expiration"].timestamp()}
 
 
-def identity_paths(s, make) -> list:
-    """own_calls and another_identity."""
-    bucket, n = s["bucket"], s["n"]
+def identity_paths(s, make, n=None, session=None) -> list:
+    """own_calls and another_identity: the heartbeat's number `n` (the invocation's, by default) names the objects they
+    write, and in a watch the session's tag before it, as the kit's AgentCore agent names them; `session` is the second
+    role's session to call as (the one the kit hands back, by default)."""
+    bucket = s["bucket"]
+    key = f"{s['tag']}/{n}" if s["tag"] else str(s["n"] if n is None else n)
+    session = s["session"] if session is None else session
 
     def own_calls(ctx):
         s3 = _client(make, "s3", ctx)
-        s3.put_object(Bucket=bucket, Key=f"own/{n}", Body=b"x")
-        s3.get_object(Bucket=bucket, Key=f"own/{n}")["Body"].read()
+        s3.put_object(Bucket=bucket, Key=f"own/{key}", Body=b"x")
+        s3.get_object(Bucket=bucket, Key=f"own/{key}")["Body"].read()
 
     def another_identity(ctx):
-        session = s["session"]
-        if not isinstance(session, dict):
+        if not isinstance(session, dict) or not session.get("key"):
             raise RuntimeError("NoSession")
         other = _client(make, "s3", ctx, aws_access_key_id=session["key"], aws_secret_access_key=session["secret"],
                         aws_session_token=session["token"])
-        other.put_object(Bucket=bucket, Key=f"another/{n}", Body=b"x")
+        other.put_object(Bucket=bucket, Key=f"another/{key}", Body=b"x")
 
     return [("own_calls", own_calls), ("another_identity", another_identity)]
 
