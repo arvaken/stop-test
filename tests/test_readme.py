@@ -166,10 +166,16 @@ def test_the_readme_says_how_to_reload_tinyproxy_on_ubuntu_as_the_founder_approv
     assert TINYPROXY_WORDS in flat(README)
 
 
-# Which results Arvaken can take for now (the founder's words, approved word for word at 02:00 UTC on 31 October 2026)
+# The sentence that said Arvaken could take only Lambda's results (approved at 02:00 UTC on 31 October 2026), deleted
+# once Arvaken's record takes AgentCore's and Google Cloud's too (mark's 0187); the deletion, with no new words, approved
+# by the founder at 23:36 UTC on 31 October 2026
 SEND_FOR_NOW = ("For now, Arvaken can take a result only from AWS Lambda. A result from Amazon Bedrock AgentCore or "
                 "Google Cloud can't be sent yet: keep it as your own record.")
+SEND_THEN_CLOUDS = ("https://arvaken.com/stop-test/terms.\n\n"
+                    "AWS, with Lambda and Amazon Bedrock AgentCore, and Google Cloud. Azure follows.")
 
 
-def test_the_readme_says_which_results_arvaken_can_take_for_now_as_the_founder_approved_it():
-    assert SEND_FOR_NOW in flat(README)
+def test_the_readme_no_longer_says_only_lambdas_results_can_be_sent():
+    assert SEND_FOR_NOW not in flat(README)
+    assert "can't be sent yet" not in README
+    assert SEND_THEN_CLOUDS in README
