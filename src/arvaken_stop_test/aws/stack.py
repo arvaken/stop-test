@@ -182,29 +182,42 @@ def _compact(source: str) -> str:
     return "\n".join(out)
 
 
+# What a copy's stack says of itself, in CloudFormation's console.
+# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+COPY_DESCRIPTION = "Arvaken stop test, run {run}: the role your test copy runs as, and what it acts on. Removed when the run ends."
+
+
 def template(run: str, endpoint: str, outside_key: str | None = None, subnet: str = "",
-             security_groups: Sequence[str] = (), model: str = "") -> dict[str, Any]:
+             security_groups: Sequence[str] = (), model: str = "", copy: bool = False,
+             network: bool = False) -> dict[str, Any]:
     """The run's stack. With a subnet, the function is in it, with the security groups named, and its role may make its
     network interfaces there; else the function is on Lambda's default network, as before. With a model, the function's
-    environment names it, and its role may invoke it (model_resources); else neither, as before."""
+    environment names it, and its role may invoke it (model_resources); else neither, as before.
+
+    For a test copy of the customer's own function (`copy`; D575, copy.py), no function: the agent's role is the role the
+    copy runs as for the test, with the same permissions, and with `network` (a copy in a VPC of theirs) the network
+    actions Lambda needs for it, under the boundary a subnet's run has. CloudFormation keeps that role when the stack is
+    deleted (Retain): the kit deletes it itself once the copy no longer runs as it, and never while it does."""
     n = names(run)
     tags = [{"Key": TAG, "Value": run}]
+    in_network = bool(subnet) or (copy and network)
     second_arn = {"Fn::Sub": f"arn:${{AWS::Partition}}:iam::${{AWS::AccountId}}:role/{n['second_role']}"}
-    boundary_arn = f"arn:${{AWS::Partition}}:iam::${{AWS::AccountId}}:policy/{boundary_name(bool(subnet), bool(model))}"
+    boundary_arn = f"arn:${{AWS::Partition}}:iam::${{AWS::AccountId}}:policy/{boundary_name(in_network, bool(model))}"
     boundary = {"Fn::Sub": boundary_arn}
     bucket_objects = lambda prefix: {"Fn::Sub": f"${{Bucket.Arn}}/{prefix}/*"}  # noqa: E731
     own = [{"Effect": "Allow", "Action": ["s3:PutObject", "s3:GetObject"], "Resource": bucket_objects("own")},
            {"Effect": "Allow", "Action": "sts:AssumeRole", "Resource": second_arn}]
-    network: dict[str, Any] = {}
-    if subnet:
+    network_config: dict[str, Any] = {}
+    if in_network:
         own.append({"Effect": "Allow", "Action": list(NETWORK_ACTIONS), "Resource": "*"})
-        network = {"VpcConfig": {"SubnetIds": [subnet], "SecurityGroupIds": list(security_groups)}}
+    if subnet:
+        network_config = {"VpcConfig": {"SubnetIds": [subnet], "SecurityGroupIds": list(security_groups)}}
     variables = {"BUCKET": {"Ref": "Bucket"}, "ENDPOINT": endpoint, "OUTSIDE_KEY": outside_key or secrets.token_hex(16),
                  "SECOND_ROLE": second_arn}
     if model:
         own.append({"Effect": "Allow", "Action": "bedrock:InvokeModel", "Resource": model_resources(model)})
         variables["MODEL"] = model
-    return {
+    body = {
         "AWSTemplateFormatVersion": "2010-09-09",
         "Description": f"Arvaken stop test, run {run}: a test agent of the kit's own. Removed when the run ends.",
         "Resources": {
@@ -234,7 +247,7 @@ def template(run: str, endpoint: str, outside_key: str | None = None, subnet: st
                 "MemorySize": MEMORY_MB, "Timeout": TIMEOUT_S, "Role": {"Fn::GetAtt": ["AgentRole", "Arn"]},
                 "Code": {"ZipFile": agent_code()},
                 "Environment": {"Variables": variables},
-                **network, "Tags": tags}},
+                **network_config, "Tags": tags}},
         },
         "Outputs": {
             "Bucket": {"Value": {"Ref": "Bucket"}},
@@ -243,8 +256,15 @@ def template(run: str, endpoint: str, outside_key: str | None = None, subnet: st
             "SecondRole": {"Value": {"Fn::GetAtt": ["SecondRole", "Arn"]}},
         },
     }
+    if copy:
+        del body["Resources"]["Agent"], body["Outputs"]["Agent"]
+        body["Description"] = COPY_DESCRIPTION.format(run=run)
+        body["Resources"]["AgentRole"].update({"DeletionPolicy": "Retain", "UpdateReplacePolicy": "Retain"})
+    return body
 
 
 def template_body(run: str, endpoint: str, outside_key: str | None = None, subnet: str = "",
-                  security_groups: Sequence[str] = (), model: str = "") -> str:
-    return json.dumps(template(run, endpoint, outside_key, subnet, security_groups, model), indent=1, sort_keys=True)
+                  security_groups: Sequence[str] = (), model: str = "", copy: bool = False,
+                  network: bool = False) -> str:
+    return json.dumps(template(run, endpoint, outside_key, subnet, security_groups, model, copy, network), indent=1,
+                      sort_keys=True)

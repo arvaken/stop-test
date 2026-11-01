@@ -138,7 +138,7 @@ def test_only_the_kits_marker_naming_a_run_is_the_kits():
     ("second_role", "arn:aws:iam::111122223333:role/Admin"),
     ("key", "not-a-key"),
     ("model", "anything at all"),
-    ("n", -1),
+    ("n", "3"),
     ("n", True),
     ("action", "delete"),
 ])

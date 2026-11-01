@@ -45,8 +45,8 @@ def marker(event) -> dict:
     m = event[MARKER]
     if not (isinstance(m.get("key"), str) and KEY.fullmatch(m["key"])):
         raise NotTheKits("key")
-    n = m.get("n", 0)
-    if not isinstance(n, int) or isinstance(n, bool) or n < 0:
+    n = m.get("n", 0)                   # the heartbeat's number: the warm-up's are below zero, as the kit counts them
+    if not isinstance(n, int) or isinstance(n, bool):
         raise NotTheKits("n")
     return m
 
