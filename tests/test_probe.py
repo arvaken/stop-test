@@ -113,6 +113,15 @@ def test_what_it_takes_as_the_runs_is_named_as_the_kit_names_it():
     assert SECOND.endswith(":role/" + n["second_role"]) and BUCKET.startswith(n["stack"] + "-")
 
 
+def test_an_agentcore_runs_bucket_and_roles_are_taken_as_the_kits_agentcore_module_names_them(calls):
+    from arvaken_stop_test.agentcore import stack as agentcore_stack
+    n = agentcore_stack.names(RUN)
+    reply = heartbeat.run(marked(bucket=n["bucket"], second_role=f"arn:aws:iam::111122223333:role/{n['second_role']}",
+                                 session=SESSION))
+    assert all(b["ok"] for b in reply["beats"].values())
+    assert ("s3", "put_object", {"Bucket": "arvaken-stop-test-r0123abcd", "Key": "own/0", "Body": b"x"}) in calls
+
+
 def test_only_the_kits_marker_naming_a_run_is_the_kits():
     assert heartbeat.is_mine(marked())
     for other in ({}, None, "r0123abcd", [], {"arvaken_stop_test": RUN}, {"arvaken_stop_test": {"run": "R0123ABCD"}},

@@ -9,7 +9,8 @@ copy makes the calls the kit's agent makes.
   Its answer is never kept or returned.
 
 The settings come in the kit's marker, as the kit never sets a copy's environment, and are taken only where they name
-the run: its bucket (CloudFormation names it after the run's stack) and its second role.
+the run: its bucket (on Lambda CloudFormation names it after the run's stack; on AgentCore the kit names it as the run)
+and its second role. A copy may be a Lambda function or an AgentCore runtime (the founder, 19:02Z on 1 November 2026).
 
 **Clients (KC2).** `make` is the customer's function that makes a client as boto3.client does, where they pass one;
 else boto3's own (runtime_client). A client is made the first time a path is tried and kept for as long as the process
@@ -34,8 +35,10 @@ def settings(m) -> dict:
     """AWS's settings from the kit's marker, each checked to name the run; else NotTheKits."""
     base = f"{PREFIX}-{m['run']}"
     bucket, role, model = m.get("bucket"), m.get("second_role"), m.get("model")
-    # CloudFormation names the run's bucket after its stack: the stack's name, the bucket's own, and a suffix of its own
-    if not (isinstance(bucket, str) and len(bucket) <= 63 and re.fullmatch(re.escape(base) + r"-[a-z0-9-]+", bucket)):
+    # On Lambda, CloudFormation names the run's bucket after its stack: the stack's name, the bucket's own, and a suffix
+    # of its own; on AgentCore, the kit names it as the run's base alone (the kit's agentcore/stack.names)
+    if not (isinstance(bucket, str) and len(bucket) <= 63 and re.fullmatch(re.escape(base) + r"(-[a-z0-9-]+)?",
+                                                                            bucket)):
         raise NotTheKits("bucket")
     if not (isinstance(role, str) and re.fullmatch(r"arn:aws(-[a-z]+)*:iam::\d{12}:role/" + re.escape(base + "-second"),
                                                    role)):
