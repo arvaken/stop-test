@@ -33,14 +33,21 @@ RUNS_ROLE = f"arn:aws:iam::123456789012:role/{names(RUN)['agent_role']}"
 SKEW = 0.05
 
 
+class SwitchEngaged(Exception):
+    """An in-agent SDK's own error, as its switch makes each call it guards raise one, its message naming things."""
+
+
 class CopyClient:
-    """A boto3 client in the copy, made by the copy's own cloud function: each call answered as the account would."""
+    """A boto3 client in the copy, made by the copy's own cloud function: each call answered as the account would, and
+    once the customer's SDK switch is on (`sdk_on_from`), refused by the SDK first."""
 
     def __init__(self, aws: CopyAWS, name: str, second: bool):
         self.aws, self.name, self.second = aws, name, second
 
     def _refused(self, op: str) -> None:
         aws = self.aws
+        if aws.sdk_on_from is not None and aws.clock.now() >= aws.sdk_on_from:
+            raise aws.sdk_raises("the SDK blocked a call as arn:aws:iam::123456789012:role/x")
         refused = (aws.session_issued is not None and aws.revoked_for("-second", aws.session_issued)) if self.second \
             else aws.copy_role == RUNS_ROLE and aws.stopped()
         if refused:
@@ -66,10 +73,13 @@ class CopyClient:
 class CopyAWS(FakeAWS):
     """The account, with the customer's copy in it, as a run on a copy sees it."""
 
-    def __init__(self, clock: Clock, *, copy_subnets=(), fails_after_stop=None, **kw):
+    def __init__(self, clock: Clock, *, copy_subnets=(), fails_after_stop=None, sdk_raises=SwitchEngaged, **kw):
         super().__init__(clock, **kw)
         self.copy_role, self.copy_subnets, self.fails_after_stop = OWN_ROLE, list(copy_subnets), fails_after_stop
         self.role_deleted = False
+        # the customer's in-agent SDK: when its switch is on, and what each call it guards then raises
+        self.sdk_on_from: float | None = None
+        self.sdk_raises = sdk_raises
         self.cloud = lambda name, config=None, **creds: CopyClient(self, name, "aws_access_key_id" in creds)
 
     def create_stack(self, StackName, TemplateBody, Capabilities, Tags):
@@ -114,12 +124,18 @@ class CopyAWS(FakeAWS):
             self.clock.t += 0.1
             return {"Payload": io.BytesIO(json.dumps(body).encode()), "FunctionError": "Unhandled"}
         try:
-            body = heartbeat.run(event, cloud=self.cloud, http=lambda url, headers, timeout: 200)
+            body = heartbeat.run(event, cloud=self.cloud, http=self.http)
         except Exception as e:  # noqa: BLE001 - the copy's error, as Lambda returns it
             body, self.clock.t = {"errorType": type(e).__name__, "errorMessage": str(e)}, self.clock.t + 0.1
             return {"Payload": io.BytesIO(json.dumps(body).encode()), "FunctionError": "Unhandled"}
         self.clock.t += 0.1
         return {"Payload": io.BytesIO(json.dumps(body).encode())}
+
+    def http(self, url, headers, timeout):
+        """The copy's own HTTP client: answered, until the customer's SDK switch refuses it."""
+        if self.sdk_on_from is not None and self.clock.now() >= self.sdk_on_from:
+            raise self.sdk_raises(f"the SDK blocked a call to {url}")
+        return 200
 
 
 @pytest.fixture(autouse=True)
@@ -129,7 +145,8 @@ def fresh_clients(monkeypatch):
     yield
 
 
-def a_copy_run(aws: CopyAWS, clock: Clock, monkeypatch, *, typed=RUN, warned=RUN, points=("at", "back"), **over):
+def a_copy_run(aws: CopyAWS, clock: Clock, monkeypatch, *, typed=RUN, warned=RUN, points=("at", "back"),
+               answers: dict | None = None, fires_after: float | None = None, **over):
     stamp = SimpleNamespace(time=lambda: clock.now() + SKEW)
     for module in (core, probe_aws, heartbeat):
         monkeypatch.setattr(module, "time", stamp)
@@ -137,6 +154,8 @@ def a_copy_run(aws: CopyAWS, clock: Clock, monkeypatch, *, typed=RUN, warned=RUN
 
     def confirm(words: str) -> str:
         asked.append(words)
+        if answers and words in answers:             # an answer known only once the run has fired is a function
+            return answers[words]() if callable(answers[words]) else answers[words]
         return warned if words == your_copy.WARNING else typed
 
     def wait(words: str) -> None:
@@ -145,6 +164,8 @@ def a_copy_run(aws: CopyAWS, clock: Clock, monkeypatch, *, typed=RUN, warned=RUN
             aws.copy_role = RUNS_ROLE
         elif words.startswith("Point your copy back") and "back" in points:
             aws.copy_role = OWN_ROLE
+        elif words == running.MARK_PROMPT and fires_after is not None:     # Enter, then the customer fires their SDK's
+            aws.sdk_on_from = clock.now() + fires_after
 
     kw = dict(window=60.0, clock=running.Clock(clock.now, clock.sleep), run_name=RUN, say=said.append,
               confirm=confirm, wait=wait)

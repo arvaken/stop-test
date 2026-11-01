@@ -50,7 +50,9 @@ from arvaken_stop_test_probe.core import NotTheKits, is_mine
 __all__ = ["NotTheKits", "is_mine", "run"]
 
 EVERY = 1.0                 # seconds between a watch's tries, as the kit's AgentCore agent's
-LONGEST = 3540.0            # the longest watch: AWS keeps a streaming response up to 60 minutes (the kit's agent.LONGEST)
+# The longest watch, the kit's AgentCore agent's (agent.LONGEST): AWS keeps a streaming response up to 60 minutes
+# [source: aws-agentcore-streaming-limit].
+LONGEST = 3540.0
 
 
 def run(event, http=None, cloud=None):

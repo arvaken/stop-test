@@ -216,6 +216,10 @@ class Run:
     copy_role: str = ""
     outside_key: str = field(default="", repr=False)
     clients: dict[str, set[str]] = field(default_factory=dict)
+    # an SDK's stop on a copy (sdk.py, D713): the kit's witness, each call (when, on the agent's clock; worked; its
+    # error's code), and the SDK's own record that it acted, from the customer's export
+    witness: list[tuple[float, bool, str | None]] = field(default_factory=list)
+    sdk_record: Any = None
 
     @property
     def paths(self) -> tuple[str, ...]:
@@ -476,11 +480,13 @@ def _did_not_work(r: Run, p: str) -> str:
 
 def time_one(c: Clients, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
              before: dict[str, list[Beat]] | None = None, mark: Callable[[], object] | None = None,
-             say: Callable[[str], None] = lambda _: None) -> Repeat:
+             say: Callable[[str], None] = lambda _: None, marked: str = MARKED,
+             each_second: Callable[[], None] | None = None) -> Repeat:
     """One repeat: fire (or wait for the customer's own trigger, or their mark), then a heartbeat a second through the
     window and the hold. `before` is each path's heartbeats before the firing: the warm-up's, or those since the last
     stop was taken off. Through a gateway, the session for the other identity is taken through it, before the mark:
-    where it cannot be, that path did not work before the stop."""
+    where it cannot be, that path did not work before the stop. `marked` is what the kit says at the mark, and
+    `each_second` what it does beside each heartbeat after it (for an SDK's stop on a copy, its witness: sdk.py)."""
     rep = Repeat()
     for p, beats in (before or {}).items():
         rep.beats.setdefault(p, []).extend(beats)
@@ -496,7 +502,7 @@ def time_one(c: Clients, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
     if mark is not None:
         mark()                          # the customer presses Enter, then fires their stop: timed from the Enter
         rep.fired_before = rep.fired_after = clock.now()
-        say(MARKED)
+        say(marked)
     elif watch_own_trigger:
         rep.watched_from = clock.now()
         seen = firing.watch(c.iam, c.lambda_, r.run, until=clock.now() + r.window, now=clock.now, sleep=clock.sleep)
@@ -515,6 +521,8 @@ def time_one(c: Clients, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
         beats, _, _, _ = heartbeat(c, r, n, session, clock)
         for p, b in beats.items():
             rep.beats.setdefault(p, []).append(b)
+        if each_second is not None:
+            each_second()
         n += 1
         clock.sleep(1.0)
     return rep
@@ -555,7 +563,7 @@ def firing_moments(c: Clients, r: Run, clock: Clock, wait: float = TRAIL_WAIT) -
         for rep in r.repeats:
             if rep.fired_after:
                 rep.fired_at = rep.fired_after + r.offset
-        if not r.via:                       # through a gateway the stop is a product's control, never identified
+        if not r.product:                   # a product's control (a gateway's, an SDK's) is never identified
             identify(c, r, clock, wait)
         return
     event_name = firing.KINDS[r.stop_kind]
