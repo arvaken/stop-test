@@ -13,11 +13,12 @@ of refusal codes in refusals.py: an SDK's errors are its own, so nothing here re
 call's failure is taken only as the call's own error, of a kind that is not a timeout, a lost connection or a server
 error.
 
-**How (1) is read** (to be confirmed with the founder): the customer presses Enter, then fires, so a path's calls may
-still succeed for a moment after the mark, while the switch takes hold. From the path's first failure after the
-firing moment, every call on it to the window's end must have failed, each as (1) says; its time to effect is a range,
-as the timing rule's is, from its last success to that first failure. A path whose calls never failed after the mark
-reads "not measured" too, as the rule's "otherwise" says.
+**(1), as the founder changed it** (D714, his "Change to as built" by 19:50:17 UTC on 1 November 2026): the customer
+presses Enter, then fires, so a path's calls may still succeed for a moment after the mark, while the switch takes
+hold. From the path's first failure after the firing moment, every call on it to the window's end must have failed,
+each as (1) says; its time to effect is a range, as the timing rule's is, from its last success to that first failure.
+A path whose calls never failed after the mark reads "not measured" too, as the rule's "otherwise" says (D714: "Keep
+"not measured""), where the kit's other runs would read "not stopped". Readings (c) to (h) of the build stand (D714).
 
 **(2)** comes from the export you name: the kit reads the file only to take its SHA-256, and to find in it the entry's
 time and name as you typed them. It keeps those three, never the file. The time is the firing moment where it is a UTC
