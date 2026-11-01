@@ -204,14 +204,18 @@ class Run:
     copy_role: str = ""
     outside_key: str = field(default="", repr=False)
     clients: dict[str, set[str]] = field(default_factory=dict)
+    # an SDK's stop on a copy (sdk.py, D713): the product as you declared it, the kit's witness, and the SDK's own record
+    product: dict[str, str] | None = None
+    witness: list[tuple[float, bool, str | None]] = field(default_factory=list)
+    sdk_record: Any = None
 
     @property
     def stop_kind(self) -> str:
-        return firing.kind_of(self.stop_ref)
+        return result.PRODUCT_CONTROL if self.product else firing.kind_of(self.stop_ref)
 
     @property
     def fired_by(self) -> str:
-        return "the kit"
+        return "your own trigger" if self.product else "the kit"
 
 
 def code(e: Exception) -> str:
@@ -475,9 +479,13 @@ def writes_after(c: Clients, r: Run, rep: Repeat) -> int:
             return count
 
 
-def time_one(c: Clients, r: Run, clock: Clock, say: Callable[[str], None] = lambda _: None) -> Repeat:
+def time_one(c: Clients, r: Run, clock: Clock, say: Callable[[str], None] = lambda _: None,
+             mark: Callable[[], object] | None = None, marked: str = "",
+             each_second: Callable[[], None] | None = None) -> Repeat:
     """One repeat: the running session opened and working, new calls from LEAD seconds before the stop, the stop
-    fired, then both through the window and its hold."""
+    fired, then both through the window and its hold. With `mark` (an SDK's stop on a copy: your_copy.py), the kit
+    fires nothing: you press Enter, then fire your stop, and the kit says `marked`; `each_second` is what it does beside
+    each second of the window (the kit's witness: sdk.py)."""
     rep = Repeat()
     seconds = READY_WAIT + LEAD + r.window + HOLD + SLACK
     stream = open_session(c, r, rep, clock, seconds)
@@ -502,8 +510,13 @@ def time_one(c: Clients, r: Run, clock: Clock, say: Callable[[str], None] = lamb
                 if p in rep.working:
                     rep.working.discard(p)
                     rep.setup_errors.setdefault(p, {})["SessionEndedBeforeTheStop"] = 1
-        rep.fired_before, rep.fired_after = firing.fire(c.iam, c.control, r.run, r.stop_ref, r.outputs["Runtime"],
-                                                        now=clock.now)
+        if mark is not None:
+            mark()                          # you press Enter, then fire your stop: timed from the Enter
+            rep.fired_before = rep.fired_after = clock.now()
+            say(marked)
+        else:
+            rep.fired_before, rep.fired_after = firing.fire(c.iam, c.control, r.run, r.stop_ref,
+                                                            r.outputs["Runtime"], now=clock.now)
         if r.stop_ref == firing.DENY_AND_END:
             rep.end_before, rep.end_after = firing.end_session(c.data, r.outputs["Runtime"], rep.session,
                                                                now=clock.now)
@@ -513,6 +526,8 @@ def time_one(c: Clients, r: Run, clock: Clock, say: Callable[[str], None] = lamb
             if r.stop_ref == firing.DENY_AND_END:
                 confirm(c, r, rep, clock)
             _take(r, rep, stream.poll())
+            if each_second is not None:
+                each_second()
             clock.sleep(1.0)
         found = new.finish()
     finally:

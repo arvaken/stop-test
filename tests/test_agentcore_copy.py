@@ -23,6 +23,7 @@ from arvaken_stop_test.agentcore import run as running
 from arvaken_stop_test.agentcore import stack
 from arvaken_stop_test.agentcore import your_copy
 from arvaken_stop_test.aws import your_copy as lambdas_copy
+from arvaken_stop_test.aws.run import MARK_PROMPT
 from arvaken_stop_test_probe import aws as probe_aws
 from arvaken_stop_test_probe import core, heartbeat
 from test_agentcore import ACCOUNT, DENY_ALL, REGION, SKEW, Clock, FakeAWS, Inline, Regional
@@ -34,6 +35,10 @@ OWN_ROLE = f"arn:aws:iam::{ACCOUNT}:role/my-agent-role"
 RUNS_ROLE = f"arn:aws:iam::{ACCOUNT}:role/{stack.names(RUN)['agent_role']}"
 
 
+class SwitchEngaged(Exception):
+    """An in-agent SDK's own error, as its switch makes each call it guards raise one, its message naming things."""
+
+
 class CopyClient:
     """A boto3 client in the copy, made by the copy's own cloud function, answering by the copy's clock."""
 
@@ -42,6 +47,8 @@ class CopyClient:
 
     def _refused(self, op: str) -> None:
         aws = self.aws
+        if aws.sdk_on(aws.agent_now() - SKEW):
+            raise aws.sdk_raises("the SDK blocked a call as arn:aws:iam::111122223333:role/x")
         if not self.second and aws.runtime["roleArn"] == RUNS_ROLE and aws.role_denied(aws.agent_now() - SKEW):
             raise botocore.exceptions.ClientError(
                 {"Error": {"Code": "AccessDenied", "Message": "arn:aws:sts::111122223333:assumed-role/x is not"},
@@ -69,7 +76,7 @@ class CopyStream:
         self.aws, self.clock, self.session = aws, clock, session
         payload = running.payload_of(r, {"action": "watch", "seconds": seconds, "tag": session})
         aws.payloads.append(payload)
-        self.events = heartbeat.run(payload, cloud=aws.cloud, http=lambda url, headers, timeout: 200)
+        self.events = heartbeat.run(payload, cloud=aws.cloud, http=aws.http)
         self.t, self.pending, self.ended, self.closed = clock.now() + SKEW, None, None, False
         aws.sessions[session] = {"ended": None}
 
@@ -105,6 +112,18 @@ class CopyAWS(FakeAWS):
         self.payloads: list[dict] = []
         self.pulling: float | None = None       # the copy's clock while its watch's iterator is pulled
         self.cloud = lambda name, config=None, **creds: CopyClient(self, name, "aws_access_key_id" in creds)
+        # the customer's in-agent SDK: when its switch is on, by the kit's clock, and what each guarded call raises
+        self.sdk_on_from: float | None = None
+        self.sdk_raises: type[Exception] = SwitchEngaged
+
+    def sdk_on(self, t: float) -> bool:
+        return self.sdk_on_from is not None and t >= self.sdk_on_from
+
+    def http(self, url, headers, timeout):
+        """The copy's own HTTP client: answered, until the customer's SDK switch refuses it."""
+        if self.sdk_on(self.agent_now() - SKEW):
+            raise self.sdk_raises(f"the SDK blocked a call to {url}")
+        return 200
 
     def agent_now(self) -> float:
         return self.pulling if self.pulling is not None else self.clock.now() + SKEW
@@ -122,7 +141,7 @@ class CopyAWS(FakeAWS):
         event = json.loads(payload)
         self.payloads.append(event)
         self.new_calls.append((self.clock.now(), True))
-        body = heartbeat.run(event, cloud=self.cloud, http=lambda url, headers, timeout: 200)
+        body = heartbeat.run(event, cloud=self.cloud, http=self.http)
         return {"response": io.BytesIO(json.dumps(body).encode())}
 
     def _never(self, *a, **kw):
@@ -138,7 +157,7 @@ def fresh_clients(monkeypatch):
 
 
 def a_copy_run(aws: CopyAWS, clock: Clock, monkeypatch, stop=DENY_ALL, *, typed=RUN, warned=RUN,
-               points=("at", "back"), **over):
+               points=("at", "back"), answers: dict | None = None, fires_after: float | None = None, **over):
     stamp = SimpleNamespace(time=aws.agent_now, sleep=aws.agent_sleep)
     for module in (core, probe_aws, heartbeat):
         monkeypatch.setattr(module, "time", stamp)
@@ -147,6 +166,8 @@ def a_copy_run(aws: CopyAWS, clock: Clock, monkeypatch, stop=DENY_ALL, *, typed=
 
     def confirm(words: str) -> str:
         asked.append(words)
+        if answers and words in answers:             # an answer known only once the run has fired is a function
+            return answers[words]() if callable(answers[words]) else answers[words]
         return warned if words == lambdas_copy.WARNING else typed
 
     def wait(words: str) -> None:
@@ -155,6 +176,8 @@ def a_copy_run(aws: CopyAWS, clock: Clock, monkeypatch, stop=DENY_ALL, *, typed=
             aws.runtime["roleArn"] = RUNS_ROLE
         elif " back at its own role" in words and "back" in points:
             aws.runtime["roleArn"] = OWN_ROLE
+        elif words == MARK_PROMPT and fires_after is not None:    # Enter, then the customer fires their SDK's switch
+            aws.sdk_on_from = clock.now() + fires_after
 
     c = running.Clients(iam=aws, s3=aws, control=aws, data=aws, cloudtrail=Regional(aws, REGION),
                         iam_trail=Regional(aws, "us-east-1"), tagging=aws, region=REGION, logs=aws, sts=aws,
@@ -302,3 +325,59 @@ def test_the_kits_agentcore_policy_does_not_reach_a_copy_which_waits_for_a_polic
              if {"bedrock-agentcore:GetAgentRuntime", "bedrock-agentcore:InvokeAgentRuntime"} & set(
                  [s["Action"]] if isinstance(s["Action"], str) else s["Action"])}
     assert reach and all("runtime/arvaken_stop_test_" in r for r in reach)
+
+
+
+# -- an in-agent SDK's switch on the copy (D713; sdk.py)
+
+def iso(t: float) -> str:
+    return datetime.fromtimestamp(t, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def an_sdk_run(monkeypatch, *, fires_after: float | None = 2.0, witness=lambda url, headers: 200, **over):
+    clock = Clock()
+    aws = CopyAWS(clock)
+
+    def time() -> str:
+        return iso(aws.sdk_on_from) if aws.sdk_on_from is not None else iso(clock.now())
+
+    answers = {lambdas_copy.SDK_EXPORT: "acme-audit.log", lambdas_copy.SDK_ENTRY_TIME: time,
+               lambdas_copy.SDK_ENTRY_NAME: "kill switch engaged"}
+    r, said, asked = a_copy_run(aws, clock, monkeypatch, "", sdk_name="Acme Guard", window=900.0, answers=answers,
+                                fires_after=fires_after, witness_get=witness,
+                                read=lambda where: f"{time()} kill switch engaged by ops@example.com".encode(),
+                                **over)
+    return r, aws, said, asked
+
+
+def test_an_sdks_switch_on_an_agentcore_copy_stops_the_sessions_paths_by_its_record_and_the_witness(monkeypatch):
+    from arvaken_stop_test import sdk
+    from arvaken_stop_test.timing import NOT_MEASURED
+    r, aws, said, asked = an_sdk_run(monkeypatch)
+    fired, found = your_copy.sdk_results(r)[0]
+    assert {p: found[p].outcome for p in running.SESSION_PATHS} == {p: sdk.SDK_STOPPED for p in running.SESSION_PATHS}
+    # new calls reach the copy, which answers them whatever its SDK guards: nothing failed, so not measured
+    assert (found["new_calls"].outcome, found["new_calls"].reason) == (NOT_MEASURED, sdk.NOTHING_FAILED)
+    assert fired == int(aws.sdk_on_from) and found["own_calls"].fired_source == sdk.FROM_THE_RECORD
+    # the kit fired nothing itself: no policy attached to the run's role, and only the roles' own written on them
+    assert not [e for e in aws.events if e["name"] == "AttachRolePolicy"]
+    assert len([e for e in aws.events if e["name"] == "PutRolePolicy"]) == 2
+    assert r.fired_by == "your own trigger" and r.product["kind"] == "in-agent SDK"
+    assert asked.index(lambdas_copy.WARNING) < asked.index(MARK_PROMPT) < asked.index(lambdas_copy.SDK_EXPORT)
+    assert all(ok for _, ok, _ in r.witness) and r.left_behind == [] and aws.runtime["roleArn"] == OWN_ROLE
+
+
+def test_an_sdks_stop_on_an_agentcore_copy_without_the_witness_working_is_not_measured(monkeypatch):
+    from arvaken_stop_test.timing import NOT_MEASURED
+    calls = []
+
+    def witness(url, headers):
+        calls.append(url)
+        if len(calls) == 200:
+            raise ConnectionResetError()
+        return 200
+
+    r, _, _, _ = an_sdk_run(monkeypatch, witness=witness)
+    found = your_copy.sdk_results(r)[0][1]
+    assert {found[p].outcome for p in running.SESSION_PATHS} == {NOT_MEASURED}
+    assert all(found[p].reason.startswith("the kit's witness did not keep working") for p in running.SESSION_PATHS)

@@ -12,7 +12,10 @@ that role for the test and back afterwards; the kit checks the runtime runs as t
 timed. The kit deletes the role only once the copy no longer runs as it, and while it still does, leaves it and names it.
 
 **What the kit fires:** a policy on the run's role alone (firing.ROLE_KIND). The deny kinds write a resource policy on
-the runtime, and ending a session acts on it: on a copy, both would change what is yours, so the kit fires neither.
+the runtime, and ending a session acts on it: on a copy, both would change what is yours, so the kit fires neither. Or,
+for an in-agent SDK's switch (`sdk_name`), you fire it yourself from your mark, after the warning, and the kit fires
+nothing: each path is judged by the founder's rule for it (sdk.py; D713), with the kit's witness calling from outside
+the copy through the window and your SDK's own record of acting taken from your export afterwards, as on Lambda.
 
 **Each call to the copy carries the run's settings** in the kit's marker (run.payload_of), as on Lambda. A new call is
 the probe's "answer"; the running session, its "watch", which your entrypoint returns for AgentCore to stream.
@@ -25,6 +28,7 @@ from __future__ import annotations
 import re
 import secrets
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from arvaken_stop_test.agentcore import fire as firing
@@ -33,10 +37,13 @@ from arvaken_stop_test.agentcore.run import Clients, Clock, NotStarted, Run
 from arvaken_stop_test.agentcore.stack import (TAG, boundary_arn, names, own_policy, private_bucket, second_policy,
                                                second_trust, to_json)
 from arvaken_stop_test.agentcore.agent import LONGEST
+from arvaken_stop_test import result, sdk
 from arvaken_stop_test.aws import fire as aws_fire
-from arvaken_stop_test.aws.your_copy import (CONFIRM_COPY, NOT_CONFIRMED, NOT_FIRED, NOT_POINTED, STILL_RUNS_AS,
-                                             WARNING)
-from arvaken_stop_test.timing import HOLD, WINDOWS
+from arvaken_stop_test.aws.run import MARK_PROMPT
+from arvaken_stop_test.aws.your_copy import (CONFIRM_COPY, NOT_CONFIRMED, NOT_FIRED, NOT_POINTED, SDK_MARKED,
+                                             SDK_SWITCH_OFF, SDK_WINDOW_TOO_SHORT, STILL_RUNS_AS, WARNING, Witness,
+                                             take_record)
+from arvaken_stop_test.timing import GATEWAY_WINDOW, HOLD, NOT_RUN, WINDOWS, PathResult
 
 # An AgentCore runtime's ARN: its partition, region, account and ID (its name and AgentCore's suffix).
 RUNTIME_ARN = re.compile(r"arn:(aws(?:-[a-z]+)*):bedrock-agentcore:([a-z0-9-]+):(\d{12}):runtime/"
@@ -125,20 +132,36 @@ def keeps_the_role(c: Clients, r: Run, clock: Clock, wait: Callable[[str], objec
 
 def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], wait: Callable[[str], object],
         window: float = WINDOWS["aws"], repeats: int = 1, clock: Clock | None = None, run_name: str | None = None,
-        trail_wait: float = running.TRAIL_WAIT, say: Callable[[str], None] = lambda _: None) -> Run:
+        trail_wait: float = running.TRAIL_WAIT, say: Callable[[str], None] = lambda _: None, sdk_name: str = "",
+        read: Callable[[str], bytes] = lambda where: Path(where).read_bytes(),
+        witness_get: Callable[[str, dict], int] | None = None) -> Run:
     """A whole run on a copy of yours, torn down whatever happens. Returns the run's record. `confirm` shows its words
-    and gives back what you typed; `wait` shows its words and waits for your Enter."""
+    and gives back what you typed; `wait` shows its words and waits for your Enter. With `sdk_name`, the stop is that
+    in-agent SDK's switch, which you fire from your mark (`stop_ref` is then empty), judged by sdk_results."""
     from arvaken_stop_test.aws.stack import new_run
     clock = clock or Clock()
     caller = c.sts.get_caller_identity()
     found = runtime_arn(copy, c.region, caller["Account"])
     if not found:
         raise ValueError(NOT_A_RUNTIME)
-    if not firing.on_the_role(stop_ref):
-        raise firing.Refused(ROLE_ONLY)             # before anything is made
-    reason = firing.why_not(stop_ref)
-    if reason:
-        raise firing.Refused(reason)                # before anything is made
+    product = None
+    if sdk_name:
+        if stop_ref:
+            raise ValueError("with your SDK's stop the kit fires nothing: you fire it yourself, from your mark")
+        if not 0 < len(sdk_name) <= result.NAME_LIMIT:
+            raise ValueError(f"an SDK is named in 1 to {result.NAME_LIMIT} characters")
+        if repeats != 1:
+            raise ValueError("with your own trigger a run fires once: only you can take your own stop off between "
+                             "repeats")
+        if window < GATEWAY_WINDOW:
+            raise ValueError(SDK_WINDOW_TOO_SHORT)
+        product = {"kind": sdk.SDK, "attachment": sdk.ATTACHMENT, "name": sdk_name}
+    else:
+        if not firing.on_the_role(stop_ref):
+            raise firing.Refused(ROLE_ONLY)         # before anything is made
+        reason = firing.why_not(stop_ref)
+        if reason:
+            raise firing.Refused(reason)            # before anything is made
     if not 1 <= repeats <= 5:
         raise ValueError("a run repeats one to five times")
     if running.READY_WAIT + running.LEAD + window + HOLD + running.SLACK > LONGEST:
@@ -147,7 +170,7 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
                          f"{int(LONGEST - running.READY_WAIT - running.LEAD - HOLD - running.SLACK)} seconds: the "
                          "running session is watched on one streaming response, which AWS keeps up to 60 minutes")
     the_name = run_name or new_run()
-    if stop_ref != firing.INLINE and not firing.covers(c.iam, stop_ref, the_name):
+    if not product and stop_ref != firing.INLINE and not firing.covers(c.iam, stop_ref, the_name):
         raise firing.Refused(aws_fire.NOT_COVERED)  # before anything is made
     reason = aws_fire.why_no_boundary(c.iam, c.sts)
     if reason:
@@ -157,7 +180,7 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
         raise firing.Refused(NOT_CONFIRMED)         # before anything is made
     r = Run(run=the_name, stop_ref=stop_ref, window=window, region=c.region, account=caller["Account"],
             partition=found.group(1), copy=copy, copy_role=str(own.get("roleArn", "")),
-            outside_key=secrets.token_hex(16))
+            outside_key=secrets.token_hex(16), product=product)
     r.outputs.update(Runtime=copy, RuntimeId=found.group(4))
     r.began_at = clock.now()
     try:
@@ -174,8 +197,19 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
             if confirm(WARNING).strip() != r.run:   # before every firing (KC4)
                 say(NOT_FIRED)
                 break
-            r.repeats.append(running.time_one(c, r, clock, say=say))
-        running.firing_moments(c, r, clock, wait=trail_wait)
+            if product:                             # you fire your SDK's switch from your mark; the witness calls
+                r.repeats.append(running.time_one(c, r, clock, say=say, mark=lambda: wait(MARK_PROMPT),
+                                                  marked=SDK_MARKED, each_second=Witness(c, r, clock, witness_get)))
+            else:
+                r.repeats.append(running.time_one(c, r, clock, say=say))
+        if product:                                 # timed from your mark, or your SDK's own record (sdk_results)
+            for rep in r.repeats:
+                rep.fired_at = rep.fired_after + r.offset
+            if r.repeats:
+                say(SDK_SWITCH_OFF)
+                take_record(r, confirm, read)
+        else:
+            running.firing_moments(c, r, clock, wait=trail_wait)
     finally:
         running.tear_down(c, r, clock, say=say, keeps_the_role=keeps_the_role(c, r, clock, wait))
         role = names(r.run)["agent_role"]
@@ -183,3 +217,28 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
                          for x in r.left_behind]
         r.ended_at = clock.now()
     return r
+
+
+def sdk_results(r: Run) -> list[tuple[float | None, dict[str, PathResult]]]:
+    """Each repeat's paths under D713 (sdk.judge), as aws/your_copy.sdk_results has them: the session's four paths and
+    new calls to the copy, each working before the mark where its last try before it worked."""
+    out = []
+    for rep in r.repeats:
+        if not rep.fired_after:
+            out.append((None, {p: PathResult(NOT_RUN, r.window, reason="the stop was not fired")
+                               for p in running.PATHS}))
+            continue
+        mark = rep.fired_after + r.offset
+        fired, precision, source = sdk.firing_moment(r.sdk_record, mark, r.window)
+        record_why = sdk.record_reason(r.sdk_record, mark, r.window)
+        witness_why = sdk.witness_reason(r.witness, mark, fired + r.window)
+        found = {}
+        for p in running.PATHS:
+            beats = rep.beats.get(p, [])
+            before = [b for b in beats if b.at <= mark]
+            found[p] = sdk.judge(beats, mark_at=mark, fired_at=fired, window=r.window,
+                                 worked_before=p in rep.working and bool(before) and before[-1].ok,
+                                 fired_precision=precision, record_why=record_why, witness_why=witness_why,
+                                 fired_source=source, setup_errors=rep.setup_errors.get(p))
+        out.append((fired, found))
+    return out
