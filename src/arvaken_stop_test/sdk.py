@@ -13,7 +13,7 @@ of refusal codes in refusals.py: an SDK's errors are its own, so nothing here re
 call's failure is taken only as the call's own error, of a kind that is not a timeout, a lost connection or a server
 error.
 
-**(1), as the founder changed it** (D714, his "Change to as built" by 19:50:17 UTC on 1 November 2026): the customer
+**(1), as the founder changed it** (D714, his "Change to as built" at 19:50:06 UTC on 1 November 2026): the customer
 presses Enter, then fires, so a path's calls may still succeed for a moment after the mark, while the switch takes
 hold. From the path's first failure after the firing moment, every call on it to the window's end must have failed,
 each as (1) says; its time to effect is a range, as the timing rule's is, from its last success to that first failure.
