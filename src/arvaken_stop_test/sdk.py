@@ -184,6 +184,16 @@ def _moment(text: str) -> tuple[float | None, bool]:
     return when.astimezone(timezone.utc).timestamp(), seconds
 
 
+# The time of an SDK's record as Arvaken's record keeps it in clear (0192's stop_test_record_time_fits): at most 64
+# letters, digits, spaces and . , : + / ( ) _ -, with a digit, and no space at either end, so it holds a time and
+# little else (the founder's answer at 19:00:00 UTC on 2 November 2026).
+TIME_FITS = re.compile(r"[0-9A-Za-z :.,+/()_-]{1,64}")
+
+
+def time_fits(time: object) -> bool:
+    return isinstance(time, str) and bool(TIME_FITS.fullmatch(time)) and bool(re.search(r"[0-9]", time)) and         time == time.strip()
+
+
 def record(export: bytes, time: str, name: str) -> Record:
     """The record from your export: its SHA-256, and the entry's time and name as you typed them, found in it."""
     text = export.decode("utf-8", errors="replace")

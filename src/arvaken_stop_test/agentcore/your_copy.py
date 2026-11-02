@@ -55,6 +55,11 @@ SETTLE = 600.0          # seconds to wait for AgentCore to finish a change to th
 # CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 2 (1))
 NOT_A_RUNTIME = "a test copy on AgentCore is named by its runtime's ARN, in the account and region the kit runs in"
 # The deny kinds are not offered on a copy, as the own-trigger route does not take them on AgentCore: his alternative end.
+# AgentCore checks that a runtime's role can pull its image when the role is changed, and the run's role can't: in
+# install-test's run r7e1979d4 (2 November 2026) it refused to point a copy built from a container image at the run's
+# role ("Access denied while validating ECR URI"). So such a copy is refused before anything is made.
+# CUSTOMER TEXT: approved by the founder, word for word, 19:00:00 UTC on 2 November 2026 ("Refuse, and run C2")
+CONTAINER_COPY = "The kit can't yet test a copy on AgentCore built from a container image, so nothing was made."
 # CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 2 (2))
 ROLE_ONLY = ("On a copy of yours, the kit fires only a policy on the role it makes for the run. A deny of calls is a "
              "change to your runtime's own policy, and ending a session acts on your runtime itself, so the kit leaves "
@@ -200,6 +205,8 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
     if reason:
         raise firing.Refused(reason)                # before anything is made
     own = c.control.get_agent_runtime(agentRuntimeId=found.group(4))
+    if settings_of(own)["runtime"] == "container":
+        raise firing.Refused(CONTAINER_COPY)        # before anything is made
     if confirm((CONFIRM_COPY_SDK if product else CONFIRM_COPY).format(copy=copy, run=the_name)).strip() != the_name:
         raise firing.Refused(NOT_CONFIRMED)         # before anything is made
     r = Run(run=the_name, stop_ref=stop_ref, window=window, region=c.region, account=caller["Account"],

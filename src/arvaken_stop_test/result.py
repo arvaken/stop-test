@@ -335,9 +335,10 @@ def _check_v3(doc: dict[str, Any]) -> None:
     if record is not None and not sdk_switch:
         raise NotAResult(REFUSALS_V3["record"])
     if record is not None:
+        from arvaken_stop_test.sdk import time_fits
         _exactly(record, "stop.record", SHAPE_V3)
         name, digest = record["name"], record["sha256"]
-        if not isinstance(record["time"], str) or record["entered_by_you"] is not True or \
+        if not time_fits(record["time"]) or record["entered_by_you"] is not True or \
                 not isinstance(record["before_mark"], bool) or not isinstance(name, str) or \
                 not 0 < len(name) <= NAME_LIMIT or not isinstance(digest, str) or \
                 not re.fullmatch(r"[0-9a-f]{64}", digest):

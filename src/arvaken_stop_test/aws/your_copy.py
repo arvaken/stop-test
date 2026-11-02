@@ -120,6 +120,10 @@ SDK_ENTRY_TIME = "The time of the entry in it that records your stop, exactly as
 # the words he added at 01:08:36 UTC (batch 5 (5))
 SDK_ENTRY_NAME = "That entry's name, exactly as the file writes it: its kind of entry only, never who fired it."
 # The kit refuses a name that holds an email address (batch 5 (5)).
+# The kit asks once more for a time Arvaken's record wouldn't keep (sdk.time_fits); a second that doesn't fit is no record.
+# CUSTOMER TEXT: approved by the founder, word for word, 19:00:00 UTC on 2 November 2026 ("Approve both")
+TIME_DOES_NOT_FIT = ("That time is too long or has a character the kit doesn't keep. Give it again, in at most 64 "
+                     "characters, with only letters, digits, spaces and . , : + / ( ) _ -.")
 # CUSTOMER TEXT: approved by the founder, word for word, 17:10:07 UTC on 2 November 2026 ("Approve as written")
 NAME_HOLDS_EMAIL = "That name holds an email address. Give its kind of entry only, never who fired it."
 EMAIL = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
@@ -188,12 +192,23 @@ def take_record(r: Run, ask: Callable[[str], str], read: Callable[[str], bytes])
         export = read(where)
     except Exception:  # noqa: BLE001 - no record: the paths read not measured, and say so
         return
-    time, name = ask(SDK_ENTRY_TIME), ask(SDK_ENTRY_NAME)
+    time = ask(SDK_ENTRY_TIME).strip()
+    if not sdk.time_fits(time):             # as Arvaken's record keeps it (the founder's answer, 19:00:00 UTC)
+        time = ask(TIME_DOES_NOT_FIT).strip()
+        if not sdk.time_fits(time):
+            return
+    name = ask(SDK_ENTRY_NAME)
     if EMAIL.search(name):                  # its kind of entry only, never who fired it (batch 5 (5))
         name = ask(NAME_HOLDS_EMAIL)
         if EMAIL.search(name):
             return
     r.sdk_record = sdk.record(export, time, name)
+
+
+def runtime_of(own: dict[str, Any]) -> str | None:
+    """The copy's runtime, as its result keeps it (4.4): its function's runtime, or "container" for one built from a
+    container image, which has none (the founder's answer at 19:00:00 UTC on 2 November 2026, as on AgentCore)."""
+    return own.get("Runtime") or ("container" if own.get("PackageType") == "Image" else None)
 
 
 def clients_of(seen: dict[str, set[str]]) -> dict[str, str]:
@@ -419,7 +434,7 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
     r = Run(run=the_name, stop_ref=stop_ref, fired_by="your own trigger" if product else "the kit", window=window,
             region=c.region, model=model, copy=copy, copy_role=str(own.get("Role", "")),
             outside_key=secrets.token_hex(16), product=product,
-            copy_config={"runtime": own.get("Runtime"), "memory_mb": own.get("MemorySize"),
+            copy_config={"runtime": runtime_of(own), "memory_mb": own.get("MemorySize"),
                          "private_network": network})
     r.began_at = clock.now()
     try:

@@ -473,6 +473,36 @@ def test_a_record_from_before_the_mark_blocks_only_the_rules_own_outcome():
     assert (stopped.outcome, stopped.reason) == (NOT_MEASURED, sdk.RECORD_OUTSIDE)
 
 
+@pytest.mark.parametrize("time, fits", [
+    ("2026-11-02T17:31:04.512Z", True), ("2 Nov 2026, 17:31:04 (UTC+01:00)", True), ("x" * 61 + " 26", True),
+    ("x" * 62 + " 26", False), ("17:31 UTC\n", False), (" 17:31", False), ("17:31 ", False), ("no digit", False),
+    ("[2026-11-02 17:31]", False), ("17:31 'Z'", False), ("17:31 by ops@example.com", False), ("", False),
+    (None, False)])
+def test_an_sdks_record_time_fits_as_arvakens_record_keeps_it(time, fits):
+    """At most 64 letters, digits, spaces and . , : + / ( ) _ -, with a digit, as 0192's stop_test_record_time_fits
+    (the founder's answer at 19:00:00 UTC on 2 November 2026)."""
+    assert sdk.time_fits(time) is fits
+
+
+def test_a_time_that_does_not_fit_is_asked_for_once_more_and_a_second_that_does_not_is_no_record(an_account,
+                                                                                                 monkeypatch):
+    seen = {}
+
+    def export(aws) -> bytes:
+        seen["at"] = iso(aws.sdk_on_from)
+        return f"[{seen['at']}] {EXPORT_NAME}\n".encode()
+
+    r, _, _, asked, _ = an_sdk_run(monkeypatch, export=export, answers={
+        your_copy.SDK_ENTRY_TIME: lambda: f"[{seen['at']}]", your_copy.TIME_DOES_NOT_FIT: lambda: seen["at"]})
+    assert your_copy.TIME_DOES_NOT_FIT in asked and r.sdk_record.time == seen["at"] and r.sdk_record.in_file
+    r, _, _, asked, _ = an_sdk_run(monkeypatch, export=export, answers={
+        your_copy.SDK_ENTRY_TIME: "x" * 70 + " 1", your_copy.TIME_DOES_NOT_FIT: "no digit here"})
+    assert your_copy.TIME_DOES_NOT_FIT in asked and r.sdk_record is None
+    assert your_copy.SDK_ENTRY_NAME not in asked            # no record, so its entry's name is never asked
+    r, _, _, asked, _ = an_sdk_run(monkeypatch)
+    assert your_copy.TIME_DOES_NOT_FIT not in asked and r.sdk_record is not None
+
+
 def test_an_entry_name_holding_an_email_address_is_refused_and_asked_again(an_account, monkeypatch):
     r, _, _, asked, _ = an_sdk_run(monkeypatch, answers={your_copy.SDK_ENTRY_NAME: "ops@example.com engaged it",
                                                          your_copy.NAME_HOLDS_EMAIL: "kill switch engaged"})

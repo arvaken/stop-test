@@ -32,6 +32,17 @@ def test_the_plan_for_a_copy_says_what_it_makes_and_that_it_never_changes_the_co
     assert "your SDK Acme Guard's switch yourself, after your mark" in out and "fires nothing" in out
 
 
+def test_the_plan_for_revoking_sessions_on_a_copy_names_both_of_the_runs_roles(capsys, monkeypatch):
+    """--revoke-sessions acts on the run's second role too (the founder's answer at 19:00:00 UTC on 2 November 2026)."""
+    monkeypatch.setattr(boto, "clients_for", lambda region: pytest.fail("a plan calls no AWS"))
+    assert cli.main(["aws", "plan", "--region", "eu-central-1", "--run", RUN, "--copy", COPY, "--revoke-sessions"]) == 0
+    out = capsys.readouterr().out
+    assert ("- fires your stop, revoke active sessions, on that role and the run's second role, 1 time, and times "
+            "each path for ") in out and "on that role alone" not in out
+    assert cli.main(["aws", "plan", "--region", "eu-central-1", "--run", RUN, "--copy", COPY, "--stop", STOP]) == 0
+    assert f"- fires your stop, {STOP}, on that role alone, 1 time," in capsys.readouterr().out
+
+
 @pytest.mark.parametrize("argv, says", [
     (["aws", "run", "--sdk", "Acme Guard", "--stop", STOP], cli.SDK_NEEDS_COPY),
     (["aws", "run", "--copy", COPY, "--via", "http://gateway.example:8888"], cli.COPY_GOES_WITH),

@@ -533,8 +533,12 @@ your copy runs as the run's role before it times anything. When the run ends, it
 no longer runs as it; until then, it names the role for you to delete. On Lambda, a copy whose settings are encrypted
 with your own key is refused before anything is made, since the run's role can't use that key.
 
-<!-- A copy in a VPC of yours: its lines wait for install-test's check of Lambda's network calls, whose result they
-state (D722). -->
+<!-- CUSTOMER TEXT: approved by the founder, word for word, 19:00:00 UTC on 2 November 2026 ("Approve as written") -->
+A copy in your VPC calls from your network, as your agent does: each path reaches only what your subnets' routes and
+endpoints let it reach. A path that doesn't work before the stop is reported as not run; where you name a model, its call
+must work before anything is timed. The run's role's network actions aren't limited to calls from your copy: Lambda makes
+your copy's interfaces outside its code, and those calls don't name your copy.
+<!-- [source: aws-lambda-source-function-arn-not-enis] -->
 
 ### Run it
 

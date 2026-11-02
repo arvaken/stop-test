@@ -138,7 +138,8 @@ class CopyAWS(FakeAWS):
         assert agentRuntimeVersion in (None, self.served_version())
         return {"status": self.runtime["status"], "agentRuntimeArn": COPY, "roleArn": self.runtime["roleArn"],
                 "agentRuntimeVersion": self.served_version(),
-                "environmentVariables": {"SECRET_SETTING": "a-value-the-kit-never-keeps"}}
+                "environmentVariables": {"SECRET_SETTING": "a-value-the-kit-never-keeps"},
+                **({"agentRuntimeArtifact": self.runtime["artifact"]} if "artifact" in self.runtime else {})}
 
     def served_version(self) -> str:
         """Each change to the runtime's role makes a version, which the DEFAULT endpoint then serves."""
@@ -258,6 +259,21 @@ def test_a_copy_not_named_as_a_runtime_in_this_account_and_region_is_refused_bef
     with pytest.raises(ValueError, match="runtime's ARN"):
         a_copy_run(aws, clock, monkeypatch, copy=arn)
     assert not aws.roles
+
+
+def test_a_copy_built_from_a_container_image_is_refused_before_anything_is_made(monkeypatch):
+    """AgentCore refused to point such a copy at the run's role, which can't pull its image (install-test's run
+    r7e1979d4); one built from code it pointed (r348aa6dd). The founder's answer at 19:00:00 UTC on 2 November 2026."""
+    clock = Clock()
+    aws = CopyAWS(clock)
+    aws.runtime["artifact"] = {"containerConfiguration": {
+        "containerUri": f"{ACCOUNT}.dkr.ecr.{REGION}.amazonaws.com/my-agent:1"}}
+    with pytest.raises(fire.Refused, match="built from a container image, so nothing was made"):
+        a_copy_run(aws, clock, monkeypatch)
+    assert not aws.roles and not aws.buckets and not aws.role_changes and not aws.payloads
+    aws.runtime["artifact"] = {"codeConfiguration": {"runtime": "PYTHON_3_12", "entryPoint": ["main.py"]}}
+    r, _, _ = a_copy_run(aws, clock, monkeypatch)
+    assert r.copy_config["runtime"] == "PYTHON_3_12" and r.repeats
 
 
 def test_nothing_is_made_unless_the_runs_name_is_typed_to_confirm_a_test_copy(monkeypatch):

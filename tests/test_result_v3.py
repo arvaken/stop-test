@@ -75,14 +75,19 @@ def _set(path, value):
     (_set(("agent", "model_kind"), "a big one"), "a test agent is the kit's"),
     (_set(("agent", "clients"), {"cloud": "yours"}), "agent.clients holds exactly"),
     (_set(("agent", "clients"), {"cloud": "mine", "http": "yours"}), "a test agent is the kit's"),
-    (_set(("stop", "record"), {"time": "x", "entered_by_you": True, "before_mark": False, "name": "",
+    (_set(("stop", "record"), {"time": "17:31:04Z", "entered_by_you": True, "before_mark": False, "name": "",
                                 "sha256": "0" * 64}), "an SDK's own record"),
-    (_set(("stop", "record"), {"time": "x", "entered_by_you": True, "before_mark": False, "name": "n",
+    (_set(("stop", "record"), {"time": "17:31:04Z", "entered_by_you": True, "before_mark": False, "name": "n",
                                 "sha256": "not a hash"}), "an SDK's own record"),
-    (_set(("stop", "record"), {"time": "x", "entered_by_you": False, "before_mark": False, "name": "n",
+    (_set(("stop", "record"), {"time": "17:31:04Z", "entered_by_you": False, "before_mark": False, "name": "n",
                                 "sha256": "0" * 64}), "an SDK's own record"),
-    (_set(("stop", "record"), {"time": "x", "entered_by_you": True, "before_mark": False, "name": "n",
+    (_set(("stop", "record"), {"time": "17:31:04Z", "entered_by_you": True, "before_mark": False, "name": "n",
                                 "sha256": "0" * 64, "file": "..."}), "stop.record holds exactly"),
+    # a time Arvaken's record wouldn't keep in clear (sdk.time_fits; the founder's answer, 19:00:00 UTC, 2 November 2026)
+    (_set(("stop", "record", "time"), "2026-11-02 17:31 UTC, by ops@example.com"), "an SDK's own record"),
+    (_set(("stop", "record", "time"), "x" * 62 + " 26"), "an SDK's own record"),
+    (_set(("stop", "record", "time"), "seventeen thirty"), "an SDK's own record"),
+    (_set(("stop", "record", "time"), " 17:31:04Z"), "an SDK's own record"),
 ])
 def test_check_refuses_a_version_3_result_whose_parts_do_not_hold(an_sdk_result, change, says):
     doc = an_sdk_result[0]

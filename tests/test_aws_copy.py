@@ -107,6 +107,7 @@ class CopyAWS(FakeAWS):
         self.sdk_raises = sdk_raises
         # how Lambda's last change to the copy ended, and the customer's own key for its settings, if any
         self.update_status, self.kms_key = "Successful", None
+        self.image = False                              # a copy built from a container image has no Runtime
         # an SDK that lets the model's call go out and raises on its answer; and how long the customer takes to type
         # the run's name at the warning, and to press Enter at the mark's prompt
         self.sdk_sends_first, self.enter_after, self.warned_after = sdk_sends_first, enter_after, warned_after
@@ -134,7 +135,8 @@ class CopyAWS(FakeAWS):
         assert FunctionName == COPY, FunctionName
         return {"Role": self.copy_role, "LastUpdateStatus": self.update_status,
                 "VpcConfig": {"SubnetIds": self.copy_subnets, "SecurityGroupIds": self.copy_groups},
-                **({"KMSKeyArn": self.kms_key} if self.kms_key else {})}
+                **({"KMSKeyArn": self.kms_key} if self.kms_key else {}),
+                **({"PackageType": "Image"} if self.image else {})}
 
     def get_function(self, FunctionName):
         raise AssertionError("a run on a copy never asks for the kit's own function")
@@ -455,6 +457,22 @@ def test_a_copy_whose_settings_use_your_own_key_is_refused_before_anything_is_ma
     with pytest.raises(firing.Refused, match="encrypted with your own key"):
         a_copy_run(aws, clock, monkeypatch)
     assert aws.stack is None
+
+
+@pytest.mark.parametrize("own, runtime", [({"Runtime": "python3.12", "PackageType": "Zip"}, "python3.12"),
+                                          ({"PackageType": "Image"}, "container"), ({}, None)])
+def test_a_copys_runtime_is_its_functions_or_container_for_one_built_from_an_image(own, runtime):
+    """A function built from a container image has no runtime: its result says "container", as on AgentCore (the
+    founder's answer at 19:00:00 UTC on 2 November 2026)."""
+    assert your_copy.runtime_of(own) == runtime
+
+
+def test_a_copy_built_from_a_container_image_is_timed_and_its_runtime_is_container(an_account, monkeypatch):
+    clock = Clock()
+    aws = CopyAWS(clock)
+    aws.image = True
+    r, _, _ = a_copy_run(aws, clock, monkeypatch)
+    assert r.copy_config["runtime"] == "container" and r.repeats
 
 
 def test_a_copy_whose_update_did_not_succeed_is_not_timed(an_account, monkeypatch):

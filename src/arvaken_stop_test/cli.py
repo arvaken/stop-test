@@ -166,6 +166,10 @@ COPY_PLAN = ("Run {run} in {region}, on your test copy {copy}:\n"
 # {repeats} is "1 time" or "5 times" (times), as his "{repeats} {time|times}" has it.
 # CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (14))
 COPY_PLAN_STOP = "- fires your stop, {stop}, on that role alone, {repeats}, and times each path for {window} seconds;\n"
+# --revoke-sessions acts on the run's second role too (aws/fire.revoke).
+# CUSTOMER TEXT: approved by the founder, word for word, 19:00:00 UTC on 2 November 2026 ("Approve as written")
+COPY_PLAN_REVOKE = ("- fires your stop, revoke active sessions, on that role and the run's second role, {repeats}, and "
+                    "times each path for {window} seconds;\n")
 # CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (15))
 COPY_PLAN_SDK = ("- you fire your SDK {name}'s switch yourself, after your mark, and the kit fires nothing; it times "
                  "each path for {window} seconds, once, not repeated, since only you can turn your switch off; as its "
@@ -682,8 +686,11 @@ def _copy_stop(args, agentcore: bool) -> str:
 
 def _copy_plan(args, run_name: str, agentcore: bool) -> str:
     from arvaken_stop_test.aws.stack import names
-    stop = COPY_PLAN_SDK.format(name=args.sdk, window=int(args.window)) if args.sdk else COPY_PLAN_STOP.format(
-        stop=_copy_stop(args, agentcore), repeats=times(args.repeats), window=int(args.window))
+    from arvaken_stop_test.aws import fire
+    fired = _copy_stop(args, agentcore)
+    line = COPY_PLAN_REVOKE if fired == fire.REVOKE else COPY_PLAN_STOP
+    stop = COPY_PLAN_SDK.format(name=args.sdk, window=int(args.window)) if args.sdk else line.format(
+        stop=fired, repeats=times(args.repeats), window=int(args.window))
     return COPY_PLAN.format(run=run_name, region=args.region, copy=args.copy, role=names(run_name)["agent_role"],
                             stop=stop)
 
