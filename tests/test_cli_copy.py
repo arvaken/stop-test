@@ -94,3 +94,14 @@ def test_a_run_on_a_copy_through_the_command_line_writes_a_version_3_result_and_
     # the run's own words asked, in order: the copy confirmed, pointed at the run's role, the warning, and back
     assert [a.split()[:3] for a in asked] == [["The", "kit", "will"], ["Point", "your", "copy"],
                                               your_copy.WARNING.split()[:3], ["Point", "your", "copy"]]
+
+
+
+def test_tool_none_is_the_kits_no_tools(an_account, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(boto, "clients_for", lambda region: pytest.fail("refused before any call"))
+    with pytest.raises(SystemExit):
+        cli.main(["aws", "run", "--region", "eu-central-1", "--copy", COPY, "--stop", STOP, "--tool", "none",
+                  "--tool", "runs code", "--model-kind", "no model"])
+    assert cli.COPY_NEEDS_KINDS in " ".join(capsys.readouterr().err.split())
+    assert cli.main(["aws", "plan", "--region", "eu-central-1", "--run", RUN, "--copy", COPY, "--stop", STOP,
+                     "--tool", "none", "--model-kind", "no model"]) == 0

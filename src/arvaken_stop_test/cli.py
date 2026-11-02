@@ -125,45 +125,54 @@ PLAN_PRODUCT = ("- your stop is your gateway, {name}, attached to {attachment}: 
 
 
 # A run on a test copy of your own agent (D575; aws/your_copy.py, agentcore/your_copy.py), and an in-agent SDK's stop on
-# it (D713, D714; sdk.py). Every sentence here is a draft until the founder approves it with D575's customer words.
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+# it (D713, D714; sdk.py): the founder's step-4 rulings on batch 6, 01:15:37 UTC on 2 November 2026.
+# CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (1) to (6))
 COPY_HELP = {
     "copy": "run on a test copy of your own agent, by its Lambda function's ARN, instead of on the kit's test agent",
-    "agentcore_copy": "run on a test copy of your own agent, by its AgentCore runtime's ARN, instead of on the kit's",
+    "agentcore_copy": ("run on a test copy of your own agent, by its AgentCore runtime's ARN, instead of on the kit's test "
+                       "agent"),
     "sdk": "with --copy: your stop is this in-agent SDK's switch, by its name; you fire it yourself, after your mark",
-    "tool": "with --copy: a kind of tool your copy has, from the kit's list; give each that applies",
+    "tool": "with --copy: a kind of tool your copy has, from the kit's list; give each that applies, or --tool none",
     "model_kind": "with --copy: the kind of model your copy calls, from the kit's list",
     "endpoint_name": "with --copy: the endpoint of your runtime the kit calls, DEFAULT unless you name another",
 }
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
-COPY_NEEDS_KINDS = ("--copy needs your copy's --tool kinds, each that applies, or no tools alone, and its --model-kind, "
-                    "from the kit's lists.")
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+NO_TOOLS = "none"                   # --tool none: the kit's list's "no tools" (batch 6 (4))
+# CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (11))
+COPY_NEEDS_KINDS = ("--copy needs your copy's --tool kinds, each that applies, or --tool none, and its --model-kind, from "
+                    "the kit's lists.")
+# CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (7))
 COPY_GOES_WITH = ("--copy goes with --stop, --revoke-sessions, --inline-deny or --sdk; not with --own-trigger, --via, "
                   "--subnet, --security-group, --ca-bundle or the --product options.")
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
-AGENTCORE_COPY_GOES_WITH = ("--copy goes with --stop, --inline-deny or --sdk; not with --deny-calls, "
-                            "--deny-calls-and-end-sessions or --trail, which would change your runtime.")
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+# CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (8))
+AGENTCORE_COPY_GOES_WITH = ("--copy goes with --stop, --inline-deny or --sdk; not with --deny-calls or "
+                            "--deny-calls-and-end-sessions, which act on your runtime itself (timing them on a copy "
+                            "isn't offered yet), or with --trail, which only those stops use.")
+# CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (9))
 SDK_NEEDS_COPY = "--sdk goes with --copy: the kit tests an SDK's switch on a test copy of your own agent."
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+# CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (10))
 SDK_IS_THE_STOP = "--sdk is your stop, your SDK's own switch: give it without --stop, --revoke-sessions or --inline-deny."
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+# CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (13))
 COPY_PLAN = ("Run {run} in {region}, on your test copy {copy}:\n"
              "- makes the role your copy runs as for the test, {role}, with a second role and a bucket of its own, "
              "and asks you to point your copy at that role, then back afterwards: it never deploys, changes or "
              "deletes your copy;\n"
-             "- calls your copy about once a second, with the run's settings in each call, for the probe in it;\n"
+             "- calls your copy about once a second, with the run's settings in each call, for the kit's probe you "
+             "added to it. AWS bills each call, and anything your copy calls, to your account. A call refused for a "
+             "limit on your account is never counted as stopped;\n"
              "{stop}"
+             "- changes nothing else in your account;\n"
              "- then removes everything it made, and names anything left.")
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+# {repeats} is "1 time" or "5 times" (times), as his "{repeats} {time|times}" has it.
+# CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (14))
 COPY_PLAN_STOP = "- fires your stop, {stop}, on that role alone, {repeats}, and times each path for {window} seconds;\n"
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+# CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (15))
 COPY_PLAN_SDK = ("- you fire your SDK {name}'s switch yourself, after your mark, and the kit fires nothing; it times "
-                 "each path for {window} seconds, and calls from outside your copy every second as its witness;\n"
-                 "- afterwards asks for the file you exported from your SDK, keeping only its SHA-256 and the "
-                 "entry you name;\n")
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+                 "each path for {window} seconds, once, not repeated, since only you can turn your switch off; as its "
+                 "witness, it checks from this machine every second that the run's bucket and Arvaken's test address "
+                 "keep answering;\n"
+                 "- afterwards asks for the file you exported from your SDK, reads it only to check the entry you name "
+                 "is in it, and keeps only its SHA-256 and that entry;\n")
+# CUSTOMER TEXT: approved by the founder, word for word, 01:08:36 UTC on 2 November 2026 (step 4, batch 6)
 COPY_FOUND = "What the run on your copy found:"
 # CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
 COPY_WROTE = "Wrote {out} and its details. Nothing about your account was sent to Arvaken."
@@ -638,12 +647,13 @@ def _copy_checks(args, p, agentcore: bool) -> None:
         given = sum((bool(args.stop), args.revoke_sessions, args.inline_deny))
     if args.sdk and given:
         p.error(SDK_IS_THE_STOP)
-    tools = args.tool or []
+    tools = [result.TOOL_KINDS[0] if k == NO_TOOLS else k for k in args.tool or []]
+    args.tool = tools
     if args.action == "run" and (not tools or not args.model_kind or len(set(tools)) != len(tools) or
                                  (result.TOOL_KINDS[0] in tools and len(tools) > 1)):
         p.error(COPY_NEEDS_KINDS)
     if not args.sdk and given != 1:
-        # CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+        # CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (12))
         p.error("give one of --stop, --inline-deny or --sdk" if agentcore else
                 "give one of --stop, --revoke-sessions, --inline-deny or --sdk")
 
@@ -746,7 +756,8 @@ def main(argv: list[str] | None = None) -> int:
         a.add_argument("--model", default="", metavar="MODEL_ID", help=MODEL_HELP)
         a.add_argument("--copy", default="", metavar="ARN", help=COPY_HELP["copy"])
         a.add_argument("--sdk", default="", metavar="NAME", help=COPY_HELP["sdk"])
-        a.add_argument("--tool", action="append", choices=result.TOOL_KINDS, metavar="KIND", help=COPY_HELP["tool"])
+        a.add_argument("--tool", action="append", choices=(*result.TOOL_KINDS, NO_TOOLS), metavar="KIND",
+                       help=COPY_HELP["tool"])
         a.add_argument("--model-kind", choices=result.MODEL_KINDS, metavar="KIND", help=COPY_HELP["model_kind"])
     clean = aws_sub.add_parser("clean", help="remove what an interrupted run left")
     clean.add_argument("--run", dest="run_name", required=True)
@@ -772,7 +783,8 @@ def main(argv: list[str] | None = None) -> int:
         a.add_argument("--copy", default="", metavar="ARN", help=COPY_HELP["agentcore_copy"])
         a.add_argument("--endpoint-name", default="DEFAULT", metavar="NAME", help=COPY_HELP["endpoint_name"])
         a.add_argument("--sdk", default="", metavar="NAME", help=COPY_HELP["sdk"])
-        a.add_argument("--tool", action="append", choices=result.TOOL_KINDS, metavar="KIND", help=COPY_HELP["tool"])
+        a.add_argument("--tool", action="append", choices=(*result.TOOL_KINDS, NO_TOOLS), metavar="KIND",
+                       help=COPY_HELP["tool"])
         a.add_argument("--model-kind", choices=result.MODEL_KINDS, metavar="KIND", help=COPY_HELP["model_kind"])
     aclean = agentcore_sub.add_parser("clean", help="remove what an interrupted run left")
     aclean.add_argument("--run", dest="run_name", required=True)

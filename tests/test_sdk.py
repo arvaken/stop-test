@@ -83,10 +83,18 @@ def test_a_path_with_one_timeout_among_its_failures_never_reads_stopped():
 
 
 def test_an_sdks_own_error_and_a_clouds_refusal_are_each_the_calls_own_but_a_session_ended_is_not():
-    for code in ("SwitchEngaged", "AccessDenied", "HTTP403", "PermissionDenied", "ThrottlingException"):
+    for code in ("SwitchEngaged", "AccessDenied", "HTTP403", "PermissionDenied"):
         assert sdk.why_not_counted(Beat(MARK, False, code)) is None, code
-    for code in ("SessionEnded", "NoSession", "CopyError:Unhandled", "ConnectTimeoutError", "ProxyConnectionError"):
+    for code in ("SessionEnded", "NoSession", "CopyError:Unhandled", "ConnectTimeoutError", "ProxyConnectionError",
+                 "ThrottlingException", "TooManyRequestsException", "HTTP429"):
         assert sdk.why_not_counted(Beat(MARK, False, code)) is not None, code
+
+
+def test_a_call_refused_for_a_limit_on_your_account_is_never_counted_as_stopped():
+    found = judged(beats(MARK + 4, error="ThrottlingException", status=400))
+    assert (found.outcome, found.reason) == (NOT_MEASURED, sdk.LIMIT_WORDS.format(code="ThrottlingException"))
+    found = judged(beats(MARK + 4, error="SwitchEngaged", odd={MARK + 50: "HTTP429"}))
+    assert found.outcome == NOT_MEASURED
 
 
 def iso(t: float) -> str:

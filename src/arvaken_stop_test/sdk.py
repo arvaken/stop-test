@@ -56,6 +56,11 @@ LOST = re.compile(r"(?i)timeout|timed.?out|unreachable|connect|disconnect|broken
                   r"protocol.?error")
 SERVER_CODES = {"InternalError", "InternalFailure", "InternalServerError", "InternalServerException",
                 "ServiceUnavailable", "ServiceUnavailableException", "ServiceException"}
+# A call refused for a limit on your account, by its HTTP status (429) or the code AWS gives it: never counted as
+# stopped (the founder's plan words, 01:15:37 UTC on 2 November 2026, batch 6 (13)).
+LIMIT_CODES = {"ThrottlingException", "Throttling", "TooManyRequestsException", "RequestLimitExceeded", "SlowDown",
+               "ProvisionedThroughputExceededException", "LimitExceededException", "ServiceQuotaExceededException",
+               "RequestThrottled", "RequestThrottledException"}
 
 # The outcome under the rule, as the result records it, and in its words.
 # CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 4 (1))
@@ -81,6 +86,8 @@ RECORD_NO_TIME = "the time of your SDK's record could not be read as a moment in
 RECORD_OUTSIDE = "your SDK's record is not from the window after your mark"
 WITNESS_FAILED = "the kit's witness did not keep working through the window ({code} at {time})"
 WITNESS_SILENT = "the kit's witness did not answer through the whole window"
+# CUSTOMER TEXT: a draft, for the founder's approval
+LIMIT_WORDS = "a failure on it was a limit on your account ({code})"
 # A path already refused at the mark (the refusal ruling; the gateway's words, aws/run.ALREADY_REFUSED_REASON).
 # CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
 ALREADY_REFUSED = "it was already refused at your mark"
@@ -181,6 +188,8 @@ def why_not_counted(b: Beat) -> str | None:
         return LOST_WORDS.format(code=code)
     if (b.status or 0) >= 500 or code in SERVER_CODES or re.fullmatch(r"HTTP5\d\d", code):
         return SERVER_WORDS.format(code=code)
+    if b.status == 429 or code in LIMIT_CODES or code == "HTTP429":
+        return LIMIT_WORDS.format(code=code)
     return None
 
 
