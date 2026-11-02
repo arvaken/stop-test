@@ -221,6 +221,10 @@ class Run:
     # error's code), and the SDK's own record that it acted, from the customer's export
     witness: list[tuple[float, bool, str | None]] = field(default_factory=list)
     sdk_record: Any = None
+    # and with a model, the copy's calls to it as CloudTrail's event history holds them (sdk.judge_model): each (when,
+    # its error's code or None), or None until read; and the code of the error that kept a read from finishing
+    model_trail: list[tuple[float, str | None]] | None = None
+    model_trail_error: str | None = None
 
     @property
     def paths(self) -> tuple[str, ...]:

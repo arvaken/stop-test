@@ -39,15 +39,23 @@ class SwitchEngaged(Exception):
 
 class CopyClient:
     """A boto3 client in the copy, made by the copy's own cloud function: each call answered as the account would, and
-    once the customer's SDK switch is on (`sdk_on_from`), refused by the SDK first."""
+    once the customer's SDK switch is on (`sdk_on_from`), refused by the SDK first. Each call that reaches the model is
+    recorded, as CloudTrail records it: by when it completed, the role it was made as, and its error's code."""
 
     def __init__(self, aws: CopyAWS, name: str, second: bool):
         self.aws, self.name, self.second = aws, name, second
 
     def _refused(self, op: str) -> None:
+        self._by_the_sdk()
+        self._by_the_cloud(op)
+
+    def _by_the_sdk(self) -> None:
         aws = self.aws
         if aws.sdk_on_from is not None and aws.clock.now() >= aws.sdk_on_from:
             raise aws.sdk_raises("the SDK blocked a call as arn:aws:iam::123456789012:role/x")
+
+    def _by_the_cloud(self, op: str) -> None:
+        aws = self.aws
         refused = (aws.session_issued is not None and aws.revoked_for("-second", aws.session_issued)) if self.second \
             else aws.copy_role == RUNS_ROLE and aws.stopped()
         if refused:
@@ -64,7 +72,17 @@ class CopyClient:
         return {"Body": io.BytesIO(b"x")}
 
     def converse(self, modelId, inferenceConfig, messages):
-        self._refused("Converse")
+        aws = self.aws
+        if not aws.sdk_sends_first:                 # the SDK's error, raised before the call leaves the copy
+            self._by_the_sdk()
+        role = names(RUN)["agent_role"] if aws.copy_role == RUNS_ROLE else OWN_ROLE.rsplit("/", 1)[1]
+        try:
+            self._by_the_cloud("Converse")
+        except botocore.exceptions.ClientError as e:
+            aws.model_records.append((aws.clock.now() + SKEW, role, e.response["Error"]["Code"]))
+            raise
+        aws.model_records.append((aws.clock.now() + SKEW, role, None))
+        self._by_the_sdk()                          # an SDK that raises once the model has answered
         return {"output": {"message": {"role": "assistant", "content": [{"text": "THE MODEL'S OWN WORDS"}]}}}
 
     def assume_role(self, RoleArn, RoleSessionName, DurationSeconds):
@@ -77,8 +95,8 @@ class CopyClient:
 class CopyAWS(FakeAWS):
     """The account, with the customer's copy in it, as a run on a copy sees it."""
 
-    def __init__(self, clock: Clock, *, copy_subnets=(), copy_groups=(), fails_after_stop=None, sdk_raises=SwitchEngaged,
-                 **kw):
+    def __init__(self, clock: Clock, *, copy_subnets=(), copy_groups=(), fails_after_stop=None,
+                 sdk_raises=SwitchEngaged, sdk_sends_first=False, enter_after=0.0, model_trail_error=None, **kw):
         super().__init__(clock, **kw)
         self.copy_role, self.copy_subnets, self.fails_after_stop = OWN_ROLE, list(copy_subnets), fails_after_stop
         self.copy_groups = list(copy_groups)
@@ -88,6 +106,14 @@ class CopyAWS(FakeAWS):
         self.sdk_raises = sdk_raises
         # how Lambda's last change to the copy ended, and the customer's own key for its settings, if any
         self.update_status, self.kms_key = "Successful", None
+        # an SDK that lets the model's call go out and raises on its answer; and how long the customer takes to press
+        # Enter after the warning
+        self.sdk_sends_first, self.enter_after = sdk_sends_first, enter_after
+        # CloudTrail's record of each call that reached the model (CopyClient.converse); what a lookup of them raises,
+        # where it can't finish; and when each lookup of them was made
+        self.model_records: list[tuple[float, str, str | None]] = []
+        self.model_trail_error: Exception | None = model_trail_error
+        self.model_lookups: list[float] = []
         self.cloud = lambda name, config=None, **creds: CopyClient(self, name, "aws_access_key_id" in creds)
 
     def create_stack(self, StackName, TemplateBody, Capabilities, Tags):
@@ -141,6 +167,34 @@ class CopyAWS(FakeAWS):
         self.clock.t += 0.1
         return {"Payload": io.BytesIO(json.dumps(body).encode())}
 
+    def lookup_events(self, LookupAttributes, StartTime, EndTime, NextToken=None):
+        """CloudTrail's event history: Bedrock's events, as the model's rule reads them, beside, every ten seconds, a
+        call from another role, a stream's completion event of the run's role's, and a call of the run's role's that is
+        not a model's, none of which the rule reads; anything else as the account's."""
+        if LookupAttributes[0]["AttributeKey"] != "EventSource":
+            return super().lookup_events(LookupAttributes, StartTime, EndTime, NextToken)
+        assert LookupAttributes == [{"AttributeKey": "EventSource", "AttributeValue": "bedrock.amazonaws.com"}]
+        self.model_lookups.append(self.clock.now())
+        if self.model_trail_error is not None:
+            raise self.model_trail_error
+        runs = names(RUN)["agent_role"]
+        made = [(at, role, "Converse", "AwsApiCall", code) for at, role, code in self.model_records]
+        for at in range(int(StartTime), int(EndTime), 10):
+            made += [(at, "someone-elses-role", "Converse", "AwsApiCall", None),
+                     (at, runs, "ConverseStream", "AwsServiceEvent", None),
+                     (at, runs, "ListFoundationModels", "AwsApiCall", None)]
+        events = [{"EventId": f"b{i}", "EventName": name, "EventTime": datetime.fromtimestamp(int(at), tz=timezone.utc),
+                   "CloudTrailEvent": json.dumps({
+                       "eventSource": "bedrock.amazonaws.com", "eventName": name, "eventType": kind,
+                       "userIdentity": {"type": "AssumedRole",
+                                        "arn": f"arn:aws:sts::123456789012:assumed-role/{role}/my-agent-test-copy"},
+                       **({"errorCode": code} if code else {})})}
+                  for i, (at, role, name, kind, code) in enumerate(sorted(made, key=lambda m: m[0]))
+                  if StartTime <= at <= EndTime and self.clock.now() >= at + self.trail_delay]
+        start = int(NextToken or 0)                 # fifty to a page, as CloudTrail gives them
+        more = {"NextToken": str(start + 50)} if start + 50 < len(events) else {}
+        return {"Events": events[start:start + 50], **more}
+
     def http(self, url, headers, timeout):
         """The copy's own HTTP client: answered, until the customer's SDK switch refuses it."""
         if self.sdk_on_from is not None and self.clock.now() >= self.sdk_on_from:
@@ -174,8 +228,10 @@ def a_copy_run(aws: CopyAWS, clock: Clock, monkeypatch, *, typed=RUN, warned=RUN
             aws.copy_role = RUNS_ROLE
         elif words.startswith("Point your copy back") and "back" in points:
             aws.copy_role = OWN_ROLE
-        elif words == running.MARK_PROMPT and fires_after is not None:     # Enter, then the customer fires their SDK's
-            aws.sdk_on_from = clock.now() + fires_after
+        elif words == running.MARK_PROMPT:
+            clock.t += aws.enter_after
+            if fires_after is not None:             # Enter, then the customer fires their SDK's
+                aws.sdk_on_from = clock.now() + fires_after
 
     kw = dict(window=60.0, clock=running.Clock(clock.now, clock.sleep), run_name=RUN, say=said.append,
               confirm=confirm, wait=wait)

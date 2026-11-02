@@ -728,7 +728,7 @@ def _copy(args, p, agentcore: bool) -> int:
     print(COPY_FOUND)
     for i, (_, paths) in enumerate(found, 1):
         for path, f in paths.items():
-            print(f"- {f'repeat {i}, ' if len(found) > 1 else ''}{PATH_WORDS[path]}: {sdk.worded(f)}"
+            print(f"- {f'repeat {i}, ' if len(found) > 1 else ''}{PATH_WORDS[path]}: {sdk.worded(f, path)}"
                   + (f" ({f.reason})" if f.reason else ""))
     print("Nothing the kit made is left." if not r.left_behind else
           "Left for you to delete:\n" + "\n".join(r.left_behind))

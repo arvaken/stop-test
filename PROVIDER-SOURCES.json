@@ -441,6 +441,38 @@
    "sentence": "ec2:Subnet | Filters access by the ARN of the subnet | ARN",
    "about": "the condition key ec2:Subnet: what it filters by, and its type",
    "read": "2026-11-02"
+  },
+  "aws-cloudtrail-event-time": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-event-reference-record-contents.html",
+   "page": "CloudTrail record contents for management, data, and network activity events - AWS CloudTrail",
+   "sentence": "The date and time the request was completed, in coordinated universal time (UTC).",
+   "about": "a CloudTrail record's eventTime field",
+   "read": "2026-11-02"
+  },
+  "aws-cloudtrail-lookup-rate": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/awscloudtrail/latest/APIReference/API_LookupEvents.html",
+   "page": "LookupEvents - AWS CloudTrail",
+   "sentence": "The rate of lookup requests is limited to two per second, per account, per Region.",
+   "about": "CloudTrail's LookupEvents API",
+   "read": "2026-11-02"
+  },
+  "aws-bedrock-runtime-management-events": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/logging-using-cloudtrail.html",
+   "page": "Monitor Amazon Bedrock API calls using CloudTrail - Amazon Bedrock",
+   "sentence": "Amazon Bedrock logs Amazon Bedrock Runtime API operations (InvokeModel, InvokeModelWithResponseStream, Converse, and ConverseStream) as management events.",
+   "about": "Amazon Bedrock Runtime API operations in CloudTrail",
+   "read": "2026-11-02"
+  },
+  "aws-bedrock-stream-completion-event": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/logging-using-cloudtrail.html",
+   "page": "Monitor Amazon Bedrock API calls using CloudTrail - Amazon Bedrock",
+   "sentence": "When you count model invocations, or when you analyze whether a policy blocked a request, restrict your CloudTrail query to events where eventType is AwsApiCall.",
+   "about": "Amazon Bedrock's stream-completion events for InvokeModelWithResponseStream and ConverseStream",
+   "read": "2026-11-02"
   }
  },
  "owed": {

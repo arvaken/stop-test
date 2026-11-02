@@ -28,6 +28,24 @@ take its SHA-256. It keeps the SHA-256 and the entry's time and name, never the 
 **(3)** is the kit's own calls, made from the machine the kit runs on, outside the copy and so outside the SDK, once a
 second from the mark to the window's end (the cloud module's witness). Each must have worked, with no gap longer than
 WITNESS_GAP seconds.
+
+**The model's path** (`judge_model`) has its own rule, the founder's, approved at 17:10:07 UTC on 2 November 2026
+("Approve the rule"), in his words:
+
+    "1. The kit reads CloudTrail's event history (LookupEvents, event source bedrock.amazonaws.com) for InvokeModel,
+    InvokeModelWithResponseStream, Converse and ConverseStream events of eventType AwsApiCall, never a stream's
+    completion event, made as a session of the run's role. 2. Before the mark, every model call the probe saw succeed in
+    the minute before your mark must be in CloudTrail; else the path reads not measured. 3. After the mark, the probe's
+    own rule as for the other paths (D713 (1) as D714 changed it). 4. Stopped, timed from your mark to the path's first
+    failure, only if CloudTrail shows no such call from 1 second before that first failure to the window's end. 5. Any
+    such call in that span: "not stopped". 6. The kit reads CloudTrail last 15 minutes after the window ends; a lookup
+    it can't finish makes the path not measured."
+
+Bedrock's runtime calls are management events, which the event history holds [source:
+aws-bedrock-runtime-management-events]; a stream's call adds a completion event with the same name, told apart by its
+eventType alone [source: aws-bedrock-stream-completion-event]; and a record's time is when the request was completed
+[source: aws-cloudtrail-event-time]. Where the minute before the mark holds no call the probe saw work, nothing shows
+that CloudTrail records the copy's calls, so the path reads not measured (the kit's reading of (2), put to the founder).
 """
 from __future__ import annotations
 
@@ -35,7 +53,7 @@ import hashlib
 import re
 from collections import Counter
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 
 from arvaken_stop_test.timing import FLAPPED, NOT_MEASURED, NOT_STOPPED, Beat, PathResult
@@ -93,18 +111,47 @@ LIMIT_WORDS = "a failure on it was a rate limit, not your stop ({code})"
 # CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
 ALREADY_REFUSED = "it was already refused at your mark"
 
+# The model's path under its own rule (judge_model), read from CloudTrail's event history.
+MODEL = "model"                     # the model's path (timing.PATHS)
+MODEL_SOURCE = "bedrock.amazonaws.com"
+MODEL_CALLS = ("InvokeModel", "InvokeModelWithResponseStream", "Converse", "ConverseStream")
+API_CALL = "AwsApiCall"             # never a stream's completion event [source: aws-bedrock-stream-completion-event]
+TRAIL_BEFORE = 60.0                 # (2): the minute before the mark
+TRAIL_SLACK = 1.0                   # (4): from 1 second before the path's first failure; and how far before a call
+                                    # began its record's time may be, a whole second
+TRAIL_LAG = 5.0                     # how long after a call began its record's time may be: the probe's call gives up
+                                    # after 2 seconds to connect and 2 to read, once (the probe's aws._config)
+TRAIL_READ = 900.0                  # (6): the kit reads CloudTrail 15 minutes after the window ends
+# Why the model's path is not measured, or not stopped, under its rule.
+# CUSTOMER TEXT: a draft, for the founder's approval
+MODEL_STOPPED_WORDS = ("stopped {t} after your mark: every call on it failed after that, through the whole window, "
+                       "CloudTrail shows no call from your copy to the model from a second before its first failure to "
+                       "the window's end, the kit's witness kept answering, and your SDK's record of acting is in its "
+                       "export")
+# CUSTOMER TEXT: a draft, for the founder's approval
+MODEL_ARRIVED = ("CloudTrail shows a call from your copy to the model at {time}, between a second before its first "
+                 "failure and the window's end")
+# CUSTOMER TEXT: a draft, for the founder's approval
+MODEL_NOT_IN_TRAIL = ("CloudTrail does not show every call from your copy to the model that worked in the minute "
+                      "before your mark")
+# CUSTOMER TEXT: a draft, for the founder's approval
+MODEL_NONE_BEFORE = ("no call from your copy to the model worked in the minute before your mark, so the kit could not "
+                     "check that CloudTrail records them")
+# CUSTOMER TEXT: a draft, for the founder's approval
+MODEL_TRAIL_UNREAD = "the kit could not finish reading CloudTrail for your copy's calls to the model ({code})"
+
 
 def _seconds(t: float) -> str:
     n = int(round(t))
     return f"{n} second" + ("" if n == 1 else "s")
 
 
-def worded(found: PathResult) -> str:
-    """A path's outcome in its words: under the rule, stopped with how long after the mark; any other, as every other
-    kind of stop words it (timing.worded)."""
+def worded(found: PathResult, path: str = "") -> str:
+    """A path's outcome in its words: under the rule, stopped with how long after the mark, the model's path with
+    CloudTrail's part; any other, as every other kind of stop words it (timing.worded)."""
     from arvaken_stop_test.timing import worded as timing_worded
     if found.outcome == SDK_STOPPED and found.effect_between:
-        return STOPPED_WORDS.format(t=_seconds(found.effect_between[1]))
+        return (MODEL_STOPPED_WORDS if path == MODEL else STOPPED_WORDS).format(t=_seconds(found.effect_between[1]))
     return timing_worded(found.outcome, found.window)
 
 
@@ -240,3 +287,60 @@ def judge(beats: Sequence[Beat], *, mark_at: float, window: float, worked_before
         return not_measured(witness_why)
     return PathResult(SDK_STOPPED, first_failure_after=first.at, stopped_at=first.at, effect_between=effect,
                       **common)
+
+
+def a_model_call(event: dict, role: str) -> bool:
+    """Whether a record from CloudTrail's event history is one the model's rule reads ((1)): a call to a model
+    (MODEL_CALLS) at MODEL_SOURCE, an API call and never a stream's completion event, made as a session of the run's
+    role, `role` by its name."""
+    identity = event.get("userIdentity") or {}
+    return event.get("eventSource") == MODEL_SOURCE and event.get("eventName") in MODEL_CALLS \
+        and event.get("eventType") == API_CALL and f":assumed-role/{role}/" in str(identity.get("arn", ""))
+
+
+def in_trail(seen: Sequence[float], trail: Sequence[tuple[float, str | None]]) -> bool:
+    """Whether each call the probe saw work, by when it began, has a record of its own in CloudTrail ((2)): one with no
+    error, timed from TRAIL_SLACK before the call began to TRAIL_LAG after, as a record's time is when the request was
+    completed. Each record answers for one call alone, matched by time alone: the probe's calls a second or two apart,
+    one missing record among them may be stood for by a neighbour's, which a call's request ID, were the probe to keep
+    it, would tell apart; a stretch of them missing longer than that, or all, never is."""
+    free = sorted(at for at, code in trail if code is None)
+    for t in sorted(seen):
+        match = next((x for x in free if t - TRAIL_SLACK <= x <= t + TRAIL_LAG), None)
+        if match is None:
+            return False
+        free.remove(match)
+    return True
+
+
+def judge_model(beats: Sequence[Beat], *, trail: Sequence[tuple[float, str | None]] | None,
+                trail_error: str | None = None, mark_at: float, window: float, **rule) -> PathResult:
+    """The model's path under its own rule: the probe's, as for the other paths ((3); judge, given `rule`'s conditions),
+    with CloudTrail's record of the copy's calls to the model beside it, `trail`, each (when, its error's code or None),
+    or None where it was not read (`trail_error`, why). A path the probe's rule leaves not measured stays so, for its
+    reason. Else not measured where the read was not finished ((6)), or where a call the probe saw work in the minute
+    before the mark has no record of its own ((2)); and stopped by the probe's rule is "not stopped" where CloudTrail
+    shows a call from a second before the path's first failure to the window's end, whatever the call's answer ((4),
+    (5))."""
+    found = judge(beats, mark_at=mark_at, window=window, **rule)
+    if found.outcome == NOT_MEASURED:
+        return found
+
+    def not_measured(reason: str) -> PathResult:
+        return replace(found, outcome=NOT_MEASURED, reason=reason, first_failure_after=None, stopped_at=None,
+                       effect_between=None)
+
+    if trail is None:
+        return not_measured(MODEL_TRAIL_UNREAD.format(code=trail_error or "unknown"))
+    seen = [b.at for b in beats if b.ok and mark_at - TRAIL_BEFORE <= b.at <= mark_at]
+    if not seen:
+        return not_measured(MODEL_NONE_BEFORE)
+    if not in_trail(seen, trail):
+        return not_measured(MODEL_NOT_IN_TRAIL)
+    if found.outcome != SDK_STOPPED:
+        return found
+    arrived = [at for at, _ in trail if found.first_failure_after - TRAIL_SLACK <= at <= mark_at + window]
+    if arrived:
+        return replace(found, outcome=NOT_STOPPED, reason=MODEL_ARRIVED.format(time=_clock(min(arrived))),
+                       stopped_at=None, effect_between=None)
+    return found

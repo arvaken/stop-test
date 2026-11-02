@@ -32,6 +32,7 @@ time of the entry you chose in your SDK's record, readable, and its name and the
 """
 from __future__ import annotations
 
+import json
 import re
 import secrets
 import urllib.error
@@ -45,7 +46,7 @@ from arvaken_stop_test.aws import fire as firing
 from arvaken_stop_test.aws import run as running
 from arvaken_stop_test.aws.run import Clients, Clock, NotStarted, Run
 from arvaken_stop_test.aws.stack import TAG, is_model_id, names, template_body
-from arvaken_stop_test.timing import GATEWAY_WINDOW, NOT_MEASURED, NOT_RUN, WINDOWS, PathResult
+from arvaken_stop_test.timing import GATEWAY_WINDOW, NOT_RUN, WINDOWS, PathResult
 
 # A Lambda function's ARN, unqualified: its partition, region, account and name.
 FUNCTION_ARN = re.compile(r"arn:(aws(?:-[a-z]+)*):lambda:([a-z0-9-]+):(\d{12}):function:([A-Za-z0-9_-]{1,64})")
@@ -123,9 +124,15 @@ NAME_HOLDS_EMAIL = "That name holds an email address. Give its kind of entry onl
 EMAIL = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
 # CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (6))
 SDK_WINDOW_TOO_SHORT = "For your SDK's stop the kit times each path for at least 15 minutes after your mark."
-# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (7))
-SDK_NO_MODEL = ("With your SDK's stop, the kit can't see whether calls to your copy's model still arrive, so the model "
-                "path reads not measured.")
+# With a model, the kit reads CloudTrail for the copy's calls to it, under the founder's rule for its path (sdk.py,
+# judge_model, approved at 17:10:07 UTC on 2 November 2026), once, 15 minutes after the window ends (sdk.TRAIL_READ).
+# CUSTOMER TEXT: a draft, for the founder's approval
+SDK_MODEL_TRAIL = ("With your SDK's stop, the kit reads CloudTrail for your copy's calls to the model 15 minutes after "
+                   "the window ends, so the run ends at least that long after the window does.")
+# CUSTOMER TEXT: a draft, for the founder's approval
+MODEL_TRAIL_WAIT = "Reading CloudTrail for your copy's calls to the model at {time}, 15 minutes after the window ended."
+PAGE_GAP = 0.5      # seconds between pages of the event history: two lookups a second, per account, per region, at
+                    # most [source: aws-cloudtrail-lookup-rate]
 # CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (8))
 SDK_FIRES_NOTHING = "with your SDK's stop the kit fires nothing: you fire it yourself, after your mark"
 # CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (9))
@@ -227,6 +234,10 @@ def copy_details(r: Any, doc: dict, found: list[tuple[float | None, dict[str, Pa
         out["sdk_record"] = None if rec is None else {      # its time as you entered it, flagged before the mark
             "time": rec.time, "entered_by_you": True, "in_file": rec.in_file,
             "before_mark": mark is not None and sdk.before_the_mark(rec, mark)}
+        if r.model:                                         # what CloudTrail held of the copy's calls to the model
+            trail = r.model_trail or []
+            out["model_trail"] = {"read": r.model_trail is not None, "error": r.model_trail_error,
+                                  "calls": [{"at": result.iso(at), "code": code} for at, code in trail]}
     return out
 
 
@@ -248,7 +259,8 @@ def the_result(r: Run, tools: list[str], model_kind: str, key=None) -> tuple[dic
 
 def sdk_results(r: Run) -> list[tuple[float | None, dict[str, PathResult]]]:
     """Each repeat's paths under D713, as the founder's step-4 rulings have it (sdk.judge): each timed from the mark;
-    the record and the witness as (2) and (3) have them; a model's call, not measured."""
+    the record and the witness as (2) and (3) have them; a model's call by its own rule, with CloudTrail's record of the
+    copy's calls to it beside the probe's (sdk.judge_model)."""
     out = []
     for rep in r.repeats:
         if not rep.fired_after:
@@ -259,15 +271,15 @@ def sdk_results(r: Run) -> list[tuple[float | None, dict[str, PathResult]]]:
         witness_why = sdk.witness_reason(r.witness, mark, mark + r.window)
         found = {}
         for p in r.paths:
-            if p == running.MODEL:              # batch 3 (7): the kit can't see whether its calls still arrive
-                found[p] = PathResult(NOT_MEASURED, r.window, reason=SDK_NO_MODEL, fired_source=sdk.FROM_THE_MARK)
-                continue
             beats = rep.beats.get(p, [])
             before = [b for b in beats if b.at <= mark]
-            found[p] = sdk.judge(beats, mark_at=mark, window=r.window,
-                                 worked_before=p in r.working and bool(before) and before[-1].ok,
-                                 record_at=rec.at if rec is not None else None, record_why=record_why,
-                                 witness_why=witness_why, setup_errors=r.setup_errors.get(p))
+            rule = dict(mark_at=mark, window=r.window, worked_before=p in r.working and bool(before) and before[-1].ok,
+                        record_at=rec.at if rec is not None else None, record_why=record_why,
+                        witness_why=witness_why, setup_errors=r.setup_errors.get(p))
+            if p == running.MODEL:
+                found[p] = sdk.judge_model(beats, trail=r.model_trail, trail_error=r.model_trail_error, **rule)
+            else:
+                found[p] = sdk.judge(beats, **rule)
         out.append((mark, found))
     return out
 
@@ -361,7 +373,8 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
     and gives back what you typed; `wait` shows its words and waits for your Enter. The stop is the kit's to fire, on the
     run's role; with `model`, the probe also calls it, as a fifth path. With `sdk_name`, the stop is that in-agent SDK's
     switch, which you fire after your mark (`stop_ref` is then empty): the kit's witness calls through the window, your
-    export is read with `read` afterwards, and the paths are judged by sdk_results, the model's not measured."""
+    export is read with `read` afterwards, and the paths are judged by sdk_results, the model's with CloudTrail's
+    record of the copy's calls to it, read after the teardown (model_calls)."""
     from arvaken_stop_test.aws.stack import new_run
     clock = clock or Clock()
     account = c.sts.get_caller_identity()["Account"]
@@ -415,7 +428,7 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
             raise NotStarted(said, r)
         warm_up(c, r, clock, say)
         if product and model:
-            say(SDK_NO_MODEL)
+            say(SDK_MODEL_TRAIL)
         n, before = 0, r.warm_beats
         for i in range(repeats):
             if i:
@@ -444,8 +457,43 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
         r.left_behind = [STILL_RUNS_AS.format(role=role, copy=copy) if x == f"the role {role}" else x
                          for x in r.left_behind]
         r.ended_at = clock.now()
+    if product and model and r.repeats and r.repeats[0].fired_after:
+        model_calls(c, r, clock, say)
     running.own_tokens(c, r)
     return r
+
+
+def model_calls(c: Clients, r: Run, clock: Clock, say: Callable[[str], None]) -> None:
+    """The copy's calls to the model as CloudTrail's event history in the run's region holds them, for the model's path
+    under its rule (sdk.judge_model): read once, sdk.TRAIL_READ seconds after the window ends ((6)), waited for after
+    the teardown, from the minute before the mark to the window's end. Each kept by its time and its error's code alone.
+    A lookup the kit can't finish leaves them unread, by the error's code, and the path not measured."""
+    rep = r.repeats[0]
+    due = rep.fired_after + r.window + sdk.TRAIL_READ
+    if clock.now() < due:
+        say(MODEL_TRAIL_WAIT.format(time=sdk._clock(due)))
+        clock.sleep(due - clock.now())
+    mark, role = rep.fired_after + r.offset, names(r.run)["agent_role"]
+    trail = c.cloudtrail_here or c.cloudtrail
+    found, token = [], None
+    try:
+        while True:
+            page = trail.lookup_events(
+                LookupAttributes=[{"AttributeKey": "EventSource", "AttributeValue": sdk.MODEL_SOURCE}],
+                StartTime=mark - sdk.TRAIL_BEFORE - sdk.TRAIL_SLACK, EndTime=mark + r.window + sdk.TRAIL_LAG,
+                **({"NextToken": token} if token else {}))
+            for e in page.get("Events", []):
+                event = json.loads(e.get("CloudTrailEvent") or "{}")
+                if sdk.a_model_call(event, role):
+                    found.append((running._seconds_of(e["EventTime"]), event.get("errorCode")))
+            token = page.get("NextToken")
+            if not token:
+                break
+            clock.sleep(PAGE_GAP)
+    except Exception as e:  # noqa: BLE001 - a read not finished leaves the model's path not measured, by its code
+        r.model_trail_error = running._code(e)
+        return
+    r.model_trail = sorted(found)
 
 
 def warm_up(c: Clients, r: Run, clock: Clock, say: Callable[[str], None]) -> None:
