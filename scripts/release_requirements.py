@@ -8,6 +8,11 @@ files, so checking that one signature checks everything installed.
 
     uv export --format requirements-txt --frozen --extra aws --no-dev --no-emit-project > deps.txt
     python scripts/release_requirements.py 0.4.0 dist/arvaken_stop_test-0.4.0-py3-none-any.whl deps.txt > dist/requirements-0.4.0.txt
+
+The probe's (D575), which you install into a test copy of your own agent, with `--no-deps` (README, "Add the probe"):
+its one wheel, by its address and SHA-256. It needs nothing beyond boto3, which Lambda's Python runtime has.
+
+    python scripts/release_requirements.py --probe 0.5.0 dist/arvaken_stop_test_probe-0.5.0-py3-none-any.whl > dist/probe-requirements-0.5.0.txt
 """
 from __future__ import annotations
 
@@ -34,7 +39,20 @@ def requirements(version: str, wheel_name: str, wheel_sha256: str, exported: str
     return "\n".join(head + deps) + "\n"
 
 
+def probe_requirements(version: str, wheel_name: str, wheel_sha256: str, base: str = RELEASES) -> str:
+    if not re.fullmatch(r"[0-9a-f]{64}", wheel_sha256):
+        raise ValueError("the wheel's SHA-256 is 64 hexadecimal characters")
+    if not wheel_name.startswith(f"arvaken_stop_test_probe-{version}-") or not wheel_name.endswith(".whl"):
+        raise ValueError(f"{wheel_name} is not the probe's version {version} wheel")
+    return f"arvaken-stop-test-probe @ {base}/v{version}/{wheel_name} \\\n    --hash=sha256:{wheel_sha256}\n"
+
+
 def main(argv: list[str]) -> int:
+    if argv[0] == "--probe":
+        version, wheel = argv[1:]
+        path = Path(wheel)
+        sys.stdout.write(probe_requirements(version, path.name, hashlib.sha256(path.read_bytes()).hexdigest()))
+        return 0
     version, wheel, exported = argv
     path = Path(wheel)
     digest = hashlib.sha256(path.read_bytes()).hexdigest()

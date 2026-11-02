@@ -39,3 +39,31 @@ def test_the_file_names_the_wheel_by_its_address_and_hash_then_every_package_by_
 def test_a_file_that_would_not_pin_every_byte_is_refused(version, wheel, digest, exported, said):
     with pytest.raises(ValueError, match=said):
         rr.requirements(version, wheel, digest, exported)
+
+
+PROBE = "arvaken_stop_test_probe-0.5.0-py3-none-any.whl"
+
+
+def test_the_probes_file_names_its_one_wheel_by_its_address_and_hash():
+    """The README's "Add the probe" (the founder, 18:06:47 UTC on 2 November 2026) installs it with --no-deps."""
+    assert rr.probe_requirements("0.5.0", PROBE, "b" * 64) == (
+        f"arvaken-stop-test-probe @ {rr.RELEASES}/v0.5.0/{PROBE} \\\n    --hash=sha256:" + "b" * 64 + "\n")
+    with pytest.raises(ValueError, match="64 hexadecimal"):
+        rr.probe_requirements("0.5.0", PROBE, "short")
+    with pytest.raises(ValueError, match="not the probe's version 0.6.0 wheel"):
+        rr.probe_requirements("0.6.0", PROBE, "b" * 64)
+    with pytest.raises(ValueError, match="not the probe's"):
+        rr.probe_requirements("0.5.0", WHEEL, "b" * 64)
+
+
+def test_a_release_builds_checks_hashes_and_signs_the_probe_as_the_readme_installs_it():
+    root = Path(__file__).resolve().parents[1]
+    release = (root / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    assert "uv build probe --out-dir dist" in release
+    assert 'test "$probe" = "$version"' in release                   # the probe's version is the tag's
+    assert '> "dist/probe-requirements-$version.txt"' in release
+    assert "requirements-*.txt probe-requirements-*.txt | tee SHA256SUMS" in release
+    assert "./kit/dist/probe-requirements-*.txt" in release           # signed with the other files
+    assert "-r probe-requirements-0.5.0.txt" in readme and "--no-deps --target" in readme
+

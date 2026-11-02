@@ -45,6 +45,7 @@ jobs:
         with:
           python-version: "3.12.14"
       - run: uv build --out-dir dist
+      - run: uv build probe --out-dir dist
       - run: sha256sum -- *.whl *.tar.gz | tee SHA256SUMS
         working-directory: dist
       # The main install path, end to end (the founder's README changes, item 7): the release's hash-pinned requirements
@@ -58,6 +59,14 @@ jobs:
           python -m venv /tmp/fresh
           /tmp/fresh/bin/python -m pip install --require-hashes -r requirements.txt
           /tmp/fresh/bin/stop-test --help > /dev/null
+      # The probe as the README installs it into a test copy: its requirements file, made as release.yml makes it,
+      # pointed at the wheel just built, installed with --require-hashes --no-deps into a folder of code, and imported.
+      - name: Install the built probe through its hash-pinned requirements file
+        run: |
+          probe="$(python -c 'import tomllib; print(tomllib.load(open("probe/pyproject.toml", "rb"))["project"]["version"])')"
+          python scripts/release_requirements.py --probe "$probe" "dist/arvaken_stop_test_probe-$probe-py3-none-any.whl"             | sed "s#https://github.com/arvaken/stop-test/releases/download/v$probe/#file://$PWD/dist/#" > probe-requirements.txt
+          /tmp/fresh/bin/python -m pip install --require-hashes --no-deps --target /tmp/copy -r probe-requirements.txt
+          cd /tmp/copy && python -c "from arvaken_stop_test_probe import heartbeat; assert heartbeat.is_mine({}) is False"
 
   # release.yml's signing step as far as it goes before signing: the Sigstore action's own setup, run from the
   # workspace's root as the action runs it, with the kit checked out into kit/ as release.yml has it. It signs nothing.
