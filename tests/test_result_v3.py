@@ -31,7 +31,8 @@ def test_an_sdks_run_on_a_lambda_copy_writes_a_version_3_result_as_the_terms_4_2
     assert agent["clients"] == {"cloud": "yours", "http": "yours"} and agent["ref"] == COPY
     # the SDK's record: the entry's time readable; its name and the file's SHA-256 sealed (4.2); the file never
     import hashlib
-    assert stop["record"] == {"time": r.sdk_record.time, "name": "kill switch engaged",
+    assert stop["record"] == {"time": r.sdk_record.time, "entered_by_you": True, "before_mark": False,
+                              "name": "kill switch engaged",
                               "sha256": hashlib.sha256(files["acme-audit.log"]).hexdigest()}
     assert stop["product"] == {"kind": "in-agent SDK", "attachment": "inside its code", "name": "Acme Guard"}
     assert (stop["kind"], stop["fired_by"]) == (result.PRODUCT_CONTROL, "your own trigger")
@@ -74,10 +75,14 @@ def _set(path, value):
     (_set(("agent", "model_kind"), "a big one"), "a test agent is the kit's"),
     (_set(("agent", "clients"), {"cloud": "yours"}), "agent.clients holds exactly"),
     (_set(("agent", "clients"), {"cloud": "mine", "http": "yours"}), "a test agent is the kit's"),
-    (_set(("stop", "record"), {"time": "x", "name": "", "sha256": "0" * 64}), "an SDK's own record"),
-    (_set(("stop", "record"), {"time": "x", "name": "n", "sha256": "not a hash"}), "an SDK's own record"),
-    (_set(("stop", "record"), {"time": "x", "name": "n", "sha256": "0" * 64, "file": "..."}),
-     "stop.record holds exactly"),
+    (_set(("stop", "record"), {"time": "x", "entered_by_you": True, "before_mark": False, "name": "",
+                                "sha256": "0" * 64}), "an SDK's own record"),
+    (_set(("stop", "record"), {"time": "x", "entered_by_you": True, "before_mark": False, "name": "n",
+                                "sha256": "not a hash"}), "an SDK's own record"),
+    (_set(("stop", "record"), {"time": "x", "entered_by_you": False, "before_mark": False, "name": "n",
+                                "sha256": "0" * 64}), "an SDK's own record"),
+    (_set(("stop", "record"), {"time": "x", "entered_by_you": True, "before_mark": False, "name": "n",
+                                "sha256": "0" * 64, "file": "..."}), "stop.record holds exactly"),
 ])
 def test_check_refuses_a_version_3_result_whose_parts_do_not_hold(an_sdk_result, change, says):
     doc = an_sdk_result[0]
@@ -92,7 +97,7 @@ def test_check_refuses_an_sdks_outcomes_and_timing_on_any_other_stop(an_sdk_resu
         body["stop"].update(kind="policy on a role", fired_by="the kit", ref="arn:aws:iam::1:policy/p", product=None,
                             record=None)
 
-    with pytest.raises(result.NotAResult, match="is timed from your mark, and no other"):
+    with pytest.raises(result.NotAResult, match="never says your mark"):     # a kit-fired stop claiming the mark
         result.check(mutated(doc, not_an_sdk))
 
     def not_an_sdk_untimed(body):
@@ -100,7 +105,7 @@ def test_check_refuses_an_sdks_outcomes_and_timing_on_any_other_stop(an_sdk_resu
         for part in body["repeats"][0].values():
             part["timed_from"] = None
 
-    with pytest.raises(result.NotAResult, match="its own outcomes"):
+    with pytest.raises(result.NotAResult, match="belong to an SDK's switch alone"):
         result.check(mutated(doc, not_an_sdk_untimed))
 
     def a_record_beside_a_gateway(body):
@@ -143,3 +148,21 @@ def test_a_kit_fired_stop_on_an_agentcore_copy_writes_a_version_3_result(monkeyp
     assert (doc["agent"]["kind"], doc["agent"]["ref"], doc["stop"]["record"]) == (
         "aws-agentcore-runtime", AGENTCORE_COPY, None)
     assert {p["timed_from"] for p in doc["repeats"][0].values()} == {None}
+
+
+
+def test_a_gateways_result_timed_from_the_mark_is_accepted_and_an_sdks_shared_outcomes_too(an_sdk_result):
+    doc = an_sdk_result[0]
+
+    def a_gateway(body):
+        body["stop"].update(product={"kind": "gateway", "attachment": "its calls to a model", "name": "G"},
+                            record=None)
+        for part in body["repeats"][0].values():
+            part["outcome"] = "stopped"
+
+    assert result.check(mutated(doc, a_gateway))["repeats"][0]["own_calls"]["timed_from"] == "your mark"
+    for shared in ("not stopped", "stopped, then succeeded again", "not measured"):
+        def reads(body, shared=shared):
+            for part in body["repeats"][0].values():
+                part["outcome"] = shared
+        assert result.check(mutated(doc, reads))

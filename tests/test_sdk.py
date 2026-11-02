@@ -264,3 +264,21 @@ def test_an_sdks_stop_is_refused_before_anything_is_made_where_it_cannot_be_judg
     with pytest.raises(ValueError, match=says):
         a_copy_run(aws, clock, monkeypatch, **kw)
     assert aws.stack is None
+
+
+
+def test_a_record_from_before_the_mark_blocks_only_the_rules_own_outcome():
+    kept = judged(beats(None), record_why=sdk.RECORD_OUTSIDE)
+    back = judged(beats(MARK + 4, success_at=MARK + 100), record_why=sdk.RECORD_OUTSIDE)
+    stopped = judged(beats(MARK + 4), record_why=sdk.RECORD_OUTSIDE)
+    assert (kept.outcome, back.outcome) == (NOT_STOPPED, FLAPPED)
+    assert (stopped.outcome, stopped.reason) == (NOT_MEASURED, sdk.RECORD_OUTSIDE)
+
+
+def test_an_entry_name_holding_an_email_address_is_refused_and_asked_again(an_account, monkeypatch):
+    r, _, _, asked, _ = an_sdk_run(monkeypatch, answers={your_copy.SDK_ENTRY_NAME: "ops@example.com engaged it",
+                                                         your_copy.NAME_HOLDS_EMAIL: "kill switch engaged"})
+    assert your_copy.NAME_HOLDS_EMAIL in asked and r.sdk_record.name == "kill switch engaged"
+    r, _, _, _, _ = an_sdk_run(monkeypatch, answers={your_copy.SDK_ENTRY_NAME: "ops@example.com",
+                                                     your_copy.NAME_HOLDS_EMAIL: "still ops@example.com"})
+    assert r.sdk_record is None and "ops@example.com" not in repr(r)

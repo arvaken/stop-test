@@ -71,7 +71,7 @@ CONFIRM_COPY = ("The kit will call {copy} once a second, with the run's settings
                 "whose work matters. AWS bills each call, and anything the copy calls, to your account. Type the run's "
                 "name, {run}, to confirm {copy} is a test copy.")
 # For an SDK's switch the kit fires nothing, so its words say who fires.
-# CUSTOMER TEXT: a draft, for the founder's approval (CONFIRM_COPY with "you fire your SDK's switch yourself")
+# CUSTOMER TEXT: approved by the founder, word for word, 01:08:36 UTC on 2 November 2026 (step 4, batch 7 (2))
 CONFIRM_COPY_SDK = CONFIRM_COPY.replace("and fire your stop on the role it makes for the run",
                                         "and you fire your SDK's switch yourself, after your mark")
 # CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 1 (4))
@@ -112,8 +112,13 @@ SDK_EXPORT = ("Name the file you exported from your SDK that records it acting. 
               "yourself: its SHA-256 lets you show later that it's the same file:")
 # CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (4))
 SDK_ENTRY_TIME = "The time of the entry in it that records your stop, exactly as the file writes it, with its time zone:"
-# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (5))
-SDK_ENTRY_NAME = "That entry's name, exactly as the file writes it:"
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (5)), with
+# the words he added at 01:08:36 UTC (batch 5 (5))
+SDK_ENTRY_NAME = "That entry's name, exactly as the file writes it: its kind of entry only, never who fired it."
+# The kit refuses a name that holds an email address (batch 5 (5)).
+# CUSTOMER TEXT: a draft, for the founder's approval
+NAME_HOLDS_EMAIL = "That name holds an email address. Give its kind of entry only, never who fired it."
+EMAIL = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
 # CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (6))
 SDK_WINDOW_TOO_SHORT = "For your SDK's stop the kit times each path for at least 15 minutes after your mark."
 # CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (7))
@@ -124,8 +129,12 @@ SDK_FIRES_NOTHING = "with your SDK's stop the kit fires nothing: you fire it you
 # CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (9))
 SDK_NAMED = "an SDK is named in 1 to 200 characters"
 # The record you entered falls before your mark (batch 3 (4): "flags it if it falls before the mark").
-# CUSTOMER TEXT: a draft, for the founder's approval
-RECORD_BEFORE_MARK = "The time you entered for your SDK's record is before your mark, so every path reads not measured."
+# It blocks only that outcome: a path that kept succeeding still reads not stopped, one that succeeded after failing
+# still reads stopped, then succeeded again (batch 7 (3)).
+# CUSTOMER TEXT: approved by the founder, word for word, 01:08:36 UTC on 2 November 2026 (step 4, batch 7 (3))
+RECORD_BEFORE_MARK = ("The time you entered for your SDK's record is before your mark, so no path reads stopped by "
+                      "Arvaken's rule for an SDK's stop. Check that you entered the right entry, and that your SDK's "
+                      "host keeps the right time, then run again.")
 
 class Witness:
     """The kit's witness (D713, (3)): once a second from the mark, the kit's own calls, made from where the kit runs and
@@ -169,7 +178,12 @@ def take_record(r: Run, ask: Callable[[str], str], read: Callable[[str], bytes])
         export = read(where)
     except Exception:  # noqa: BLE001 - no record: the paths read not measured, and say so
         return
-    r.sdk_record = sdk.record(export, ask(SDK_ENTRY_TIME), ask(SDK_ENTRY_NAME))
+    time, name = ask(SDK_ENTRY_TIME), ask(SDK_ENTRY_NAME)
+    if EMAIL.search(name):                  # its kind of entry only, never who fired it (batch 5 (5))
+        name = ask(NAME_HOLDS_EMAIL)
+        if EMAIL.search(name):
+            return
+    r.sdk_record = sdk.record(export, time, name)
 
 
 def clients_of(seen: dict[str, set[str]]) -> dict[str, str]:
@@ -183,8 +197,11 @@ def copy_part(r: Any, tools: list[str], model_kind: str) -> dict[str, Any]:
     """What a version-3 result adds for a copy of yours (result.build's `copy`): its tools' and model's kinds as you
     chose them, its clients by kind, and for an SDK's switch your SDK's own record, its file never."""
     rec = r.sdk_record
+    mark = (r.repeats[0].fired_after + r.offset) if r.repeats and r.repeats[0].fired_after else None
     return {"tools": list(tools), "model_kind": model_kind, "clients": clients_of(r.clients),
-            "record": {"time": rec.time, "name": rec.name, "sha256": rec.sha256} if rec is not None else None}
+            "record": None if rec is None else {
+                "time": rec.time, "entered_by_you": True, "before_mark": mark is not None and sdk.before_the_mark(rec, mark),
+                "name": rec.name, "sha256": rec.sha256}}
 
 
 def copy_details(r: Any, doc: dict, found: list[tuple[float | None, dict[str, PathResult]]]) -> dict[str, Any]:

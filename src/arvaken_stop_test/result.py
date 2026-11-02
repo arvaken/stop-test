@@ -110,19 +110,23 @@ TOOL_KINDS = ("no tools", "searches or reads the web", "runs code", "reads or wr
               "something else")
 # CUSTOMER TEXT: approved by the founder, word for word, by 19:02:12 UTC on 1 November 2026 (D710, KC3)
 MODEL_KINDS = ("no model", "a model service of its cloud", "a model provider's API", "a model it runs itself")
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+# CUSTOMER TEXT: approved by the founder, word for word, 01:08:36 UTC on 2 November 2026 (step 4, batch 5)
 WHOSE = ("the kit's", "yours")
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+# CUSTOMER TEXT: approved by the founder, word for word, 01:08:36 UTC on 2 November 2026 (step 4, batch 5)
 CLIENTS = ("yours", "the runtime's")
-# CUSTOMER TEXT: a draft, for the founder's approval with D713's build
-TIMED_FROM = ("your mark",)        # every path of an SDK's switch is timed from your mark (step 4, batch 3)
+# A path of a stop you fire yourself (an SDK's switch, a gateway's, your own trigger) is timed from your mark; one of a
+# stop the kit fires, from the cloud's audit record, and says none (step 4, batch 5 (6)).
+# CUSTOMER TEXT: approved by the founder, word for word, 01:08:36 UTC on 2 November 2026 (step 4, batch 5)
+TIMED_FROM = ("your mark",)
 SDK_KIND = "in-agent SDK"
 SHAPE_V3: dict[str, tuple[str, ...]] = {
     **SHAPE,
     "agent": (*SHAPE["agent"], "whose", "tools", "model_kind", "clients"),
     "agent.clients": ("cloud", "http"),                 # or null, for the kit's own test agent
     "stop": (*SHAPE["stop"], "record"),
-    "stop.record": ("time", "name", "sha256"),          # or null, where the stop is not an SDK's switch
+    # or null, where the stop is not an SDK's switch: the entry's time as you entered it, marked so, and flagged where
+    # it is before your mark; its name; its file's SHA-256 (step 4, batch 5 (5))
+    "stop.record": ("time", "entered_by_you", "before_mark", "name", "sha256"),
     "repeat.path": (*SHAPE["repeat.path"], "timed_from"),   # for an SDK's switch; else null
 }
 IDENTIFYING_V3 = (*IDENTIFYING, "stop.record.name", "stop.record.sha256")
@@ -137,13 +141,20 @@ REFUSALS = {
     "via": "a gateway's address is given only for a gateway, as its scheme, host and port alone",
 }
 # What `check` says of a version-3 result it refuses.
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+# CUSTOMER TEXT: approved by the founder, word for word, 01:08:36 UTC on 2 November 2026 (step 4, batch 5 (4) to (7))
 REFUSALS_V3 = {
     "whose": ("a test agent is the kit's, with no tools, model kind or clients given, or yours, with its tools' and "
               "model's kinds from the kit's lists and its clients for each kind of call"),
-    "record": ("an SDK's own record is given only where the stop is an SDK's switch, with its entry's time, its name "
-               "of 1 to 200 characters and its file's SHA-256"),
-    "timed_from": "each path of an SDK's switch is timed from your mark, and no other stop's paths say so",
+    "record": ("an SDK's own record is given only where the stop is an SDK's switch, with: the entry's time, as you "
+               "entered it, with its time zone, marked as entered by you and flagged if before your mark; the entry's "
+               "name, 1 to 200 characters; and its file's SHA-256. The SDK's own name is its own field, 1 to 200 "
+               "characters."),
+    "timed_from": ("a path is timed from your mark only where you fire the stop yourself (an SDK's switch, a gateway's "
+                   "switch, or your own trigger). A path of a stop the kit fires is timed from the cloud's audit "
+                   "record, and never says your mark."),
+    "outcomes": ("the outcome 'stopped, by Arvaken's rule for an SDK's stop', and the not-measured reasons about your "
+                 "SDK's record and the kit's witness, belong to an SDK's switch alone. 'Not stopped', 'stopped, then "
+                 "succeeded again' and 'not measured' are shared by every stop."),
 }
 
 
@@ -244,9 +255,9 @@ def build(*, kit_version: str, cloud: str, region: str, began_at: float, ended_a
     doc["agent"].update(whose=WHOSE[1], tools=list(copy["tools"]), model_kind=copy["model_kind"],
                         clients={k: copy["clients"][k] for k in SHAPE_V3["agent.clients"]})
     doc["stop"]["record"] = {k: record[k] for k in SHAPE_V3["stop.record"]} if record else None
-    for part in doc["repeats"]:         # every path of an SDK's switch is timed from your mark (step 4, batch 3)
+    for part in doc["repeats"]:         # from your mark where you fire it yourself (step 4, batch 5 (6))
         for found in part.values():
-            found["timed_from"] = TIMED_FROM[0] if sdk_switch else None
+            found["timed_from"] = TIMED_FROM[0] if fired_by == FIRED_BY[1] else None
     return doc
 
 
@@ -326,18 +337,20 @@ def _check_v3(doc: dict[str, Any]) -> None:
     if record is not None:
         _exactly(record, "stop.record", SHAPE_V3)
         name, digest = record["name"], record["sha256"]
-        if not isinstance(record["time"], str) or not isinstance(name, str) or not 0 < len(name) <= NAME_LIMIT or \
-                not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        if not isinstance(record["time"], str) or record["entered_by_you"] is not True or \
+                not isinstance(record["before_mark"], bool) or not isinstance(name, str) or \
+                not 0 < len(name) <= NAME_LIMIT or not isinstance(digest, str) or \
+                not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise NotAResult(REFUSALS_V3["record"])
     from arvaken_stop_test.sdk import SDK_STOPPED
     # stopped by its rule, not stopped, stopped then succeeded again, not run, else not measured (step 4, batch 4)
     sdk_outcomes = (SDK_STOPPED, NOT_STOPPED, FLAPPED, NOT_MEASURED, NOT_RUN)
     for repeat in doc["repeats"]:
         for part in repeat.values():
-            if part["timed_from"] != (TIMED_FROM[0] if sdk_switch else None):     # from your mark, for an SDK's
+            if part["timed_from"] != (TIMED_FROM[0] if stop["fired_by"] == FIRED_BY[1] else None):
                 raise NotAResult(REFUSALS_V3["timed_from"])
             if (part["outcome"] in sdk_outcomes) != sdk_switch and (sdk_switch or part["outcome"] == SDK_STOPPED):
-                raise NotAResult("an SDK's switch has its own outcomes, and no other stop has them")
+                raise NotAResult(REFUSALS_V3["outcomes"])
 
 
 def check(doc: Any) -> dict[str, Any]:
