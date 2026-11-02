@@ -300,7 +300,8 @@ def _check_v2(doc: dict[str, Any]) -> None:
     if product is not None:
         _exactly(product, "stop.product")
         name = product["name"]
-        if product["kind"] not in PRODUCTS or product["attachment"] not in PRODUCTS[product["kind"]] or \
+        if not isinstance(product["kind"], str) or product["kind"] not in PRODUCTS or \
+                product["attachment"] not in PRODUCTS[product["kind"]] or \
                 not isinstance(name, str) or not 0 < len(name) <= NAME_LIMIT:
             raise NotAResult(REFUSALS["product"])
     if (product is not None) != (stop["kind"] == PRODUCT_CONTROL) or \
@@ -321,7 +322,8 @@ def _check_v3(doc: dict[str, Any]) -> None:
             raise NotAResult(REFUSALS_V3["whose"])
     elif agent["whose"] == WHOSE[1]:
         tools = agent["tools"]
-        if not isinstance(tools, list) or not tools or len(set(tools)) != len(tools) or \
+        if not isinstance(tools, list) or not tools or not all(isinstance(t, str) for t in tools) or \
+                len(set(tools)) != len(tools) or \
                 not set(tools) <= set(TOOL_KINDS) or (TOOL_KINDS[0] in tools and len(tools) > 1) or \
                 agent["model_kind"] not in MODEL_KINDS:
             raise NotAResult(REFUSALS_V3["whose"])
@@ -357,7 +359,8 @@ def _check_v3(doc: dict[str, Any]) -> None:
 def check(doc: Any) -> dict[str, Any]:
     """The result, if it is a stop-test-result/3, /2 or /1 in exactly its version's shape and its signature checks;
     else NotAResult."""
-    if not isinstance(doc, dict) or doc.get("format") not in SHAPES:
+    # a format, a kind and a tool are each looked up by their text: anything else is refused, never hashed
+    if not isinstance(doc, dict) or not isinstance(doc.get("format"), str) or doc.get("format") not in SHAPES:
         raise NotAResult(f"the result is not {FORMAT_V3}, {FORMAT}, or {FORMAT_V1}")
     shape = SHAPES[doc["format"]]
     _exactly(doc, "", shape)

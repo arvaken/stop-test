@@ -122,6 +122,34 @@ def test_check_refuses_an_sdks_outcomes_and_timing_on_any_other_stop(an_sdk_resu
         result.check(mutated(doc, a_record_beside_a_gateway))
 
 
+ODD = ([], {}, [[1]], [{"a": 1}], [None], 1, 1.5, True, None, "x", {"k": []}, ["no tools", ["runs code"]])
+
+
+def test_check_refuses_and_never_fails_on_an_odd_value_in_any_place_of_a_result(an_sdk_result):
+    """Each place of a signed result, each set to a list, a mapping, a number or text: check refuses it, or takes it,
+    and raises nothing else. A list inside agent.tools, or a mapping as the format or a product's kind, once failed
+    with a TypeError while they were looked up (console-plan's reading of the customer app's version 3, 2 November
+    2026)."""
+    doc = an_sdk_result[0]
+
+    def places(node, path=()):
+        if path:
+            yield path
+        for key, value in node.items() if isinstance(node, dict) else enumerate(node) if isinstance(node, list) else ():
+            yield from places(value, (*path, key))
+
+    failed = []
+    for path in places({k: v for k, v in doc.items() if k != "signature"}):
+        for odd in ODD:
+            try:
+                result.check(mutated(doc, _set(path, copying.deepcopy(odd))))
+            except result.NotAResult:
+                pass
+            except Exception as e:  # noqa: BLE001 - any other is what this finds
+                failed.append(f"{'.'.join(map(str, path))} = {odd!r}: {type(e).__name__}: {e}")
+    assert not failed, "\n".join(failed)
+
+
 def test_an_sdks_run_without_its_record_writes_a_result_whose_every_path_is_not_measured(an_account, monkeypatch):
     r, _, _, _, _ = an_sdk_run(monkeypatch, answers={your_copy.SDK_EXPORT: ""})
     doc, _ = your_copy.the_result(r, ["no tools"], "no model")
