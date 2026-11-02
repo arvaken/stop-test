@@ -313,6 +313,12 @@ def template(run: str, endpoint: str, outside_key: str | None = None, subnet: st
         for statement in own:               # what the copy's own code uses: for calls from the copy alone
             statement["Condition"] = {"StringEquals": {SOURCE_FUNCTION: copy}}
         own.extend(lambdas_own)
+        # The second role's trust names the run's role, and within an account a resource's policy allowing a request is
+        # enough, whatever the caller's own policy says [source: aws-iam-same-account-either-policy-allows]: so it too
+        # trusts calls from the copy alone. In install-test's run rdd606448 (2 November 2026), before it did, another
+        # function pointed at the run's role took the second role's session, refused only the bucket and the model.
+        body["Resources"]["SecondRole"]["Properties"]["AssumeRolePolicyDocument"]["Statement"][0]["Condition"] = {
+            "StringEquals": {SOURCE_FUNCTION: copy}}
         body["Resources"]["AgentRole"].update({"DeletionPolicy": "Retain", "UpdateReplacePolicy": "Retain"})
     return body
 

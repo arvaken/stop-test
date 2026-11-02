@@ -473,6 +473,14 @@
    "sentence": "When you count model invocations, or when you analyze whether a policy blocked a request, restrict your CloudTrail query to events where eventType is AwsApiCall.",
    "about": "Amazon Bedrock's stream-completion events for InvokeModelWithResponseStream and ConverseStream",
    "read": "2026-11-02"
+  },
+  "aws-iam-same-account-either-policy-allows": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic_policy-eval-basics.html",
+   "page": "Policy evaluation for requests within a single account - AWS Identity and Access Management",
+   "sentence": "If either the identity-based policy or the resource-based policy within the same account allows the request and the other doesn't, the request is still allowed.",
+   "about": "within one account, a resource-based policy (a role's trust among them) allowing a request is enough without the caller's identity-based policy",
+   "read": "2026-11-02"
   }
  },
  "owed": {

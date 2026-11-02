@@ -295,9 +295,13 @@ def test_the_stack_for_a_copy_has_no_function_and_keeps_the_role_for_the_kit_to_
         {"Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"}, "Action": "sts:AssumeRole"}]
     assert all(s["Condition"] == {"StringEquals": {"lambda:SourceFunctionArn": COPY}}
                for s in role["Policies"][0]["PolicyDocument"]["Statement"])
+    # the second role trusts the run's role for calls from the copy alone: its trust alone would allow any function
+    # pointed at the run's role to assume it (install-test's run rdd606448, 2 November 2026)
     second = t["Resources"]["SecondRole"]["Properties"]["AssumeRolePolicyDocument"]["Statement"]
     assert second == [{"Effect": "Allow", "Principal": {"AWS": {"Fn::GetAtt": ["AgentRole", "Arn"]}},
-                       "Action": "sts:AssumeRole"}]
+                       "Action": "sts:AssumeRole", "Condition": {"StringEquals": {"lambda:SourceFunctionArn": COPY}}}]
+    assert "Condition" not in template(RUN, "")["Resources"]["SecondRole"]["Properties"][
+        "AssumeRolePolicyDocument"]["Statement"][0]                                         # the kit's own, as before
     assert template(RUN, "")["Resources"]["AgentRole"].get("DeletionPolicy") is None      # the kit's own, as before
     boundary = t["Resources"]["AgentRole"]["Properties"]["PermissionsBoundary"]["Fn::Sub"]
     assert boundary.endswith(":policy/arvaken-stop-test-boundary")
