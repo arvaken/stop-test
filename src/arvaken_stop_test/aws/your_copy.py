@@ -35,6 +35,7 @@ from __future__ import annotations
 import json
 import re
 import secrets
+import threading
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -126,10 +127,10 @@ EMAIL = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
 SDK_WINDOW_TOO_SHORT = "For your SDK's stop the kit times each path for at least 15 minutes after your mark."
 # With a model, the kit reads CloudTrail for the copy's calls to it, under the founder's rule for its path (sdk.py,
 # judge_model, approved at 17:10:07 UTC on 2 November 2026), once, 15 minutes after the window ends (sdk.TRAIL_READ).
-# CUSTOMER TEXT: a draft, for the founder's approval
+# CUSTOMER TEXT: approved by the founder, word for word, by 17:34:50 UTC on 2 November 2026 ("Approve all seven")
 SDK_MODEL_TRAIL = ("With your SDK's stop, the kit reads CloudTrail for your copy's calls to the model 15 minutes after "
                    "the window ends, so the run ends at least that long after the window does.")
-# CUSTOMER TEXT: a draft, for the founder's approval
+# CUSTOMER TEXT: approved by the founder, word for word, by 17:34:50 UTC on 2 November 2026 ("Approve all seven")
 MODEL_TRAIL_WAIT = "Reading CloudTrail for your copy's calls to the model at {time}, 15 minutes after the window ended."
 PAGE_GAP = 0.5      # seconds between pages of the event history: two lookups a second, per account, per region, at
                     # most [source: aws-cloudtrail-lookup-rate]
@@ -368,13 +369,15 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
         window: float = WINDOWS["aws"], repeats: int = 1, clock: Clock | None = None, run_name: str | None = None,
         trail_wait: float = running.TRAIL_WAIT, say: Callable[[str], None] = lambda _: None, model: str = "",
         sdk_name: str = "", read: Callable[[str], bytes] = lambda where: Path(where).read_bytes(),
-        witness_get: Callable[[str, dict], int] | None = None) -> Run:
+        witness_get: Callable[[str, dict], int] | None = None,
+        wait_calling: Callable[[str, Callable[[], None]], float] | None = None) -> Run:
     """A whole run on a copy of yours, torn down whatever happens. Returns the run's record. `confirm` shows its words
     and gives back what you typed; `wait` shows its words and waits for your Enter. The stop is the kit's to fire, on the
     run's role; with `model`, the probe also calls it, as a fifth path. With `sdk_name`, the stop is that in-agent SDK's
     switch, which you fire after your mark (`stop_ref` is then empty): the kit's witness calls through the window, your
     export is read with `read` afterwards, and the paths are judged by sdk_results, the model's with CloudTrail's
-    record of the copy's calls to it, read after the teardown (model_calls)."""
+    record of the copy's calls to it, read after the teardown (model_calls). While the kit waits for your mark, the
+    probe keeps calling once a second (`wait_calling`; calling_while by default)."""
     from arvaken_stop_test.aws.stack import new_run
     clock = clock or Clock()
     account = c.sts.get_caller_identity()["Account"]
@@ -437,7 +440,9 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
                 say(NOT_FIRED)
                 break
             if product:                             # you fire your SDK's switch after your mark; the witness calls
-                rep = running.time_one(c, r, clock, False, n, before, mark=lambda: wait(running.MARK_PROMPT),
+                ask = wait_calling or calling_while(wait, clock)
+                rep = running.time_one(c, r, clock, False, n, before,
+                                       mark=lambda each: ask(running.MARK_PROMPT, each), calling_to_the_mark=True,
                                        say=say, marked=SDK_MARKED, each_second=Witness(c, r, clock, witness_get))
             else:
                 rep = running.time_one(c, r, clock, False, n, before, say=say)
@@ -461,6 +466,34 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
         model_calls(c, r, clock, say)
     running.own_tokens(c, r)
     return r
+
+
+def calling_while(wait: Callable[[str], object], clock: Clock) -> Callable[[str, Callable[[], None]], float]:
+    """Waiting for your Enter with `wait` while the kit makes a heartbeat once a second, so the minute before your mark
+    holds the probe's calls (the founder's answer at 17:34:50 UTC on 2 November 2026, "Keep calling until the mark"):
+    the wait in a thread of its own, the heartbeats where the kit runs. Gives back the kit's clock when you pressed
+    Enter; what the wait raised, it raises."""
+
+    def wait_calling(words: str, each_second: Callable[[], None]) -> float:
+        pressed: list[float] = []
+        raised: list[BaseException] = []
+        done = threading.Event()
+
+        def ask() -> None:
+            try:
+                wait(words)
+            except BaseException as e:  # noqa: BLE001 - raised where the kit runs, below
+                raised.append(e)
+            pressed.append(clock.now())
+            done.set()
+        threading.Thread(target=ask, daemon=True).start()
+        while not done.is_set():
+            each_second()
+            done.wait(1.0)
+        if raised:
+            raise raised[0]
+        return pressed[0]
+    return wait_calling
 
 
 def model_calls(c: Clients, r: Run, clock: Clock, say: Callable[[str], None]) -> None:
@@ -493,7 +526,7 @@ def model_calls(c: Clients, r: Run, clock: Clock, say: Callable[[str], None]) ->
     except Exception as e:  # noqa: BLE001 - a read not finished leaves the model's path not measured, by its code
         r.model_trail_error = running._code(e)
         return
-    r.model_trail = sorted(found)
+    r.model_trail = sorted(found, key=lambda x: x[0])
 
 
 def warm_up(c: Clients, r: Run, clock: Clock, say: Callable[[str], None]) -> None:

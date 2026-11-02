@@ -486,12 +486,15 @@ def _did_not_work(r: Run, p: str) -> str:
 def time_one(c: Clients, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
              before: dict[str, list[Beat]] | None = None, mark: Callable[[], object] | None = None,
              say: Callable[[str], None] = lambda _: None, marked: str = MARKED,
-             each_second: Callable[[], None] | None = None) -> Repeat:
+             each_second: Callable[[], None] | None = None, calling_to_the_mark: bool = False) -> Repeat:
     """One repeat: fire (or wait for the customer's own trigger, or their mark), then a heartbeat a second through the
     window and the hold. `before` is each path's heartbeats before the firing: the warm-up's, or those since the last
     stop was taken off. Through a gateway, the session for the other identity is taken through it, before the mark:
     where it cannot be, that path did not work before the stop. `marked` is what the kit says at the mark, and
-    `each_second` what it does beside each heartbeat after it (for an SDK's stop on a copy, its witness: sdk.py)."""
+    `each_second` what it does beside each heartbeat after it (for an SDK's stop on a copy, its witness: sdk.py). With
+    `calling_to_the_mark`, the heartbeats go on while the kit waits for the mark: `mark` is given the heartbeat to make
+    each second, and gives back the kit's clock when the customer pressed Enter (an SDK's stop on a copy: the founder's
+    answer at 17:34:50 UTC on 2 November 2026, "Keep calling until the mark")."""
     rep = Repeat()
     for p, beats in (before or {}).items():
         rep.beats.setdefault(p, []).extend(beats)
@@ -504,7 +507,17 @@ def time_one(c: Clients, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
         session = {}
     rep.session_expires = session.get("expires")
     n = n0
-    if mark is not None:
+    if mark is not None and calling_to_the_mark:
+
+        def one() -> None:
+            nonlocal n
+            beats, _, _, _ = heartbeat(c, r, n, session, clock)
+            for p, b in beats.items():
+                rep.beats.setdefault(p, []).append(b)
+            n += 1
+        rep.fired_before = rep.fired_after = mark(one)      # timed from the Enter, the calls kept up until it
+        say(marked)
+    elif mark is not None:
         mark()                          # the customer presses Enter, then fires their stop: timed from the Enter
         rep.fired_before = rep.fired_after = clock.now()
         say(marked)

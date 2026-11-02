@@ -96,7 +96,8 @@ class CopyAWS(FakeAWS):
     """The account, with the customer's copy in it, as a run on a copy sees it."""
 
     def __init__(self, clock: Clock, *, copy_subnets=(), copy_groups=(), fails_after_stop=None,
-                 sdk_raises=SwitchEngaged, sdk_sends_first=False, enter_after=0.0, model_trail_error=None, **kw):
+                 sdk_raises=SwitchEngaged, sdk_sends_first=False, enter_after=0.0, warned_after=0.0,
+                 model_trail_error=None, **kw):
         super().__init__(clock, **kw)
         self.copy_role, self.copy_subnets, self.fails_after_stop = OWN_ROLE, list(copy_subnets), fails_after_stop
         self.copy_groups = list(copy_groups)
@@ -106,9 +107,9 @@ class CopyAWS(FakeAWS):
         self.sdk_raises = sdk_raises
         # how Lambda's last change to the copy ended, and the customer's own key for its settings, if any
         self.update_status, self.kms_key = "Successful", None
-        # an SDK that lets the model's call go out and raises on its answer; and how long the customer takes to press
-        # Enter after the warning
-        self.sdk_sends_first, self.enter_after = sdk_sends_first, enter_after
+        # an SDK that lets the model's call go out and raises on its answer; and how long the customer takes to type
+        # the run's name at the warning, and to press Enter at the mark's prompt
+        self.sdk_sends_first, self.enter_after, self.warned_after = sdk_sends_first, enter_after, warned_after
         # CloudTrail's record of each call that reached the model (CopyClient.converse); what a lookup of them raises,
         # where it can't finish; and when each lookup of them was made
         self.model_records: list[tuple[float, str, str | None]] = []
@@ -220,7 +221,10 @@ def a_copy_run(aws: CopyAWS, clock: Clock, monkeypatch, *, typed=RUN, warned=RUN
         asked.append(words)
         if answers and words in answers:             # an answer known only once the run has fired is a function
             return answers[words]() if callable(answers[words]) else answers[words]
-        return warned if words == your_copy.WARNING else typed
+        if words == your_copy.WARNING:
+            clock.t += aws.warned_after
+            return warned
+        return typed
 
     def wait(words: str) -> None:
         asked.append(words)
@@ -228,13 +232,21 @@ def a_copy_run(aws: CopyAWS, clock: Clock, monkeypatch, *, typed=RUN, warned=RUN
             aws.copy_role = RUNS_ROLE
         elif words.startswith("Point your copy back") and "back" in points:
             aws.copy_role = OWN_ROLE
-        elif words == running.MARK_PROMPT:
-            clock.t += aws.enter_after
-            if fires_after is not None:             # Enter, then the customer fires their SDK's
-                aws.sdk_on_from = clock.now() + fires_after
+        elif words == running.MARK_PROMPT and fires_after is not None:     # Enter, then the customer fires their SDK's
+            aws.sdk_on_from = clock.now() + fires_after
+
+    def wait_calling(words: str, each) -> float:
+        """The customer's Enter at the mark's prompt, `aws.enter_after` seconds on, the kit's heartbeat made each second
+        till then, as your_copy.calling_while makes them."""
+        end = clock.now() + aws.enter_after
+        while clock.now() < end:
+            each()
+            clock.sleep(1.0)
+        wait(words)
+        return clock.now()
 
     kw = dict(window=60.0, clock=running.Clock(clock.now, clock.sleep), run_name=RUN, say=said.append,
-              confirm=confirm, wait=wait)
+              confirm=confirm, wait=wait, wait_calling=wait_calling)
     kw.update(over)
     c = clients(aws)
     c.region = "eu-central-1"

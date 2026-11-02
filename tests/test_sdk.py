@@ -135,12 +135,26 @@ def test_the_models_path_is_stopped_only_where_cloudtrail_shows_no_call_from_a_s
     # a call that reached the model from a second before the first failure to the window's end, whatever its answer
     for at, code in ((MARK + 300, None), (MARK + 300, "AccessDeniedException"), (MARK + 3.5, None),
                      (MARK + WINDOW, None)):
-        later = model_judged(bs, sorted(trail_of(bs) + [(at, code)]))
+        later = model_judged(bs, trail_of(bs) + [(at, code)])
         assert (later.outcome, later.reason) == (NOT_STOPPED, sdk.MODEL_ARRIVED.format(time=sdk._clock(at)))
         assert later.effect_between is None and later.stopped_at is None
     # and none outside that span
     for at in (MARK + 3.4, MARK + WINDOW + 1):
         assert model_judged(bs, sorted(trail_of(bs) + [(at, None)])).outcome == sdk.SDK_STOPPED
+
+
+def test_in_the_second_before_the_first_failure_the_record_of_a_call_the_probe_saw_succeed_does_not_count():
+    """The founder's answer at 17:34:50 UTC on 2 November 2026, "Don't count it"."""
+    bs = model_beats(MARK + 4.0)                         # its last success at MARK + 3, its first failure at MARK + 4.5
+    late = trail_of(bs, took=1.2)                        # that success finished at MARK + 4.2: its record, MARK + 4
+    assert (MARK + 4.0, None) in late and model_judged(bs, late).outcome == sdk.SDK_STOPPED
+    # a second record in that second, or a refused one, stands for no success the probe saw: not stopped
+    for extra in ((MARK + 4.0, None), (MARK + 4.0, "AccessDeniedException")):
+        found = model_judged(bs, late + [extra])
+        assert (found.outcome, found.reason) == (NOT_STOPPED, sdk.MODEL_ARRIVED.format(time=sdk._clock(MARK + 4.0)))
+    # from the first failure on, every record counts, the probe's own success's or not
+    later = trail_of(bs, took=2.2)                       # that success's record, MARK + 5
+    assert (MARK + 5.0, None) in later and model_judged(bs, later).outcome == NOT_STOPPED
 
 
 def test_the_models_path_is_not_measured_where_cloudtrail_misses_a_call_that_worked_in_the_minute_before_the_mark():
@@ -356,7 +370,8 @@ def test_with_a_model_the_kit_reads_cloudtrail_15_minutes_after_the_window_and_j
     # read once the teardown was done, 15 minutes after the window ended, never sooner; only the run's role's calls kept
     assert aws.model_lookups and min(aws.model_lookups) >= due and r.ended_at <= min(aws.model_lookups)
     runs = names(r.run)["agent_role"]
-    assert r.model_trail == sorted((float(int(at)), code) for at, role, code in aws.model_records if role == runs)
+    assert r.model_trail == sorted(((float(int(at)), code) for at, role, code in aws.model_records if role == runs),
+                                  key=lambda x: x[0])
     assert r.model_trail and r.model_trail_error is None
     doc, details = your_copy.the_result(r, ["no tools"], "a model on Amazon Bedrock")
     assert details["model_trail"]["read"] and len(details["model_trail"]["calls"]) == len(r.model_trail)
@@ -375,7 +390,7 @@ def test_an_sdk_that_fails_the_models_call_once_it_has_gone_out_is_not_stopped_o
     ({"model_trail_error": botocore.exceptions.ClientError(
         {"Error": {"Code": "ThrottlingException", "Message": "Rate exceeded"}}, "LookupEvents")},
      sdk.MODEL_TRAIL_UNREAD.format(code="ThrottlingException")),
-    ({"enter_after": 120.0}, sdk.MODEL_NONE_BEFORE),                # the minute before the mark held no call
+    ({"warned_after": 120.0}, sdk.MODEL_NONE_BEFORE),               # the minute before the mark held no call
     ({"trail_delay": 10_000.0}, sdk.MODEL_NOT_IN_TRAIL),            # CloudTrail had recorded nothing by then
 ])
 def test_where_cloudtrail_cannot_vouch_for_the_models_calls_its_path_is_not_measured_and_no_other(an_account,
@@ -385,6 +400,35 @@ def test_where_cloudtrail_cannot_vouch_for_the_models_calls_its_path_is_not_meas
     found = your_copy.sdk_results(r)[0][1]
     assert (found["model"].outcome, found["model"].reason) == (NOT_MEASURED, reason)
     assert {f.outcome for p, f in found.items() if p != "model"} == {sdk.SDK_STOPPED}
+
+
+def test_the_probe_keeps_calling_while_the_kit_waits_for_your_mark_so_the_minute_before_it_holds_its_calls(
+        an_account, monkeypatch):
+    r, aws, _, _, _ = an_sdk_run(monkeypatch, model=MODEL_ID, aws={"warned_after": 120.0, "enter_after": 90.0})
+    mark = r.repeats[0].fired_after + r.offset
+    before = [b for b in r.repeats[0].beats["model"] if mark - sdk.TRAIL_BEFORE <= b.at <= mark]
+    assert len(before) >= 30 and all(b.ok for b in before)
+    found = your_copy.sdk_results(r)[0][1]
+    assert {p: f.outcome for p, f in found.items()} == {p: sdk.SDK_STOPPED for p in r.paths}
+
+
+def test_the_kit_waits_for_your_enter_in_a_thread_of_its_own_while_it_makes_a_heartbeat_each_second():
+    import threading
+    import time
+    calls, enough = [], threading.Event()
+
+    def each() -> None:
+        calls.append(time.time())
+        if len(calls) == 2:
+            enough.set()
+
+    pressed = your_copy.calling_while(lambda words: enough.wait(10), running.Clock())(running.MARK_PROMPT, each)
+    assert len(calls) == 2 and calls[1] <= pressed and calls[1] - calls[0] >= 0.9
+
+    def no_terminal(words: str) -> None:
+        raise EOFError()
+    with pytest.raises(EOFError):
+        your_copy.calling_while(no_terminal, running.Clock())(running.MARK_PROMPT, lambda: None)
 
 
 def test_without_a_model_the_kit_never_reads_cloudtrail_for_one(an_account, monkeypatch):
