@@ -25,9 +25,10 @@ calling from outside the copy through the window, and the SDK's own record of ac
 **Before anything is made**, you confirm by typing the run's name that the copy is a test copy, not an agent whose
 work matters (the terms, 2.1).
 
-What the run keeps of the copy for its result (stop-test-result/3, the design's section 5, which waits for the kit's
-terms v5): its ARN, sealed when submitted, and which clients the probe used, by kind (Run.clients). Until then, a run on
-a copy writes no result.
+**Its result** is a stop-test-result/3 (the design's section 5; the kit's terms v5, D721; the_result): the copy's ARN,
+sealed when submitted, as every identifier is; its runtime, memory and network; whose test agent it was; the kinds of
+its tools and model you chose from the kit's lists, and whose clients the probe used, by kind; for an SDK's switch, the
+time of the entry you chose in your SDK's record, readable, and its name and the file's SHA-256, sealed.
 """
 from __future__ import annotations
 
@@ -146,6 +147,56 @@ def take_record(r: Run, ask: Callable[[str], str], read: Callable[[str], bytes])
     except Exception:  # noqa: BLE001 - no record: the paths read not measured, and say so
         return
     r.sdk_record = sdk.record(export, ask(SDK_ENTRY_TIME), ask(SDK_ENTRY_NAME))
+
+
+def clients_of(seen: dict[str, set[str]]) -> dict[str, str]:
+    """Whose clients the probe used, by kind (KC2, "Each kind apart"), in the result's words: yours only where every
+    reply of the run said so; else the runtime's."""
+    return {kind: result.CLIENTS[0] if seen.get(kind) == {"customer"} else result.CLIENTS[1]
+            for kind in result.SHAPE_V3["agent.clients"]}
+
+
+def copy_part(r: Any, tools: list[str], model_kind: str) -> dict[str, Any]:
+    """What a version-3 result adds for a copy of yours (result.build's `copy`): its tools' and model's kinds as you
+    chose them, its clients by kind, and for an SDK's switch your SDK's own record, its file never."""
+    rec = r.sdk_record
+    return {"tools": list(tools), "model_kind": model_kind, "clients": clients_of(r.clients),
+            "record": {"time": rec.time, "name": rec.name, "sha256": rec.sha256} if rec is not None else None}
+
+
+def copy_details(r: Any, doc: dict, found: list[tuple[float | None, dict[str, PathResult]]]) -> dict[str, Any]:
+    """What the run found, as a file beside the result that stays with you: each path's outcome and why, its time to
+    effect, and each failure's record; what the teardown checked; and for an SDK's switch, the kit's witness."""
+    out = {"format": "stop-test-details/1", "run": r.run, "result_signature": doc["signature"],
+           "stop_kind": r.stop_kind, "window_seconds": r.window, "left_behind": r.left_behind,
+           "checked_gone": r.checked_gone, "clients": clients_of(r.clients),
+           "repeats": [{p: {"outcome": f.outcome, "reason": f.reason, "fired_source": f.fired_source,
+                            "effect_between_seconds": list(f.effect_between) if f.effect_between else None,
+                            "first_refused": result.iso(f.first_failure_after),
+                            "last_success": result.iso(f.last_success_after), "tries_after": f.tries_after,
+                            "failures_after": f.failures_after, "errors": f.errors,
+                            "failures": result.failure_records(f)} for p, f in paths.items()}
+                       for _, paths in found]}
+    if r.product:
+        out["witness"] = {"calls": len(r.witness),
+                          "failed": [{"at": result.iso(at), "code": code} for at, ok, code in r.witness if not ok]}
+    return out
+
+
+def the_result(r: Run, tools: list[str], model_kind: str, key=None) -> tuple[dict, dict]:
+    """The run's result, stop-test-result/3, signed with a key made for it, and its details (copy_details)."""
+    from arvaken_stop_test import __version__
+    found = sdk_results(r) if r.product else running.results(r)
+    doc = result.build(
+        kit_version=__version__, cloud="aws", region=r.region, began_at=r.began_at, ended_at=r.ended_at,
+        window=r.window, clock_gap_ms=int(round(abs(r.offset) * 1000)), calls=r.calls, left_behind=r.left_behind,
+        stop_kind=r.stop_kind, fired_by=r.fired_by, stop_ref=r.stop_ref,
+        agent={"kind": "aws-lambda-function", "runtime": r.copy_config.get("runtime"),
+               "memory_mb": r.copy_config.get("memory_mb"), "private_network": bool(r.copy_config.get("private_network")),
+               "ref": r.copy, "role_ref": r.outputs.get("AgentRole", "")},
+        repeats=found, product=r.product, copy=copy_part(r, tools, model_kind))
+    doc = result.sign(doc, key or result.new_key())
+    return doc, copy_details(r, doc, found)
 
 
 def sdk_results(r: Run) -> list[tuple[float | None, dict[str, PathResult]]]:
@@ -276,7 +327,9 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
         raise firing.Refused(NOT_CONFIRMED)         # before anything is made
     r = Run(run=the_name, stop_ref=stop_ref, fired_by="your own trigger" if product else "the kit", window=window,
             region=c.region, model=model, copy=copy, copy_role=str(own.get("Role", "")),
-            outside_key=secrets.token_hex(16), product=product)
+            outside_key=secrets.token_hex(16), product=product,
+            copy_config={"runtime": own.get("Runtime"), "memory_mb": own.get("MemorySize"),
+                         "private_network": network})
     r.began_at = clock.now()
     try:
         deploy(c, r, clock, network)

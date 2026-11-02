@@ -21,7 +21,7 @@ the copy through the window and your SDK's own record of acting taken from your 
 the probe's "answer"; the running session, its "watch", which your entrypoint returns for AgentCore to stream.
 
 Before anything is made, you confirm by typing the run's name that the copy is a test copy; before every firing, the
-warning (KC4) and the run's name again. Until stop-test-result/3, a run on a copy writes no result.
+warning (KC4) and the run's name again. Its result is a stop-test-result/3, as on Lambda (the_result).
 """
 from __future__ import annotations
 
@@ -61,6 +61,15 @@ POINT_AT = ("Point your copy's runtime {copy} at the run's role for the test: se
 # CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
 POINT_BACK = ("Point your copy's runtime {copy} back at its own role, {own}, keeping the rest of its configuration as "
               "it is. Then press Enter, and the kit removes what it made.")
+
+
+def settings_of(own: dict[str, Any]) -> dict[str, Any]:
+    """The copy's runtime and network, as its result keeps them (4.4): its code's runtime, or "container" for a container
+    image; and whether it runs in a VPC of yours."""
+    artifact = own.get("agentRuntimeArtifact") or {}
+    runtime = (artifact.get("codeConfiguration") or {}).get("runtime") or \
+        ("container" if artifact.get("containerConfiguration") else None)
+    return {"runtime": runtime, "private_network": (own.get("networkConfiguration") or {}).get("networkMode") == "VPC"}
 
 
 def runtime_arn(copy: str, region: str, account: str) -> re.Match | None:
@@ -180,7 +189,7 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
         raise firing.Refused(NOT_CONFIRMED)         # before anything is made
     r = Run(run=the_name, stop_ref=stop_ref, window=window, region=c.region, account=caller["Account"],
             partition=found.group(1), copy=copy, copy_role=str(own.get("roleArn", "")),
-            outside_key=secrets.token_hex(16), product=product)
+            outside_key=secrets.token_hex(16), product=product, copy_config=settings_of(own))
     r.outputs.update(Runtime=copy, RuntimeId=found.group(4))
     r.began_at = clock.now()
     try:
@@ -217,6 +226,23 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
                          for x in r.left_behind]
         r.ended_at = clock.now()
     return r
+
+
+def the_result(r: Run, tools: list[str], model_kind: str, key=None) -> tuple[dict, dict]:
+    """The run's result, stop-test-result/3, signed with a key made for it, and its details, as on Lambda."""
+    from arvaken_stop_test import __version__
+    from arvaken_stop_test.aws.your_copy import copy_details, copy_part
+    found = sdk_results(r) if r.product else running.results(r)
+    doc = result.build(
+        kit_version=__version__, cloud="aws", region=r.region, began_at=r.began_at, ended_at=r.ended_at,
+        window=r.window, clock_gap_ms=int(round(abs(r.offset) * 1000)), calls=r.calls, left_behind=r.left_behind,
+        stop_kind=r.stop_kind, fired_by=r.fired_by, stop_ref=r.stop_ref,
+        agent={"kind": running.AGENT_KIND, "runtime": r.copy_config.get("runtime"), "memory_mb": None,
+               "private_network": bool(r.copy_config.get("private_network")), "ref": r.copy,
+               "role_ref": r.outputs.get("AgentRole", "")},
+        repeats=found, product=r.product, copy=copy_part(r, tools, model_kind))
+    doc = result.sign(doc, key or result.new_key())
+    return doc, copy_details(r, doc, found)
 
 
 def sdk_results(r: Run) -> list[tuple[float | None, dict[str, PathResult]]]:

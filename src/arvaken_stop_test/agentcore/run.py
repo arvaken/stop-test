@@ -202,6 +202,7 @@ class Run:
     # clients the probe used, by kind (KC2). The kit never deletes, changes or reads the logs of a copy's runtime.
     copy: str = ""
     copy_role: str = ""
+    copy_config: dict[str, Any] = field(default_factory=dict)  # its runtime and network, for its result
     outside_key: str = field(default="", repr=False)
     clients: dict[str, set[str]] = field(default_factory=dict)
     # an SDK's stop on a copy (sdk.py, D713): the product as you declared it, the kit's witness, and the SDK's own record

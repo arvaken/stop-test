@@ -131,7 +131,12 @@ COPY_HELP = {
     "copy": "run on a test copy of your own agent, by its Lambda function's ARN, instead of on the kit's test agent",
     "agentcore_copy": "run on a test copy of your own agent, by its AgentCore runtime's ARN, instead of on the kit's",
     "sdk": "with --copy: your stop is this in-agent SDK's switch, by its name; you fire it yourself, from your mark",
+    "tool": "with --copy: a kind of tool your copy has, from the kit's list; give each that applies",
+    "model_kind": "with --copy: the kind of model your copy calls, from the kit's list",
 }
+# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+COPY_NEEDS_KINDS = ("--copy needs your copy's --tool kinds, each that applies, or no tools alone, and its --model-kind, "
+                    "from the kit's lists.")
 # CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
 COPY_GOES_WITH = ("--copy goes with --stop, --revoke-sessions, --inline-deny or --sdk; not with --own-trigger, --via, "
                   "--subnet, --security-group, --ca-bundle or the --product options.")
@@ -158,8 +163,9 @@ COPY_PLAN_SDK = ("- you fire your SDK {name}'s switch yourself, from your mark, 
                  "- afterwards asks for the file you exported from your SDK, keeping only its SHA-256 and the "
                  "entry you name;\n")
 # CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
-COPY_FOUND = ("A run on your own copy writes no result file yet: the result for your own agent waits for the kit's "
-              "next terms. What the run found:")
+COPY_FOUND = "What the run on your copy found:"
+# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+COPY_WROTE = "Wrote {out} and its details. Nothing about your account was sent to Arvaken."
 
 
 def write(path: Path, text: str) -> None:
@@ -631,6 +637,10 @@ def _copy_checks(args, p, agentcore: bool) -> None:
         given = sum((bool(args.stop), args.revoke_sessions, args.inline_deny))
     if args.sdk and given:
         p.error(SDK_IS_THE_STOP)
+    tools = args.tool or []
+    if args.action == "run" and (not tools or not args.model_kind or len(set(tools)) != len(tools) or
+                                 (result.TOOL_KINDS[0] in tools and len(tools) > 1)):
+        p.error(COPY_NEEDS_KINDS)
     if not args.sdk and given != 1:
         # CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
         p.error("give one of --stop, --inline-deny or --sdk" if agentcore else
@@ -654,8 +664,8 @@ def _copy_plan(args, run_name: str, agentcore: bool) -> str:
 
 def _copy(args, p, agentcore: bool) -> int:
     """A run on a test copy of your own agent: its plan, then the run, whose own words ask you to confirm the copy, to
-    point it at the run's role and back, and before every firing to type the run's name. It writes no result file:
-    stop-test-result/3 waits for the kit's terms v5. What each path found is printed."""
+    point it at the run's role and back, and before every firing to type the run's name. It writes its result, a
+    stop-test-result/3 (the kit's terms v5, D721), and its details, and prints what each path found."""
     from arvaken_stop_test import sdk
     from arvaken_stop_test.aws.fire import Refused
     from arvaken_stop_test.aws.stack import new_run
@@ -690,6 +700,10 @@ def _copy(args, p, agentcore: bool) -> int:
     except (ValueError, Refused) as e:  # before anything was made
         print(str(e))
         return 1
+    doc, details = copying.the_result(r, args.tool, args.model_kind)
+    out = Path(f"stop-test-{run_name}.json")
+    write(out, json.dumps(doc, indent=1, sort_keys=True))
+    write(Path(f"stop-test-{run_name}-details.json"), json.dumps(details, indent=1))
     found = copying.sdk_results(r) if args.sdk else running.results(r)
     print(COPY_FOUND)
     for i, (_, paths) in enumerate(found, 1):
@@ -698,6 +712,8 @@ def _copy(args, p, agentcore: bool) -> int:
                   + (f" ({f.reason})" if f.reason else ""))
     print("Nothing the kit made is left." if not r.left_behind else
           "Left for you to delete:\n" + "\n".join(r.left_behind))
+    print(COPY_WROTE.format(out=out))
+    print(f"Your result's reference: {result.reference(doc)}. It's the SHA-256 of the result's signature.")
     return 0
 
 
@@ -729,6 +745,8 @@ def main(argv: list[str] | None = None) -> int:
         a.add_argument("--model", default="", metavar="MODEL_ID", help=MODEL_HELP)
         a.add_argument("--copy", default="", metavar="ARN", help=COPY_HELP["copy"])
         a.add_argument("--sdk", default="", metavar="NAME", help=COPY_HELP["sdk"])
+        a.add_argument("--tool", action="append", choices=result.TOOL_KINDS, metavar="KIND", help=COPY_HELP["tool"])
+        a.add_argument("--model-kind", choices=result.MODEL_KINDS, metavar="KIND", help=COPY_HELP["model_kind"])
     clean = aws_sub.add_parser("clean", help="remove what an interrupted run left")
     clean.add_argument("--run", dest="run_name", required=True)
     clean.add_argument("--region", required=True)
@@ -752,6 +770,8 @@ def main(argv: list[str] | None = None) -> int:
         a.add_argument("--endpoint", default=ENDPOINT, help=argparse.SUPPRESS)
         a.add_argument("--copy", default="", metavar="ARN", help=COPY_HELP["agentcore_copy"])
         a.add_argument("--sdk", default="", metavar="NAME", help=COPY_HELP["sdk"])
+        a.add_argument("--tool", action="append", choices=result.TOOL_KINDS, metavar="KIND", help=COPY_HELP["tool"])
+        a.add_argument("--model-kind", choices=result.MODEL_KINDS, metavar="KIND", help=COPY_HELP["model_kind"])
     aclean = agentcore_sub.add_parser("clean", help="remove what an interrupted run left")
     aclean.add_argument("--run", dest="run_name", required=True)
     aclean.add_argument("--region", required=True)

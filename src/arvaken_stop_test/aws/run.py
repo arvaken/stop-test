@@ -214,6 +214,7 @@ class Run:
     # which clients the probe used, by kind (KC2: "cloud" and "http", each "customer" or "runtime")
     copy: str = ""
     copy_role: str = ""
+    copy_config: dict[str, Any] = field(default_factory=dict)  # its runtime, memory and network, for its result
     outside_key: str = field(default="", repr=False)
     clients: dict[str, set[str]] = field(default_factory=dict)
     # an SDK's stop on a copy (sdk.py, D713): the kit's witness, each call (when, on the agent's clock; worked; its
