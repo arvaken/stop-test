@@ -133,6 +133,7 @@ COPY_HELP = {
     "sdk": "with --copy: your stop is this in-agent SDK's switch, by its name; you fire it yourself, from your mark",
     "tool": "with --copy: a kind of tool your copy has, from the kit's list; give each that applies",
     "model_kind": "with --copy: the kind of model your copy calls, from the kit's list",
+    "endpoint_name": "with --copy: the endpoint of your runtime the kit calls, DEFAULT unless you name another",
 }
 # CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
 COPY_NEEDS_KINDS = ("--copy needs your copy's --tool kinds, each that applies, or no tools alone, and its --model-kind, "
@@ -679,7 +680,7 @@ def _copy(args, p, agentcore: bool) -> int:
         from arvaken_stop_test.agentcore import run as running
         from arvaken_stop_test.agentcore import your_copy as copying
         from arvaken_stop_test.agentcore.boto import clients_for
-        extra = {}
+        extra = {"qualifier": args.endpoint_name}
     else:
         from arvaken_stop_test.aws import run as running
         from arvaken_stop_test.aws import your_copy as copying
@@ -708,7 +709,7 @@ def _copy(args, p, agentcore: bool) -> int:
     print(COPY_FOUND)
     for i, (_, paths) in enumerate(found, 1):
         for path, f in paths.items():
-            print(f"- {f'repeat {i}, ' if len(found) > 1 else ''}{PATH_WORDS[path]}: {sdk.worded(f.outcome, r.window)}"
+            print(f"- {f'repeat {i}, ' if len(found) > 1 else ''}{PATH_WORDS[path]}: {sdk.worded(f)}"
                   + (f" ({f.reason})" if f.reason else ""))
     print("Nothing the kit made is left." if not r.left_behind else
           "Left for you to delete:\n" + "\n".join(r.left_behind))
@@ -769,6 +770,7 @@ def main(argv: list[str] | None = None) -> int:
         a.add_argument("--run", dest="run_name", help="the run's name, if you are resuming one")
         a.add_argument("--endpoint", default=ENDPOINT, help=argparse.SUPPRESS)
         a.add_argument("--copy", default="", metavar="ARN", help=COPY_HELP["agentcore_copy"])
+        a.add_argument("--endpoint-name", default="DEFAULT", metavar="NAME", help=COPY_HELP["endpoint_name"])
         a.add_argument("--sdk", default="", metavar="NAME", help=COPY_HELP["sdk"])
         a.add_argument("--tool", action="append", choices=result.TOOL_KINDS, metavar="KIND", help=COPY_HELP["tool"])
         a.add_argument("--model-kind", choices=result.MODEL_KINDS, metavar="KIND", help=COPY_HELP["model_kind"])

@@ -15,6 +15,7 @@
       "Effect": "Allow",
       "Action": [
         "bedrock-agentcore:GetAgentRuntime",
+        "bedrock-agentcore:GetAgentRuntimeEndpoint",
         "bedrock-agentcore:InvokeAgentRuntime"
       ],
       "Resource": [

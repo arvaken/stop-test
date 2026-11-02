@@ -63,6 +63,10 @@ class CopyClient:
         self._refused("GetObject")
         return {"Body": io.BytesIO(b"x")}
 
+    def converse(self, modelId, inferenceConfig, messages):
+        self._refused("Converse")
+        return {"output": {"message": {"role": "assistant", "content": [{"text": "THE MODEL'S OWN WORDS"}]}}}
+
     def assume_role(self, RoleArn, RoleSessionName, DurationSeconds):
         self._refused("AssumeRole")
         self.aws.session_issued = self.aws.clock.now() + SKEW
@@ -80,6 +84,8 @@ class CopyAWS(FakeAWS):
         # the customer's in-agent SDK: when its switch is on, and what each call it guards then raises
         self.sdk_on_from: float | None = None
         self.sdk_raises = sdk_raises
+        # how Lambda's last change to the copy ended, and the customer's own key for its settings, if any
+        self.update_status, self.kms_key = "Successful", None
         self.cloud = lambda name, config=None, **creds: CopyClient(self, name, "aws_access_key_id" in creds)
 
     def create_stack(self, StackName, TemplateBody, Capabilities, Tags):
@@ -97,7 +103,8 @@ class CopyAWS(FakeAWS):
 
     def get_function_configuration(self, FunctionName):
         assert FunctionName == COPY, FunctionName
-        return {"Role": self.copy_role, "LastUpdateStatus": "Successful", "VpcConfig": {"SubnetIds": self.copy_subnets}}
+        return {"Role": self.copy_role, "LastUpdateStatus": self.update_status,
+                "VpcConfig": {"SubnetIds": self.copy_subnets}, **({"KMSKeyArn": self.kms_key} if self.kms_key else {})}
 
     def get_function(self, FunctionName):
         raise AssertionError("a run on a copy never asks for the kit's own function")
@@ -207,10 +214,19 @@ def test_a_run_on_a_copy_fires_on_the_runs_role_alone_and_times_the_copys_own_ca
 
 
 def test_the_stack_for_a_copy_has_no_function_and_keeps_the_role_for_the_kit_to_remove():
-    t = template(RUN, "", copy=True)
+    t = template(RUN, "", copy=COPY)
     assert "Agent" not in t["Resources"] and "Agent" not in t["Outputs"]
     assert t["Resources"]["AgentRole"]["DeletionPolicy"] == "Retain"
-    assert t["Description"] == COPY_DESCRIPTION.format(run=RUN)
+    assert t["Description"] == COPY_DESCRIPTION.format(run=RUN, copy=COPY) and len(t["Description"]) <= 1024
+    role = t["Resources"]["AgentRole"]["Properties"]
+    # its trust is Lambda's alone; what the copy's code uses, it gets only from the copy (the founder's ruling)
+    assert role["AssumeRolePolicyDocument"]["Statement"] == [
+        {"Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"}, "Action": "sts:AssumeRole"}]
+    assert all(s["Condition"] == {"StringEquals": {"lambda:SourceFunctionArn": COPY}}
+               for s in role["Policies"][0]["PolicyDocument"]["Statement"])
+    second = t["Resources"]["SecondRole"]["Properties"]["AssumeRolePolicyDocument"]["Statement"]
+    assert second == [{"Effect": "Allow", "Principal": {"AWS": {"Fn::GetAtt": ["AgentRole", "Arn"]}},
+                       "Action": "sts:AssumeRole"}]
     assert template(RUN, "")["Resources"]["AgentRole"].get("DeletionPolicy") is None      # the kit's own, as before
     boundary = t["Resources"]["AgentRole"]["Properties"]["PermissionsBoundary"]["Fn::Sub"]
     assert boundary.endswith(":policy/arvaken-stop-test-boundary")
@@ -322,3 +338,37 @@ def test_the_kits_policy_does_not_reach_a_copy_and_the_copys_own_policy_reaches_
     assert lambdas["Resource"] == "arn:aws:lambda:REGION:ACCOUNT:function:YOUR-TEST-COPY"
     source = (Path(your_copy.__file__)).read_text(encoding="utf-8")
     assert set(re.findall(r"c\.lambda_\.([a-z_]+)\(", source)) == {"get_function_configuration"}
+
+
+
+def test_a_copy_whose_settings_use_your_own_key_is_refused_before_anything_is_made(an_account, monkeypatch):
+    clock = Clock()
+    aws = CopyAWS(clock)
+    aws.kms_key = "arn:aws:kms:eu-central-1:123456789012:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    with pytest.raises(firing.Refused, match="encrypted with your own key"):
+        a_copy_run(aws, clock, monkeypatch)
+    assert aws.stack is None
+
+
+def test_a_copy_whose_update_did_not_succeed_is_not_timed(an_account, monkeypatch):
+    clock = Clock()
+    aws = CopyAWS(clock)
+    aws.update_status = "Failed"
+    with pytest.raises(running.NotStarted, match="does not run as the run's role"):
+        a_copy_run(aws, clock, monkeypatch)
+    assert aws.invocations == 0
+
+
+def test_at_cleanup_the_copy_is_asked_back_before_anything_is_removed(an_account, monkeypatch):
+    clock = Clock()
+    aws = CopyAWS(clock)
+    roles_at_removal = []
+    real = CopyAWS.detach_role_policy
+
+    def detach(self, RoleName, PolicyArn):
+        roles_at_removal.append(self.copy_role)      # the copy's role when the kit takes the stop off
+        return real(self, RoleName=RoleName, PolicyArn=PolicyArn)
+
+    monkeypatch.setattr(CopyAWS, "detach_role_policy", detach)
+    r, _, _ = a_copy_run(aws, clock, monkeypatch)
+    assert set(roles_at_removal) <= {OWN_ROLE} and aws.role_deleted and r.left_behind == []

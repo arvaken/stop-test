@@ -1068,6 +1068,13 @@ def test_every_call_the_agentcore_module_makes_is_in_its_policy_and_the_policy_h
         assert s["Effect"] == "Allow"
         allowed |= set(s["Action"] if isinstance(s["Action"], list) else [s["Action"]])
     needed = _calls() | FROM_AWS_FIRE | BESIDE
+    # a run on a copy reads which version its endpoint serves: a call on the customer's runtime, which the copy's own
+    # policy holds (permissions/aws-copy-policy.json), as it holds calling the copy
+    copy_only = {"bedrock-agentcore:GetAgentRuntimeEndpoint"}
+    copy_policy = json.loads((Path(__file__).resolve().parents[1] / "permissions" / "aws-copy-policy.json")
+                             .read_text(encoding="utf-8"))
+    assert copy_only <= {a for s in copy_policy["Statement"] for a in s["Action"]}
+    needed -= copy_only
     assert "bedrock-agentcore:InvokeAgentRuntime" in needed and "cloudtrail:CreateTrail" in needed
     assert needed - allowed == set()
     assert allowed - needed == set()

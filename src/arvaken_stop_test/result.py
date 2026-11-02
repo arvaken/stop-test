@@ -238,17 +238,15 @@ def build(*, kit_version: str, cloud: str, region: str, began_at: float, ended_a
     }
     if copy is None:
         return doc
-    from arvaken_stop_test.sdk import FROM_THE_RECORD
     sdk_switch = bool(product) and product["kind"] == SDK_KIND
     record = copy.get("record")
     doc["format"] = FORMAT_V3
     doc["agent"].update(whose=WHOSE[1], tools=list(copy["tools"]), model_kind=copy["model_kind"],
                         clients={k: copy["clients"][k] for k in SHAPE_V3["agent.clients"]})
     doc["stop"]["record"] = {k: record[k] for k in SHAPE_V3["stop.record"]} if record else None
-    for (_, paths), part in zip(repeats, doc["repeats"]):
-        for p, found in part.items():
-            found["timed_from"] = (TIMED_FROM[0] if paths[p].fired_source == FROM_THE_RECORD else TIMED_FROM[1]) \
-                if sdk_switch else None
+    for part in doc["repeats"]:         # every path of an SDK's switch is timed from your mark (step 4, batch 3)
+        for found in part.values():
+            found["timed_from"] = TIMED_FROM[1] if sdk_switch else None
     return doc
 
 
@@ -332,10 +330,11 @@ def _check_v3(doc: dict[str, Any]) -> None:
                 not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise NotAResult(REFUSALS_V3["record"])
     from arvaken_stop_test.sdk import SDK_STOPPED
-    sdk_outcomes = (SDK_STOPPED, NOT_MEASURED, NOT_RUN)        # D713: stopped by its rule, else not measured
+    # stopped by its rule, not stopped, stopped then succeeded again, not run, else not measured (step 4, batch 4)
+    sdk_outcomes = (SDK_STOPPED, NOT_STOPPED, FLAPPED, NOT_MEASURED, NOT_RUN)
     for repeat in doc["repeats"]:
         for part in repeat.values():
-            if (part["timed_from"] in TIMED_FROM) != sdk_switch or (not sdk_switch and part["timed_from"] is not None):
+            if part["timed_from"] != (TIMED_FROM[1] if sdk_switch else None):     # from your mark, for an SDK's
                 raise NotAResult(REFUSALS_V3["timed_from"])
             if (part["outcome"] in sdk_outcomes) != sdk_switch and (sdk_switch or part["outcome"] == SDK_STOPPED):
                 raise NotAResult("an SDK's switch has its own outcomes, and no other stop has them")

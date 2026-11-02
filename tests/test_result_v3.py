@@ -35,9 +35,9 @@ def test_an_sdks_run_on_a_lambda_copy_writes_a_version_3_result_as_the_terms_4_2
                               "sha256": hashlib.sha256(files["acme-audit.log"]).hexdigest()}
     assert stop["product"] == {"kind": "in-agent SDK", "attachment": "inside its code", "name": "Acme Guard"}
     assert (stop["kind"], stop["fired_by"]) == (result.PRODUCT_CONTROL, "your own trigger")
-    # each path, timed from the SDK's own record (to the second), and stopped by its rule
+    # each path, timed from the mark, and stopped by the rule
     for part in doc["repeats"][0].values():
-        assert (part["timed_from"], part["outcome"]) == ("your SDK's own record", sdk.SDK_STOPPED)
+        assert (part["timed_from"], part["outcome"]) == ("your mark", sdk.SDK_STOPPED)
     assert "ops@example.com" not in str(doc) and "ops@example.com" not in str(details)
     assert details["witness"]["failed"] == [] and details["witness"]["calls"] >= 700
 

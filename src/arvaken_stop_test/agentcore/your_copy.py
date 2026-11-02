@@ -40,7 +40,8 @@ from arvaken_stop_test.agentcore.agent import LONGEST
 from arvaken_stop_test import result, sdk
 from arvaken_stop_test.aws import fire as aws_fire
 from arvaken_stop_test.aws.run import MARK_PROMPT
-from arvaken_stop_test.aws.your_copy import (CONFIRM_COPY, NOT_CONFIRMED, NOT_FIRED, NOT_POINTED, SDK_MARKED,
+from arvaken_stop_test.aws.your_copy import (CONFIRM_COPY, CONFIRM_COPY_SDK, NOT_CONFIRMED, NOT_FIRED, NOT_POINTED,
+                                             RECORD_BEFORE_MARK, SDK_FIRES_NOTHING, SDK_MARKED, SDK_NAMED,
                                              SDK_SWITCH_OFF, SDK_WINDOW_TOO_SHORT, STILL_RUNS_AS, WARNING, Witness,
                                              take_record)
 from arvaken_stop_test.timing import GATEWAY_WINDOW, HOLD, NOT_RUN, WINDOWS, PathResult
@@ -50,18 +51,22 @@ RUNTIME_ARN = re.compile(r"arn:(aws(?:-[a-z]+)*):bedrock-agentcore:([a-z0-9-]+):
                          r"([A-Za-z][A-Za-z0-9_]{0,47}-[A-Za-z0-9]{10})")
 SETTLE = 600.0          # seconds to wait for AgentCore to finish a change to the copy's runtime (run.MAKE_WAIT)
 
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+# Approved by the founder in his step-4 rulings (batch 2, 00:42:35 UTC on 2 November 2026).
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 2 (1))
 NOT_A_RUNTIME = "a test copy on AgentCore is named by its runtime's ARN, in the account and region the kit runs in"
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
-ROLE_ONLY = ("On a copy of yours, the kit fires only a policy on the role it makes for the run: a deny of calls, and "
-             "ending a session, would change your runtime.")
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
-POINT_AT = ("Point your copy's runtime {copy} at the run's role for the test: set its role to {role}, keeping the rest "
-            "of its configuration as it is (AgentCore's console, or update-agent-runtime). Then press Enter.")
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
-POINT_BACK = ("Point your copy's runtime {copy} back at its own role, {own}, keeping the rest of its configuration as "
-              "it is. Then press Enter, and the kit removes what it made.")
-
+# The deny kinds are not offered on a copy, as the own-trigger route does not take them on AgentCore: his alternative end.
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 2 (2))
+ROLE_ONLY = ("On a copy of yours, the kit fires only a policy on the role it makes for the run. A deny of calls is a "
+             "change to your runtime's own policy, and ending a session acts on your runtime itself, so the kit leaves "
+             "both to you. Timing them on a copy isn't offered yet.")
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 2 (3))
+POINT_AT = ("Point your copy's runtime {copy} at the run's role for the test: in AgentCore's console, edit {copy} and "
+            "set its role to {role}, changing nothing else. (update-agent-runtime also works, but it needs the "
+            "runtime's whole configuration again: anything you leave out is removed.) Then press Enter.")
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 2 (4))
+POINT_BACK = ("Point your copy's runtime {copy} back at its own role, {own}, in AgentCore's console, changing nothing "
+              "else. Then press Enter, and the kit removes what it made. AgentCore keeps the versions made during the "
+              "run. The one that ran as {role} names a role that will no longer exist.")
 
 def settings_of(own: dict[str, Any]) -> dict[str, Any]:
     """The copy's runtime and network, as its result keeps them (4.4): its code's runtime, or "container" for a container
@@ -104,36 +109,46 @@ def make(c: Clients, r: Run, clock: Clock) -> None:
     r.outputs["Bucket"] = n["bucket"]
 
 
-def configuration(c: Clients, r: Run, clock: Clock, settle: float = SETTLE) -> dict[str, Any]:
-    """The copy's runtime once AgentCore has finished any change to it, waited for up to `settle` seconds."""
+def served(c: Clients, r: Run, clock: Clock, settle: float = SETTLE) -> dict[str, Any]:
+    """The version the copy's endpoint serves, once AgentCore has finished any change to the endpoint or the runtime,
+    waited for up to `settle` seconds: the endpoint, its version, that version's role and both statuses. Nothing of the
+    runtime's environment is kept (batch 2 (3): "The kit never prints or stores environment variable values")."""
     end = clock.now() + settle
     while True:
-        found = c.control.get_agent_runtime(agentRuntimeId=r.outputs["RuntimeId"])
-        if found.get("status") not in ("CREATING", "UPDATING") or clock.now() >= end:
-            return found
+        endpoint = c.control.get_agent_runtime_endpoint(agentRuntimeId=r.outputs["RuntimeId"], endpointName=r.qualifier)
+        version = endpoint.get("liveVersion")
+        found = c.control.get_agent_runtime(agentRuntimeId=r.outputs["RuntimeId"],
+                                            **({"agentRuntimeVersion": version} if version else {}))
+        busy = {endpoint.get("status"), found.get("status")} & {"CREATING", "UPDATING"}
+        if not busy or clock.now() >= end:
+            return {"endpoint": r.qualifier, "version": version, "role": str(found.get("roleArn", "")),
+                    "status": found.get("status"), "endpoint_status": endpoint.get("status")}
         clock.sleep(5.0)
 
 
 def on_the_runs_role(c: Clients, r: Run, clock: Clock, settle: float = SETTLE) -> bool:
-    found = configuration(c, r, clock, settle)
-    return str(found.get("roleArn", "")).endswith(f":role/{names(r.run)['agent_role']}") and \
-        found.get("status") == "READY"
+    """Whether the version the endpoint serves runs as the run's role, by its name, and is ready, as is the endpoint."""
+    found = served(c, r, clock, settle)
+    return found["role"].endswith(f":role/{names(r.run)['agent_role']}") and found["status"] == "READY" and \
+        found["endpoint_status"] in ("READY", None)
 
 
-def keeps_the_role(c: Clients, r: Run, clock: Clock, wait: Callable[[str], object]) -> Callable[[], bool]:
-    """Whether the teardown keeps the run's role: where the copy still runs as it, you are asked to point it back, and
-    it is kept only where the copy runs as it still."""
-    role = names(r.run)["agent_role"]
+def point_back_first(c: Clients, r: Run, clock: Clock, wait: Callable[[str], object]) -> None:
+    """At cleanup, before anything is removed: where the version the endpoint serves runs as the run's role, ask you to
+    point the copy back to its own, read from it at the start of the run, before any change (batch 2 (4))."""
+    try:
+        if served(c, r, clock, 0.0)["role"].endswith(f":role/{names(r.run)['agent_role']}"):
+            wait(POINT_BACK.format(copy=r.copy, own=r.copy_role, role=r.outputs.get("AgentRole", "")))
+    except Exception:  # noqa: BLE001 - a copy the kit cannot read keeps the role: it is named for you to delete
+        pass
 
-    def on_it(settle: float) -> bool:
-        return str(configuration(c, r, clock, settle).get("roleArn", "")).endswith(f":role/{role}")
 
+def keeps_the_role(c: Clients, r: Run, clock: Clock) -> Callable[[], bool]:
+    """Whether the teardown keeps the run's role: the version the endpoint serves still runs as it, and the kit never
+    deletes a role the copy still runs as (batch 2 (4))."""
     def kept() -> bool:
         try:
-            if not on_it(0.0):
-                return False
-            wait(POINT_BACK.format(copy=r.copy, own=r.copy_role))
-            return on_it(SETTLE)
+            return served(c, r, clock, SETTLE)["role"].endswith(f":role/{names(r.run)['agent_role']}")
         except Exception:  # noqa: BLE001 - a copy the kit cannot read keeps the role: it is named for you to delete
             return True
     return kept
@@ -143,7 +158,7 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
         window: float = WINDOWS["aws"], repeats: int = 1, clock: Clock | None = None, run_name: str | None = None,
         trail_wait: float = running.TRAIL_WAIT, say: Callable[[str], None] = lambda _: None, sdk_name: str = "",
         read: Callable[[str], bytes] = lambda where: Path(where).read_bytes(),
-        witness_get: Callable[[str, dict], int] | None = None) -> Run:
+        witness_get: Callable[[str, dict], int] | None = None, qualifier: str = "DEFAULT") -> Run:
     """A whole run on a copy of yours, torn down whatever happens. Returns the run's record. `confirm` shows its words
     and gives back what you typed; `wait` shows its words and waits for your Enter. With `sdk_name`, the stop is that
     in-agent SDK's switch, which you fire from your mark (`stop_ref` is then empty), judged by sdk_results."""
@@ -156,9 +171,9 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
     product = None
     if sdk_name:
         if stop_ref:
-            raise ValueError("with your SDK's stop the kit fires nothing: you fire it yourself, from your mark")
+            raise ValueError(SDK_FIRES_NOTHING)
         if not 0 < len(sdk_name) <= result.NAME_LIMIT:
-            raise ValueError(f"an SDK is named in 1 to {result.NAME_LIMIT} characters")
+            raise ValueError(SDK_NAMED)
         if repeats != 1:
             raise ValueError("with your own trigger a run fires once: only you can take your own stop off between "
                              "repeats")
@@ -185,11 +200,11 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
     if reason:
         raise firing.Refused(reason)                # before anything is made
     own = c.control.get_agent_runtime(agentRuntimeId=found.group(4))
-    if confirm(CONFIRM_COPY.format(copy=copy, run=the_name)).strip() != the_name:
+    if confirm((CONFIRM_COPY_SDK if product else CONFIRM_COPY).format(copy=copy, run=the_name)).strip() != the_name:
         raise firing.Refused(NOT_CONFIRMED)         # before anything is made
     r = Run(run=the_name, stop_ref=stop_ref, window=window, region=c.region, account=caller["Account"],
             partition=found.group(1), copy=copy, copy_role=str(own.get("roleArn", "")),
-            outside_key=secrets.token_hex(16), product=product, copy_config=settings_of(own))
+            outside_key=secrets.token_hex(16), product=product, copy_config=settings_of(own), qualifier=qualifier)
     r.outputs.update(Runtime=copy, RuntimeId=found.group(4))
     r.began_at = clock.now()
     try:
@@ -199,6 +214,7 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
             said = NOT_POINTED.format(copy=copy, role=r.outputs["AgentRole"])
             say(said)
             raise NotStarted(said, r)
+        r.served = {k: v for k, v in served(c, r, clock, 0.0).items() if k in ("endpoint", "version")}
         running.warm_up(c, r, clock)
         for i in range(repeats):
             if i:
@@ -217,10 +233,13 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
             if r.repeats:
                 say(SDK_SWITCH_OFF)
                 take_record(r, confirm, read)
+                if sdk.before_the_mark(r.sdk_record, r.repeats[0].fired_after + r.offset):
+                    say(RECORD_BEFORE_MARK)
         else:
             running.firing_moments(c, r, clock, wait=trail_wait)
     finally:
-        running.tear_down(c, r, clock, say=say, keeps_the_role=keeps_the_role(c, r, clock, wait))
+        point_back_first(c, r, clock, wait)         # before anything is removed (batch 2 (4))
+        running.tear_down(c, r, clock, say=say, keeps_the_role=keeps_the_role(c, r, clock))
         role = names(r.run)["agent_role"]
         r.left_behind = [STILL_RUNS_AS.format(role=role, copy=copy) if x == f"the role {role}" else x
                          for x in r.left_behind]
@@ -254,17 +273,16 @@ def sdk_results(r: Run) -> list[tuple[float | None, dict[str, PathResult]]]:
             out.append((None, {p: PathResult(NOT_RUN, r.window, reason="the stop was not fired")
                                for p in running.PATHS}))
             continue
-        mark = rep.fired_after + r.offset
-        fired, precision, source = sdk.firing_moment(r.sdk_record, mark, r.window)
-        record_why = sdk.record_reason(r.sdk_record, mark, r.window)
-        witness_why = sdk.witness_reason(r.witness, mark, fired + r.window)
+        mark, rec = rep.fired_after + r.offset, r.sdk_record
+        record_why = sdk.record_reason(rec, mark, r.window)
+        witness_why = sdk.witness_reason(r.witness, mark, mark + r.window)
         found = {}
         for p in running.PATHS:
             beats = rep.beats.get(p, [])
             before = [b for b in beats if b.at <= mark]
-            found[p] = sdk.judge(beats, mark_at=mark, fired_at=fired, window=r.window,
+            found[p] = sdk.judge(beats, mark_at=mark, window=r.window,
                                  worked_before=p in rep.working and bool(before) and before[-1].ok,
-                                 fired_precision=precision, record_why=record_why, witness_why=witness_why,
-                                 fired_source=source, setup_errors=rep.setup_errors.get(p))
-        out.append((fired, found))
+                                 record_at=rec.at if rec is not None else None, record_why=record_why,
+                                 witness_why=witness_why, setup_errors=rep.setup_errors.get(p))
+        out.append((mark, found))
     return out

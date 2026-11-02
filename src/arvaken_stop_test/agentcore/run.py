@@ -203,6 +203,8 @@ class Run:
     copy: str = ""
     copy_role: str = ""
     copy_config: dict[str, Any] = field(default_factory=dict)  # its runtime and network, for its result
+    qualifier: str = "DEFAULT"          # the endpoint the kit calls: DEFAULT, or the one you name for a copy
+    served: dict[str, Any] = field(default_factory=dict)       # for a copy: that endpoint, and the version it serves
     outside_key: str = field(default="", repr=False)
     clients: dict[str, set[str]] = field(default_factory=dict)
     # an SDK's stop on a copy (sdk.py, D713): the product as you declared it, the kit's witness, and the SDK's own record
@@ -298,7 +300,7 @@ def payload_of(r: Run, payload: dict) -> dict:
 
 def _invoke(c: Clients, r: Run, session: str, payload: dict, accept: str = "application/json") -> dict:
     return c.data.invoke_agent_runtime(agentRuntimeArn=r.outputs["Runtime"], runtimeSessionId=session,
-                                       qualifier="DEFAULT", contentType="application/json", accept=accept,
+                                       qualifier=r.qualifier, contentType="application/json", accept=accept,
                                        payload=json.dumps(payload_of(r, payload)).encode())
 
 

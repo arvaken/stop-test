@@ -182,22 +182,34 @@ def _compact(source: str) -> str:
     return "\n".join(out)
 
 
-# What a copy's stack says of itself, in CloudFormation's console.
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
-COPY_DESCRIPTION = "Arvaken stop test, run {run}: the role your test copy runs as, and what it acts on. Removed when the run ends."
+# What a copy's stack says of itself, in CloudFormation's console: batch 1 (1), its fill, and the sentence on logs the
+# founder added, as the run's role may not write them; "Only {copy} gets its permissions" as he ruled it.
+# CUSTOMER TEXT: approved by the founder, word for word, 00:48:00 UTC on 2 November 2026 (step 4, batch 1 (1))
+COPY_DESCRIPTION = ("Arvaken stop test, run {run}: the role your test copy {copy} runs as during the run, with only what "
+                    "the test needs, within the kit's boundary: its own objects in the run's bucket, the run's second "
+                    "role, and where the run needs them, the model it names and the network actions Lambda needs in "
+                    "your VPC. Only {copy} gets its permissions. Removed when the run ends. Your copy's logs aren't "
+                    "written while it runs as this role.")
+SOURCE_FUNCTION = "lambda:SourceFunctionArn"    # the function a call comes from [source: aws-lambda-source-function-arn]
 
 
 def template(run: str, endpoint: str, outside_key: str | None = None, subnet: str = "",
-             security_groups: Sequence[str] = (), model: str = "", copy: bool = False,
+             security_groups: Sequence[str] = (), model: str = "", copy: str = "",
              network: bool = False) -> dict[str, Any]:
     """The run's stack. With a subnet, the function is in it, with the security groups named, and its role may make its
     network interfaces there; else the function is on Lambda's default network, as before. With a model, the function's
     environment names it, and its role may invoke it (model_resources); else neither, as before.
 
-    For a test copy of the customer's own function (`copy`; D575, copy.py), no function: the agent's role is the role the
-    copy runs as for the test, with the same permissions, and with `network` (a copy in a VPC of theirs) the network
-    actions Lambda needs for it, under the boundary a subnet's run has. CloudFormation keeps that role when the stack is
-    deleted (Retain): the kit deletes it itself once the copy no longer runs as it, and never while it does."""
+    For a test copy of the customer's own function (`copy`, its ARN; D575, your_copy.py), no function: the agent's role
+    is the role the copy runs as for the test, with the kit's agent role's permissions, and with `network` (a copy in a
+    VPC of theirs) the network actions Lambda needs for it, under the boundary a subnet's run has. Its trust is Lambda's
+    alone; each of its statements for what the copy's own code uses carries lambda:SourceFunctionArn equal to the
+    copy's ARN, which Lambda puts on every AWS request from within a function's execution environment
+    [source: aws-lambda-source-function-arn], so only the copy gets its permissions (the founder's ruling, 00:48:00 UTC
+    on 2 November 2026: "SourceFunctionArn. Don't put aws:SourceArn on the trust"). Lambda's own calls for a copy's
+    network interfaces carry no such ARN [source: aws-lambda-source-function-arn-not-enis], so its network actions do
+    not. CloudFormation keeps that role when the stack is deleted (Retain): the kit deletes it itself once the copy no
+    longer runs as it, and never while it does."""
     n = names(run)
     tags = [{"Key": TAG, "Value": run}]
     in_network = bool(subnet) or (copy and network)
@@ -258,13 +270,16 @@ def template(run: str, endpoint: str, outside_key: str | None = None, subnet: st
     }
     if copy:
         del body["Resources"]["Agent"], body["Outputs"]["Agent"]
-        body["Description"] = COPY_DESCRIPTION.format(run=run)
+        body["Description"] = COPY_DESCRIPTION.format(run=run, copy=copy)
+        for statement in own:               # what the copy's own code uses: for calls from the copy alone
+            if statement["Action"] != list(NETWORK_ACTIONS):
+                statement["Condition"] = {"StringEquals": {SOURCE_FUNCTION: copy}}
         body["Resources"]["AgentRole"].update({"DeletionPolicy": "Retain", "UpdateReplacePolicy": "Retain"})
     return body
 
 
 def template_body(run: str, endpoint: str, outside_key: str | None = None, subnet: str = "",
-                  security_groups: Sequence[str] = (), model: str = "", copy: bool = False,
+                  security_groups: Sequence[str] = (), model: str = "", copy: str = "",
                   network: bool = False) -> str:
     return json.dumps(template(run, endpoint, outside_key, subnet, security_groups, model, copy, network), indent=1,
                       sort_keys=True)

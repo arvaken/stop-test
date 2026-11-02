@@ -45,7 +45,7 @@ from arvaken_stop_test.aws import fire as firing
 from arvaken_stop_test.aws import run as running
 from arvaken_stop_test.aws.run import Clients, Clock, NotStarted, Run
 from arvaken_stop_test.aws.stack import TAG, is_model_id, names, template_body
-from arvaken_stop_test.timing import GATEWAY_WINDOW, NOT_RUN, WINDOWS, PathResult
+from arvaken_stop_test.timing import GATEWAY_WINDOW, NOT_MEASURED, NOT_RUN, WINDOWS, PathResult
 
 # A Lambda function's ARN, unqualified: its partition, region, account and name.
 FUNCTION_ARN = re.compile(r"arn:(aws(?:-[a-z]+)*):lambda:([a-z0-9-]+):(\d{12}):function:([A-Za-z0-9_-]{1,64})")
@@ -56,53 +56,76 @@ SETTLE = 60.0           # seconds to wait for Lambda to finish a change to the c
 # CUSTOMER TEXT: approved by the founder as drafted, 15:58:47 UTC on 25 October 2026 (D575, KC4)
 WARNING = ("Your stop may reach more than this test agent. An SDK's switch can stop every agent that uses the same "
            "account or key; host software can stop everything on the host. Type the run's name to fire it.")
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+# Approved by the founder in his step-4 rulings (D575's customer words): batch 1 at 00:42:35 UTC, its fills at 00:48:00
+# UTC, on 2 November 2026; batch 3 for an SDK's switch, at 00:42:35 UTC, (3) as he corrected it in batch 4.
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 1 (2))
 NOT_A_FUNCTION = ("a test copy is named by its Lambda function's ARN, in the account and region the kit runs in, "
                   "without a version or an alias")
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
-CONFIRM_COPY = ("The kit will call {copy} once a second, and fire your stop on the role it makes for the run. Run it "
-                "only on a test copy, never on an agent whose work matters. Type the run's name, {run}, to confirm "
-                "{copy} is a test copy.")
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+# CUSTOMER TEXT: approved by the founder, word for word, 00:48:00 UTC on 2 November 2026 (step 4, batch 1 (3), its fill)
+CONFIRM_COPY = ("The kit will call {copy} once a second, with the run's settings (its bucket, its second role, and a test "
+                "key made for the run, which works only with Arvaken's test address), and fire your stop on the role it "
+                "makes for the run. Each call runs your copy's own code, which does whatever that code does with "
+                "whatever its settings reach: databases, email, payments, other services. As the run's role, it reaches "
+                "in AWS only what that role allows, but anything it reaches with its own keys or over the internet, it "
+                "still reaches. Run it only on a test copy whose settings reach test systems alone, never on an agent "
+                "whose work matters. AWS bills each call, and anything the copy calls, to your account. Type the run's "
+                "name, {run}, to confirm {copy} is a test copy.")
+# For an SDK's switch the kit fires nothing, so its words say who fires.
+# CUSTOMER TEXT: a draft, for the founder's approval (CONFIRM_COPY with "you fire your SDK's switch yourself")
+CONFIRM_COPY_SDK = CONFIRM_COPY.replace("and fire your stop on the role it makes for the run",
+                                        "and you fire your SDK's switch yourself, after your mark")
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 1 (4))
 NOT_CONFIRMED = "The run's name was not typed, so nothing was made."
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+# CUSTOMER TEXT: approved by the founder, word for word, 00:48:00 UTC on 2 November 2026 (step 4, batch 1 (1), its fill)
+KMS_REFUSED = ("Your copy's settings are encrypted with your own key, which the run's role can't use, so your copy won't "
+               "start as it. Nothing was made.")
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 1 (5))
 POINT_AT = ("Point your copy at the run's role for the test:\n"
             "  aws lambda update-function-configuration --region {region} --function-name {copy} --role {role}\n"
             "Then press Enter.")
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 1 (6))
 NOT_POINTED = ("Your copy {copy} does not run as the run's role {role}, so nothing was timed. The kit is removing what "
                "it made.")
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
-NOTHING_WORKED = "No path worked on your copy before the stop, so nothing was timed. The kit is removing what it made."
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
-NOT_FIRED = "The run's name was not typed, so the stop was not fired. The kit is removing what it made."
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 1 (7))
+NOTHING_WORKED = "No path worked on your copy before the stop, so nothing was timed."
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 1 (8))
+NOT_FIRED = "The run's name was not typed, so the stop was not fired."
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 1 (9))
 POINT_BACK = ("Point your copy back at its own role:\n"
               "  aws lambda update-function-configuration --region {region} --function-name {copy} --role {own}\n"
               "Then press Enter, and the kit removes what it made.")
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 1 (10))
 STILL_RUNS_AS = "the role {role}, which your copy {copy} still runs as (point it back, then delete the role)"
 
 # An in-agent SDK's stop (sdk.py; D713). The mark's own words are the gateway's, approved (run.MARK_PROMPT).
 ENDPOINT = "https://stop-test.arvaken.com"   # Arvaken's test endpoint, as the probe calls it (the probe's core.ENDPOINT)
 WITNESS_AGENT = "arvaken-stop-test-witness (+https://github.com/arvaken/stop-test)"
-# CUSTOMER TEXT: a draft, for the founder's approval with D713's build
-SDK_MARKED = ("Marked. Each path is timed from your SDK's own record of acting, where it gives the second, else from "
-              "your mark, so a time errs toward slower, never faster.")
-# CUSTOMER TEXT: a draft, for the founder's approval with D713's build
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (1))
+SDK_MARKED = ("Marked. Each path is timed from your mark, so a time errs toward slower, never faster. Your SDK's record "
+              "of acting is kept beside the result, as you enter it.")
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (2))
 SDK_SWITCH_OFF = "The timing is done: you can turn your SDK's switch off now. The kit never turns it off itself."
-# CUSTOMER TEXT: a draft, for the founder's approval with D713's build
-SDK_EXPORT = ("Name the file you exported from your SDK that records it acting. The kit reads it only to take its "
-              "SHA-256, and keeps that, never the file:")
-# CUSTOMER TEXT: a draft, for the founder's approval with D713's build
-SDK_ENTRY_TIME = "The time of the entry in it that records your stop, exactly as the file writes it, in UTC:"
-# CUSTOMER TEXT: a draft, for the founder's approval with D713's build
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (3), as he
+# corrected it in batch 4)
+SDK_EXPORT = ("Name the file you exported from your SDK that records it acting. The kit reads it to check that the entry "
+              "you name is in it, and to take its SHA-256. It keeps only the SHA-256, never the file. Keep the file "
+              "yourself: its SHA-256 lets you show later that it's the same file:")
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (4))
+SDK_ENTRY_TIME = "The time of the entry in it that records your stop, exactly as the file writes it, with its time zone:"
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (5))
 SDK_ENTRY_NAME = "That entry's name, exactly as the file writes it:"
-# CUSTOMER TEXT: a draft, for the founder's approval with D713's build
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (6))
 SDK_WINDOW_TOO_SHORT = "For your SDK's stop the kit times each path for at least 15 minutes after your mark."
-# CUSTOMER TEXT: a draft, for the founder's approval with D713's build
-SDK_NO_MODEL = "With your SDK's stop the kit's witness cannot vouch for a call to a model, so it times none."
-
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (7))
+SDK_NO_MODEL = ("With your SDK's stop, the kit can't see whether calls to your copy's model still arrive, so the model "
+                "path reads not measured.")
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (8))
+SDK_FIRES_NOTHING = "with your SDK's stop the kit fires nothing: you fire it yourself, after your mark"
+# CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (9))
+SDK_NAMED = "an SDK is named in 1 to 200 characters"
+# The record you entered falls before your mark (batch 3 (4): "flags it if it falls before the mark").
+# CUSTOMER TEXT: a draft, for the founder's approval
+RECORD_BEFORE_MARK = "The time you entered for your SDK's record is before your mark, so every path reads not measured."
 
 class Witness:
     """The kit's witness (D713, (3)): once a second from the mark, the kit's own calls, made from where the kit runs and
@@ -170,6 +193,7 @@ def copy_details(r: Any, doc: dict, found: list[tuple[float | None, dict[str, Pa
     out = {"format": "stop-test-details/1", "run": r.run, "result_signature": doc["signature"],
            "stop_kind": r.stop_kind, "window_seconds": r.window, "left_behind": r.left_behind,
            "checked_gone": r.checked_gone, "clients": clients_of(r.clients),
+           **({"served": dict(r.served)} if getattr(r, "served", None) else {}),     # AgentCore: endpoint, version
            "repeats": [{p: {"outcome": f.outcome, "reason": f.reason, "fired_source": f.fired_source,
                             "effect_between_seconds": list(f.effect_between) if f.effect_between else None,
                             "first_refused": result.iso(f.first_failure_after),
@@ -180,6 +204,10 @@ def copy_details(r: Any, doc: dict, found: list[tuple[float | None, dict[str, Pa
     if r.product:
         out["witness"] = {"calls": len(r.witness),
                           "failed": [{"at": result.iso(at), "code": code} for at, ok, code in r.witness if not ok]}
+        rec, mark = r.sdk_record, (r.repeats[0].fired_after + r.offset) if r.repeats else None
+        out["sdk_record"] = None if rec is None else {      # its time as you entered it, flagged before the mark
+            "time": rec.time, "entered_by_you": True, "in_file": rec.in_file,
+            "before_mark": mark is not None and sdk.before_the_mark(rec, mark)}
     return out
 
 
@@ -200,26 +228,28 @@ def the_result(r: Run, tools: list[str], model_kind: str, key=None) -> tuple[dic
 
 
 def sdk_results(r: Run) -> list[tuple[float | None, dict[str, PathResult]]]:
-    """Each repeat's paths under D713 (sdk.judge): the firing moment from the SDK's record where it gives the second,
-    else the mark; the record and the witness as (2) and (3) have them."""
+    """Each repeat's paths under D713, as the founder's step-4 rulings have it (sdk.judge): each timed from the mark;
+    the record and the witness as (2) and (3) have them; a model's call, not measured."""
     out = []
     for rep in r.repeats:
         if not rep.fired_after:
             out.append((None, {p: PathResult(NOT_RUN, r.window, reason="the stop was not fired") for p in r.paths}))
             continue
-        mark = rep.fired_after + r.offset
-        fired, precision, source = sdk.firing_moment(r.sdk_record, mark, r.window)
-        record_why = sdk.record_reason(r.sdk_record, mark, r.window)
-        witness_why = sdk.witness_reason(r.witness, mark, fired + r.window)
+        mark, rec = rep.fired_after + r.offset, r.sdk_record
+        record_why = sdk.record_reason(rec, mark, r.window)
+        witness_why = sdk.witness_reason(r.witness, mark, mark + r.window)
         found = {}
         for p in r.paths:
+            if p == running.MODEL:              # batch 3 (7): the kit can't see whether its calls still arrive
+                found[p] = PathResult(NOT_MEASURED, r.window, reason=SDK_NO_MODEL, fired_source=sdk.FROM_THE_MARK)
+                continue
             beats = rep.beats.get(p, [])
             before = [b for b in beats if b.at <= mark]
-            found[p] = sdk.judge(beats, mark_at=mark, fired_at=fired, window=r.window,
+            found[p] = sdk.judge(beats, mark_at=mark, window=r.window,
                                  worked_before=p in r.working and bool(before) and before[-1].ok,
-                                 fired_precision=precision, record_why=record_why, witness_why=witness_why,
-                                 fired_source=source, setup_errors=r.setup_errors.get(p))
-        out.append((fired, found))
+                                 record_at=rec.at if rec is not None else None, record_why=record_why,
+                                 witness_why=witness_why, setup_errors=r.setup_errors.get(p))
+        out.append((mark, found))
     return out
 
 
@@ -240,34 +270,48 @@ def configuration(c: Clients, r: Run, clock: Clock, settle: float = SETTLE) -> d
 
 
 def runs_as(c: Clients, r: Run, role_arn: str, clock: Clock, settle: float = SETTLE) -> bool:
-    return configuration(c, r, clock, settle).get("Role") == role_arn
+    """Whether the copy runs as `role_arn`, Lambda's last change to it finished and Successful (batch 1 (5): "the kit
+    waits until the copy's update has completed (LastUpdateStatus Successful) and confirms the copy runs as {role}")."""
+    found = configuration(c, r, clock, settle)
+    return found.get("Role") == role_arn and found.get("LastUpdateStatus") == "Successful"
+
+
+def on_the_runs_role(c: Clients, r: Run, clock: Clock, settle: float) -> bool:
+    """Whether the copy runs as the run's role now, by the role's name: one CloudFormation kept from a stack that never
+    finished is the run's too."""
+    return str(configuration(c, r, clock, settle).get("Role", "")).endswith(f":role/{names(r.run)['agent_role']}")
 
 
 def deploy(c: Clients, r: Run, clock: Clock, network: bool) -> None:
     """The run's stack for a copy: no function; the role the copy runs as, kept when the stack is deleted."""
     n = names(r.run)
     c.cloudformation.create_stack(StackName=n["stack"],
-                                  TemplateBody=template_body(r.run, "", model=r.model, copy=True, network=network),
+                                  TemplateBody=template_body(r.run, "", model=r.model, copy=r.copy, network=network),
                                   Capabilities=["CAPABILITY_NAMED_IAM"], Tags=[{"Key": TAG, "Value": r.run}])
     found = running._wait_for_stack(c.cloudformation, n["stack"], clock, "CREATE_COMPLETE")
     r.outputs = {o["OutputKey"]: o["OutputValue"] for o in (found or {}).get("Outputs", [])}
 
 
-def remove_the_runs_role(c: Clients, r: Run, clock: Clock, wait: Callable[[str], object]) -> Callable[[], None]:
-    """What the teardown does once the stack is deleted: where the copy still runs as the run's role, ask you to point it
-    back and check again; then delete the role, its own policies first, only where the copy no longer runs as it. The
-    role is known by its name, so one CloudFormation kept from a stack that never finished is removed too."""
-    role = names(r.run)["agent_role"]
+def point_back_first(c: Clients, r: Run, clock: Clock, wait: Callable[[str], object]) -> None:
+    """At cleanup, before anything is removed (batch 1 (6)): where the copy runs as the run's role, ask you to point it
+    back to its own, read from it at the start of the run, before any change (batch 1 (9))."""
+    try:
+        if on_the_runs_role(c, r, clock, 0.0):
+            wait(POINT_BACK.format(region=c.region, copy=r.copy, own=r.copy_role))
+    except Exception:  # noqa: BLE001 - a copy the kit cannot read keeps the role: it is named for you to delete
+        pass
 
-    def on_it(settle: float) -> bool:
-        return str(configuration(c, r, clock, settle).get("Role", "")).endswith(f":role/{role}")
+
+def remove_the_runs_role(c: Clients, r: Run, clock: Clock) -> Callable[[], None]:
+    """What the teardown does once the stack is deleted: the run's role, its own policies first, deleted only where the
+    copy no longer runs as it. The kit never deletes a role the copy still runs as: it detaches the stop and leaves the
+    role, named (batch 1 (10))."""
+    role = names(r.run)["agent_role"]
 
     def after_stack() -> None:
         try:
-            if on_it(0.0):
-                wait(POINT_BACK.format(region=c.region, copy=r.copy, own=r.copy_role))
-                if on_it(SETTLE):
-                    return                      # left, and named by what the teardown checks
+            if on_the_runs_role(c, r, clock, SETTLE):
+                return                          # left, and named by what the teardown checks
             for name in c.iam.list_role_policies(RoleName=role).get("PolicyNames", []):
                 c.iam.delete_role_policy(RoleName=role, PolicyName=name)
             for a in c.iam.list_attached_role_policies(RoleName=role).get("AttachedPolicies", []):
@@ -278,6 +322,16 @@ def remove_the_runs_role(c: Clients, r: Run, clock: Clock, wait: Callable[[str],
     return after_stack
 
 
+def boundary_allows(network: bool, model: bool, action: str) -> bool:
+    """Whether the run's roles' boundary, as the kit gives it, allows an action at all."""
+    from arvaken_stop_test.aws.stack import boundary_document
+    for s in boundary_document(network, model)["Statement"]:
+        actions = s["Action"] if isinstance(s["Action"], list) else [s["Action"]]
+        if s["Effect"] == "Allow" and any(a in (action, "*", action.split(":")[0] + ":*") for a in actions):
+            return True
+    return False
+
+
 def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], wait: Callable[[str], object],
         window: float = WINDOWS["aws"], repeats: int = 1, clock: Clock | None = None, run_name: str | None = None,
         trail_wait: float = running.TRAIL_WAIT, say: Callable[[str], None] = lambda _: None, model: str = "",
@@ -286,8 +340,8 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
     """A whole run on a copy of yours, torn down whatever happens. Returns the run's record. `confirm` shows its words
     and gives back what you typed; `wait` shows its words and waits for your Enter. The stop is the kit's to fire, on the
     run's role; with `model`, the probe also calls it, as a fifth path. With `sdk_name`, the stop is that in-agent SDK's
-    switch, which you fire from your mark (`stop_ref` is then empty): the kit's witness calls through the window, your
-    export is read with `read` afterwards, and the paths are judged by sdk_results."""
+    switch, which you fire after your mark (`stop_ref` is then empty): the kit's witness calls through the window, your
+    export is read with `read` afterwards, and the paths are judged by sdk_results, the model's not measured."""
     from arvaken_stop_test.aws.stack import new_run
     clock = clock or Clock()
     account = c.sts.get_caller_identity()["Account"]
@@ -301,16 +355,14 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
     the_name = run_name or new_run()
     if sdk_name:
         if stop_ref:
-            raise ValueError("with your SDK's stop the kit fires nothing: you fire it yourself, from your mark")
+            raise ValueError(SDK_FIRES_NOTHING)
         if not 0 < len(sdk_name) <= result.NAME_LIMIT:
-            raise ValueError(f"an SDK is named in 1 to {result.NAME_LIMIT} characters")
+            raise ValueError(SDK_NAMED)
         if repeats != 1:
             raise ValueError("with your own trigger a run fires once: only you can take your own stop off between "
                              "repeats")
         if window < GATEWAY_WINDOW:
             raise ValueError(SDK_WINDOW_TOO_SHORT)
-        if model:
-            raise ValueError(SDK_NO_MODEL)
         product = {"kind": sdk.SDK, "attachment": sdk.ATTACHMENT, "name": sdk_name}
     else:
         reason = firing.why_not(stop_ref)
@@ -320,10 +372,13 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
             raise firing.Refused(firing.NOT_COVERED)    # before anything is made
     own = c.lambda_.get_function_configuration(FunctionName=copy)
     network = bool((own.get("VpcConfig") or {}).get("SubnetIds"))
+    if own.get("KMSKeyArn") and not boundary_allows(network, bool(model), "kms:Decrypt"):
+        raise firing.Refused(KMS_REFUSED)           # before anything is made (batch 1 (1))
     reason = firing.why_no_boundary(c.iam, c.sts, network=network, model=bool(model))
     if reason:
         raise firing.Refused(reason)                # before anything is made
-    if confirm(CONFIRM_COPY.format(copy=copy, run=the_name)).strip() != the_name:
+    asked = CONFIRM_COPY_SDK if product else CONFIRM_COPY
+    if confirm(asked.format(copy=copy, run=the_name)).strip() != the_name:
         raise firing.Refused(NOT_CONFIRMED)         # before anything is made
     r = Run(run=the_name, stop_ref=stop_ref, fired_by="your own trigger" if product else "the kit", window=window,
             region=c.region, model=model, copy=copy, copy_role=str(own.get("Role", "")),
@@ -339,6 +394,8 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
             say(said)
             raise NotStarted(said, r)
         warm_up(c, r, clock, say)
+        if product and model:
+            say(SDK_NO_MODEL)
         n, before = 0, r.warm_beats
         for i in range(repeats):
             if i:
@@ -346,7 +403,7 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
             if confirm(WARNING).strip() != r.run:   # before every firing (KC4)
                 say(NOT_FIRED)
                 break
-            if product:                             # you fire your SDK's switch from your mark; the witness calls
+            if product:                             # you fire your SDK's switch after your mark; the witness calls
                 rep = running.time_one(c, r, clock, False, n, before, mark=lambda: wait(running.MARK_PROMPT),
                                        say=say, marked=SDK_MARKED, each_second=Witness(c, r, clock, witness_get))
             else:
@@ -358,8 +415,11 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
         running.firing_moments(c, r, clock, wait=trail_wait)
         if product and r.repeats:
             take_record(r, confirm, read)
+            if sdk.before_the_mark(r.sdk_record, r.repeats[0].fired_after + r.offset):
+                say(RECORD_BEFORE_MARK)
     finally:
-        running.tear_down(c, r, clock, say=say, after_stack=remove_the_runs_role(c, r, clock, wait))
+        point_back_first(c, r, clock, wait)         # before anything is removed (batch 1 (6) to (8))
+        running.tear_down(c, r, clock, say=say, after_stack=remove_the_runs_role(c, r, clock))
         role = names(r.run)["agent_role"]
         r.left_behind = [STILL_RUNS_AS.format(role=role, copy=copy) if x == f"the role {role}" else x
                          for x in r.left_behind]

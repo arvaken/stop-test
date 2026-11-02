@@ -110,6 +110,7 @@ class CopyAWS(FakeAWS):
         self.runtime = {"id": COPY_ID, "arn": COPY, "name": "my_agent_copy", "tags": {}, "status": "READY",
                         "policy": None, "policy_at": None, "roleArn": OWN_ROLE}
         self.payloads: list[dict] = []
+        self.role_changes, self.endpoint_reads = 0, 0
         self.pulling: float | None = None       # the copy's clock while its watch's iterator is pulled
         self.cloud = lambda name, config=None, **creds: CopyClient(self, name, "aws_access_key_id" in creds)
         # the customer's in-agent SDK: when its switch is on, by the kit's clock, and what each guarded call raises
@@ -132,9 +133,21 @@ class CopyAWS(FakeAWS):
         if self.pulling is not None:
             self.pulling += d
 
-    def get_agent_runtime(self, agentRuntimeId):
+    def get_agent_runtime(self, agentRuntimeId, agentRuntimeVersion=None):
         assert agentRuntimeId == COPY_ID, agentRuntimeId
-        return {"status": self.runtime["status"], "agentRuntimeArn": COPY, "roleArn": self.runtime["roleArn"]}
+        assert agentRuntimeVersion in (None, self.served_version())
+        return {"status": self.runtime["status"], "agentRuntimeArn": COPY, "roleArn": self.runtime["roleArn"],
+                "agentRuntimeVersion": self.served_version(),
+                "environmentVariables": {"SECRET_SETTING": "a-value-the-kit-never-keeps"}}
+
+    def served_version(self) -> str:
+        """Each change to the runtime's role makes a version, which the DEFAULT endpoint then serves."""
+        return str(1 + self.role_changes)
+
+    def get_agent_runtime_endpoint(self, agentRuntimeId, endpointName):
+        assert (agentRuntimeId, endpointName) == (COPY_ID, "DEFAULT")
+        self.endpoint_reads += 1
+        return {"name": "DEFAULT", "liveVersion": self.served_version(), "status": "READY"}
 
     def invoke_agent_runtime(self, agentRuntimeArn, runtimeSessionId, qualifier, contentType, accept, payload):
         assert agentRuntimeArn == COPY and qualifier == "DEFAULT" and len(runtimeSessionId) >= 33
@@ -173,9 +186,9 @@ def a_copy_run(aws: CopyAWS, clock: Clock, monkeypatch, stop=DENY_ALL, *, typed=
     def wait(words: str) -> None:
         asked.append(words)
         if words.startswith("Point your copy's runtime") and " at the run's role" in words and "at" in points:
-            aws.runtime["roleArn"] = RUNS_ROLE
+            aws.runtime["roleArn"], aws.role_changes = RUNS_ROLE, aws.role_changes + 1
         elif " back at its own role" in words and "back" in points:
-            aws.runtime["roleArn"] = OWN_ROLE
+            aws.runtime["roleArn"], aws.role_changes = OWN_ROLE, aws.role_changes + 1
         elif words == MARK_PROMPT and fires_after is not None:    # Enter, then the customer fires their SDK's switch
             aws.sdk_on_from = clock.now() + fires_after
 
@@ -231,7 +244,7 @@ def test_the_runs_role_trusts_agentcore_for_the_customers_copy_alone_under_the_k
 def test_a_deny_of_calls_or_ending_a_session_is_never_fired_on_a_copy(monkeypatch, stop):
     clock = Clock()
     aws = CopyAWS(clock)
-    with pytest.raises(fire.Refused, match="would change your runtime"):
+    with pytest.raises(fire.Refused, match="Timing them on a copy isn't offered yet"):
         a_copy_run(aws, clock, monkeypatch, stop)
     assert not aws.roles and not aws.payloads
 
@@ -328,7 +341,9 @@ def test_the_kits_agentcore_policy_does_not_reach_a_copy_and_the_copys_own_polic
     assert reach and all("runtime/arvaken_stop_test_" in r for r in reach)
     copy = json.loads((root / "aws-copy-policy.json").read_text(encoding="utf-8"))
     [agentcore] = [s for s in copy["Statement"] if s["Sid"] == "YourTestCopyOnAgentCore"]
-    assert set(agentcore["Action"]) == {"bedrock-agentcore:GetAgentRuntime", "bedrock-agentcore:InvokeAgentRuntime"}
+    assert set(agentcore["Action"]) == {"bedrock-agentcore:GetAgentRuntime",
+                                        "bedrock-agentcore:GetAgentRuntimeEndpoint",
+                                        "bedrock-agentcore:InvokeAgentRuntime"}
     assert agentcore["Resource"] == [
         "arn:aws:bedrock-agentcore:REGION:ACCOUNT:runtime/YOUR-TEST-COPY-ID",
         "arn:aws:bedrock-agentcore:REGION:ACCOUNT:runtime/YOUR-TEST-COPY-ID/runtime-endpoint/*"]
@@ -363,9 +378,10 @@ def test_an_sdks_switch_on_an_agentcore_copy_stops_the_sessions_paths_by_its_rec
     r, aws, said, asked = an_sdk_run(monkeypatch)
     fired, found = your_copy.sdk_results(r)[0]
     assert {p: found[p].outcome for p in running.SESSION_PATHS} == {p: sdk.SDK_STOPPED for p in running.SESSION_PATHS}
-    # new calls reach the copy, which answers them whatever its SDK guards: nothing failed, so not measured
-    assert (found["new_calls"].outcome, found["new_calls"].reason) == (NOT_MEASURED, sdk.NOTHING_FAILED)
-    assert fired == int(aws.sdk_on_from) and found["own_calls"].fired_source == sdk.FROM_THE_RECORD
+    # new calls reach the copy, which answers them whatever its SDK guards: they kept succeeding, so not stopped
+    from arvaken_stop_test.timing import NOT_STOPPED
+    assert (found["new_calls"].outcome, found["new_calls"].reason) == (NOT_STOPPED, None)
+    assert fired == r.repeats[0].fired_after + r.offset and found["own_calls"].fired_source == sdk.FROM_THE_MARK
     # the kit fired nothing itself: no policy attached to the run's role, and only the roles' own written on them
     assert not [e for e in aws.events if e["name"] == "AttachRolePolicy"]
     assert len([e for e in aws.events if e["name"] == "PutRolePolicy"]) == 2
@@ -388,3 +404,30 @@ def test_an_sdks_stop_on_an_agentcore_copy_without_the_witness_working_is_not_me
     found = your_copy.sdk_results(r)[0][1]
     assert {found[p].outcome for p in running.SESSION_PATHS} == {NOT_MEASURED}
     assert all(found[p].reason.startswith("the kit's witness did not keep working") for p in running.SESSION_PATHS)
+
+
+
+def test_the_kit_reads_the_version_the_endpoint_serves_records_it_and_never_keeps_the_runtimes_settings(monkeypatch):
+    clock = Clock()
+    aws = CopyAWS(clock)
+    r, said, asked = a_copy_run(aws, clock, monkeypatch)
+    assert r.served == {"endpoint": "DEFAULT", "version": "2"} and aws.endpoint_reads >= 2
+    _, details = your_copy.the_result(r, ["no tools"], "no model")
+    assert details["served"] == {"endpoint": "DEFAULT", "version": "2"}
+    everything = repr(r) + repr(details) + repr(said) + repr(asked)
+    assert "a-value-the-kit-never-keeps" not in everything and "SECRET_SETTING" not in everything
+
+
+def test_at_cleanup_the_copy_is_asked_back_before_anything_is_removed(monkeypatch):
+    clock = Clock()
+    aws = CopyAWS(clock)
+    roles_at_removal = []
+    real = CopyAWS.detach_role_policy
+
+    def detach(self, RoleName, PolicyArn):
+        roles_at_removal.append(self.runtime["roleArn"])     # the copy's role when the kit takes the stop off
+        return real(self, RoleName=RoleName, PolicyArn=PolicyArn)
+
+    monkeypatch.setattr(CopyAWS, "detach_role_policy", detach)
+    a_copy_run(aws, clock, monkeypatch)
+    assert roles_at_removal and set(roles_at_removal) == {OWN_ROLE}
