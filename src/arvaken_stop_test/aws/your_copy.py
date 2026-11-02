@@ -118,7 +118,7 @@ SDK_ENTRY_TIME = "The time of the entry in it that records your stop, exactly as
 # the words he added at 01:08:36 UTC (batch 5 (5))
 SDK_ENTRY_NAME = "That entry's name, exactly as the file writes it: its kind of entry only, never who fired it."
 # The kit refuses a name that holds an email address (batch 5 (5)).
-# CUSTOMER TEXT: a draft, for the founder's approval
+# CUSTOMER TEXT: approved by the founder, word for word, 17:10:07 UTC on 2 November 2026 ("Approve as written")
 NAME_HOLDS_EMAIL = "That name holds an email address. Give its kind of entry only, never who fired it."
 EMAIL = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
 # CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (6))
