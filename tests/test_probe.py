@@ -230,9 +230,10 @@ def test_without_boto3_it_still_runs_and_names_what_it_could_not_make(tmp_path):
 
 
 def test_the_calls_to_arvakens_test_address_carry_only_the_kits_name_and_on_the_keyed_call_the_runs_test_key():
-    """The founder's "Wrote" sentence (2 November 2026): Arvaken's test address receives only the test calls, carrying
-    only the kit's name as their user agent and, on the call with a key, the run's test key; the witness's the same,
-    with no key. Beside the headers set here, a call carries only those every HTTP call has (Host among them)."""
+    """The founder's "Wrote" sentence (17:50:03 UTC on 2 November 2026): the kit gives the test calls only its own name
+    as their user agent and, on the call with a key, the run's test key; the witness's the same, with no key. Beside
+    the headers set here, a call carries only those every HTTP call has (Host among them); a client of the customer's,
+    an SDK that wraps the probe's, or a proxy may add its own."""
     from arvaken_stop_test import __version__
     from arvaken_stop_test.aws import your_copy
     sent = []

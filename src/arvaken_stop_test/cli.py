@@ -175,15 +175,21 @@ COPY_PLAN_SDK = ("- you fire your SDK {name}'s switch yourself, after your mark,
                  "is in it, and keeps only its SHA-256 and that entry;\n")
 # CUSTOMER TEXT: approved by the founder, word for word, 01:08:36 UTC on 2 November 2026 (step 4, batch 6)
 COPY_FOUND = "What the run on your copy found:"
-# The bracket's part is said on an SDK's run alone, where the witness calls (his ruling on the "Wrote" sentence).
-# CUSTOMER TEXT: approved by the founder, word for word, on 2 November 2026 (step 4, the "Wrote" sentence)
+# The bracket's part is said on an SDK's run alone, where the witness calls (his ruling on the "Wrote" sentence). It
+# replaces D722's sentence, with the legal track's three points fixed: the user agent is what the kit gives the calls,
+# which a client or a proxy may add to; the bracket holds of an AgentCore copy too; the witness's address is the one
+# this machine's calls leave from, which a proxy may change.
+# CUSTOMER TEXT: approved by the founder, word for word, at 17:50:03 UTC on 2 November 2026 ("Approve the fixed
+# sentence")
 COPY_WROTE = ("Wrote {out} and its details. Nothing about your account was sent to Arvaken. Arvaken's test address "
-              "received only the test calls the plan named, carrying only the kit's name as their user agent and, on "
-              "the call with a key, the run's test key, from the address your copy's calls leave from (on Lambda's "
-              "default network, an AWS address; in your own network, your network's){witness}. What Arvaken keeps of "
-              "those addresses, and for how long, is in the README.")
-# CUSTOMER TEXT: approved by the founder, word for word, on 2 November 2026 (step 4, the "Wrote" sentence)
-COPY_WROTE_WITNESS = ", and the kit's witness its checks, from the address of the machine you run the kit on"
+              "received only the test calls the plan named, from the address your copy's calls leave from (your own "
+              "if your copy runs in a network of yours){witness}. The kit gave those calls only its own name as their "
+              "user agent and, on the call with a key, the run's test key; an HTTP client of yours, an SDK that wraps "
+              "the probe's, or a proxy may add headers of its own. What Arvaken keeps of those addresses, and for how "
+              "long, is in the README.")
+# CUSTOMER TEXT: approved by the founder, word for word, at 17:50:03 UTC on 2 November 2026 ("Approve the fixed
+# sentence")
+COPY_WROTE_WITNESS = ", and the kit's witness its checks, from the address this machine's calls leave from"
 
 
 def write(path: Path, text: str) -> None:

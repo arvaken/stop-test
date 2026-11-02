@@ -83,6 +83,16 @@ def test_a_run_on_a_copy_through_the_command_line_writes_a_version_3_result_and_
     out = capsys.readouterr().out
     assert cli.COPY_FOUND in out and "- its own calls to the cloud: stopped within 1 minute" in out
     assert "Nothing the kit made is left." in out
+    # the founder's "Wrote" sentence, word for word, without the witness's part on a run with no SDK
+    assert (f"Wrote stop-test-{RUN}.json and its details. Nothing about your account was sent to Arvaken. Arvaken's "
+            "test address received only the test calls the plan named, from the address your copy's calls leave from "
+            "(your own if your copy runs in a network of yours). The kit gave those calls only its own name as their "
+            "user agent and, on the call with a key, the run's test key; an HTTP client of yours, an SDK that wraps "
+            "the probe's, or a proxy may add headers of its own. What Arvaken keeps of those addresses, and for how "
+            "long, is in the README.\n") in out
+    assert cli.COPY_WROTE.format(out="x", witness=cli.COPY_WROTE_WITNESS).count(
+        "(your own if your copy runs in a network of yours), and the kit's witness its checks, from the address this "
+        "machine's calls leave from. The kit gave") == 1
     assert sorted(f.name for f in tmp_path.iterdir()) == [f"stop-test-{RUN}-details.json", f"stop-test-{RUN}.json"]
     import json
     from arvaken_stop_test import result
