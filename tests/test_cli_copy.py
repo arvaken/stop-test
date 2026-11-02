@@ -29,7 +29,7 @@ def test_the_plan_for_a_copy_says_what_it_makes_and_that_it_never_changes_the_co
     cli.main(["agentcore", "plan", "--region", "eu-central-1", "--run", RUN, "--copy", AGENTCORE_COPY, "--sdk",
               "Acme Guard"])
     out = capsys.readouterr().out
-    assert "your SDK Acme Guard's switch yourself, from your mark" in out and "fires nothing" in out
+    assert "your SDK Acme Guard's switch yourself, after your mark" in out and "fires nothing" in out
 
 
 @pytest.mark.parametrize("argv, says", [

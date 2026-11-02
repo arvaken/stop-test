@@ -130,7 +130,7 @@ PLAN_PRODUCT = ("- your stop is your gateway, {name}, attached to {attachment}: 
 COPY_HELP = {
     "copy": "run on a test copy of your own agent, by its Lambda function's ARN, instead of on the kit's test agent",
     "agentcore_copy": "run on a test copy of your own agent, by its AgentCore runtime's ARN, instead of on the kit's",
-    "sdk": "with --copy: your stop is this in-agent SDK's switch, by its name; you fire it yourself, from your mark",
+    "sdk": "with --copy: your stop is this in-agent SDK's switch, by its name; you fire it yourself, after your mark",
     "tool": "with --copy: a kind of tool your copy has, from the kit's list; give each that applies",
     "model_kind": "with --copy: the kind of model your copy calls, from the kit's list",
     "endpoint_name": "with --copy: the endpoint of your runtime the kit calls, DEFAULT unless you name another",
@@ -159,7 +159,7 @@ COPY_PLAN = ("Run {run} in {region}, on your test copy {copy}:\n"
 # CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
 COPY_PLAN_STOP = "- fires your stop, {stop}, on that role alone, {repeats}, and times each path for {window} seconds;\n"
 # CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
-COPY_PLAN_SDK = ("- you fire your SDK {name}'s switch yourself, from your mark, and the kit fires nothing; it times "
+COPY_PLAN_SDK = ("- you fire your SDK {name}'s switch yourself, after your mark, and the kit fires nothing; it times "
                  "each path for {window} seconds, and calls from outside your copy every second as its witness;\n"
                  "- afterwards asks for the file you exported from your SDK, keeping only its SHA-256 and the "
                  "entry you name;\n")

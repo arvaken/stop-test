@@ -115,7 +115,7 @@ WHOSE = ("the kit's", "yours")
 # CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
 CLIENTS = ("yours", "the runtime's")
 # CUSTOMER TEXT: a draft, for the founder's approval with D713's build
-TIMED_FROM = ("your SDK's own record", "your mark")
+TIMED_FROM = ("your mark",)        # every path of an SDK's switch is timed from your mark (step 4, batch 3)
 SDK_KIND = "in-agent SDK"
 SHAPE_V3: dict[str, tuple[str, ...]] = {
     **SHAPE,
@@ -143,7 +143,7 @@ REFUSALS_V3 = {
               "model's kinds from the kit's lists and its clients for each kind of call"),
     "record": ("an SDK's own record is given only where the stop is an SDK's switch, with its entry's time, its name "
                "of 1 to 200 characters and its file's SHA-256"),
-    "timed_from": "each path of an SDK's switch is timed from its own record or from your mark, and no other's is",
+    "timed_from": "each path of an SDK's switch is timed from your mark, and no other stop's paths say so",
 }
 
 
@@ -246,7 +246,7 @@ def build(*, kit_version: str, cloud: str, region: str, began_at: float, ended_a
     doc["stop"]["record"] = {k: record[k] for k in SHAPE_V3["stop.record"]} if record else None
     for part in doc["repeats"]:         # every path of an SDK's switch is timed from your mark (step 4, batch 3)
         for found in part.values():
-            found["timed_from"] = TIMED_FROM[1] if sdk_switch else None
+            found["timed_from"] = TIMED_FROM[0] if sdk_switch else None
     return doc
 
 
@@ -334,7 +334,7 @@ def _check_v3(doc: dict[str, Any]) -> None:
     sdk_outcomes = (SDK_STOPPED, NOT_STOPPED, FLAPPED, NOT_MEASURED, NOT_RUN)
     for repeat in doc["repeats"]:
         for part in repeat.values():
-            if part["timed_from"] != (TIMED_FROM[1] if sdk_switch else None):     # from your mark, for an SDK's
+            if part["timed_from"] != (TIMED_FROM[0] if sdk_switch else None):     # from your mark, for an SDK's
                 raise NotAResult(REFUSALS_V3["timed_from"])
             if (part["outcome"] in sdk_outcomes) != sdk_switch and (sdk_switch or part["outcome"] == SDK_STOPPED):
                 raise NotAResult("an SDK's switch has its own outcomes, and no other stop has them")

@@ -227,7 +227,7 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
                                                   marked=SDK_MARKED, each_second=Witness(c, r, clock, witness_get)))
             else:
                 r.repeats.append(running.time_one(c, r, clock, say=say))
-        if product:                                 # timed from your mark, or your SDK's own record (sdk_results)
+        if product:                                 # timed from your mark, its record kept beside it (sdk_results)
             for rep in r.repeats:
                 rep.fired_at = rep.fired_after + r.offset
             if r.repeats:

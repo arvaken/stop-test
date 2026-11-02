@@ -92,7 +92,7 @@ def test_check_refuses_an_sdks_outcomes_and_timing_on_any_other_stop(an_sdk_resu
         body["stop"].update(kind="policy on a role", fired_by="the kit", ref="arn:aws:iam::1:policy/p", product=None,
                             record=None)
 
-    with pytest.raises(result.NotAResult, match="timed from its own record or from your mark"):
+    with pytest.raises(result.NotAResult, match="is timed from your mark, and no other"):
         result.check(mutated(doc, not_an_sdk))
 
     def not_an_sdk_untimed(body):
