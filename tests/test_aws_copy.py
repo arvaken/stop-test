@@ -77,9 +77,11 @@ class CopyClient:
 class CopyAWS(FakeAWS):
     """The account, with the customer's copy in it, as a run on a copy sees it."""
 
-    def __init__(self, clock: Clock, *, copy_subnets=(), fails_after_stop=None, sdk_raises=SwitchEngaged, **kw):
+    def __init__(self, clock: Clock, *, copy_subnets=(), copy_groups=(), fails_after_stop=None, sdk_raises=SwitchEngaged,
+                 **kw):
         super().__init__(clock, **kw)
         self.copy_role, self.copy_subnets, self.fails_after_stop = OWN_ROLE, list(copy_subnets), fails_after_stop
+        self.copy_groups = list(copy_groups)
         self.role_deleted = False
         # the customer's in-agent SDK: when its switch is on, and what each call it guards then raises
         self.sdk_on_from: float | None = None
@@ -104,7 +106,8 @@ class CopyAWS(FakeAWS):
     def get_function_configuration(self, FunctionName):
         assert FunctionName == COPY, FunctionName
         return {"Role": self.copy_role, "LastUpdateStatus": self.update_status,
-                "VpcConfig": {"SubnetIds": self.copy_subnets}, **({"KMSKeyArn": self.kms_key} if self.kms_key else {})}
+                "VpcConfig": {"SubnetIds": self.copy_subnets, "SecurityGroupIds": self.copy_groups},
+                **({"KMSKeyArn": self.kms_key} if self.kms_key else {})}
 
     def get_function(self, FunctionName):
         raise AssertionError("a run on a copy never asks for the kit's own function")
@@ -235,12 +238,44 @@ def test_the_stack_for_a_copy_has_no_function_and_keeps_the_role_for_the_kit_to_
 def test_a_copy_in_a_vpc_has_a_role_with_lambdas_network_actions_under_the_subnet_runs_boundary(an_account,
                                                                                                  monkeypatch):
     clock = Clock()
-    aws = CopyAWS(clock, copy_subnets=["subnet-0abc"])
+    aws = CopyAWS(clock, copy_subnets=["subnet-0abc1234", "subnet-0def5678"], copy_groups=["sg-0abc1234"])
     a_copy_run(aws, clock, monkeypatch)
     role = aws.stack["template"]["Resources"]["AgentRole"]["Properties"]
     assert role["PermissionsBoundary"]["Fn::Sub"].endswith(":policy/arvaken-stop-test-boundary-via")
-    assert any(s["Action"] == list(NETWORK_ACTIONS) for s in role["Policies"][0]["PolicyDocument"]["Statement"])
+    statements = role["Policies"][0]["PolicyDocument"]["Statement"]
+    granted = {a for s in statements for a in ([s["Action"]] if isinstance(s["Action"], str) else s["Action"])}
+    assert set(NETWORK_ACTIONS) <= granted
     assert "VpcConfig" not in json.dumps(aws.stack["template"])          # the copy's network is the customer's
+
+
+def test_a_copys_network_actions_reach_only_its_own_subnets_and_security_groups_where_ec2_lets_a_policy_name_them():
+    """The founder's ruling on batch 1's fills: "limited to {copy}'s own subnets and security groups wherever AWS
+    supports that condition (sourced). Otherwise they are listed as AWS requires." """
+    arn = lambda kind, name: {   # noqa: E731
+        "Fn::Sub": f"arn:${{AWS::Partition}}:ec2:${{AWS::Region}}:${{AWS::AccountId}}:{kind}/{name}"}
+    vpc = {"SubnetIds": ["subnet-0abc1234", "subnet-0def5678"], "SecurityGroupIds": ["sg-0abc1234"],
+           "VpcId": "vpc-0abc1234"}
+    statements = template(RUN, "", copy=COPY, network=vpc)["Resources"]["AgentRole"]["Properties"]["Policies"][0][
+        "PolicyDocument"]["Statement"]
+    network = [s for s in statements if "ec2:" in json.dumps(s["Action"])]
+    subnets = [arn("subnet", "subnet-0abc1234"), arn("subnet", "subnet-0def5678")]
+    assert network == [
+        {"Effect": "Allow", "Action": "ec2:CreateNetworkInterface",
+         "Resource": [*subnets, arn("security-group", "sg-0abc1234"), arn("network-interface", "*")]},
+        {"Effect": "Allow",
+         "Action": ["ec2:DeleteNetworkInterface", "ec2:AssignPrivateIpAddresses", "ec2:UnassignPrivateIpAddresses"],
+         "Resource": arn("network-interface", "*"), "Condition": {"ArnEquals": {"ec2:Subnet": subnets}}},
+        {"Effect": "Allow", "Action": ["ec2:DescribeNetworkInterfaces", "ec2:DescribeSubnets"], "Resource": "*"}]
+    # Lambda's own calls for the interfaces carry no function ARN, so none of them takes the copy's condition; every
+    # other statement does
+    assert all(s["Condition"] == {"StringEquals": {"lambda:SourceFunctionArn": COPY}}
+               for s in statements if s not in network)
+    assert not [s for s in template(RUN, "", copy=COPY)["Resources"]["AgentRole"]["Properties"]["Policies"][0][
+        "PolicyDocument"]["Statement"] if "ec2:" in json.dumps(s["Action"])]       # a copy in no VPC gets none
+    for bad in ({"SubnetIds": ["subnet-0abc1234"], "SecurityGroupIds": ["sg-*"]},
+                {"SubnetIds": ["subnet-*"], "SecurityGroupIds": ["sg-0abc1234"]}):
+        with pytest.raises(ValueError):
+            template(RUN, "", copy=COPY, network=bad)
 
 
 def test_nothing_is_made_unless_the_runs_name_is_typed_to_confirm_a_test_copy(an_account, monkeypatch):

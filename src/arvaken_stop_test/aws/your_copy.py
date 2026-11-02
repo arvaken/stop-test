@@ -7,8 +7,8 @@ function's unpublished version. The kit never deploys, changes or deletes it, no
 
 **What the kit makes** is run.py's stack without the function (stack.template, `copy`): the bucket, the second role,
 and the role the copy runs as for the test (KC1), named and permitted as the kit's own test agent's role, under the
-kit's boundary. A copy in a VPC of yours gets the network actions Lambda needs for its interfaces, under the boundary a
-run in a subnet has. You point the copy at that role for the test, with the command the kit prints, and back afterwards;
+kit's boundary. A copy in a VPC of yours gets the network actions Lambda needs for its interfaces, on its own subnets
+and security groups where EC2 lets a policy name them, under the boundary a run in a subnet has. You point the copy at that role for the test, with the command the kit prints, and back afterwards;
 the kit checks it runs as the role before anything is timed. CloudFormation keeps the role when the stack is deleted:
 the kit deletes it itself once the copy no longer runs as it, and while it still does, leaves it and names it.
 
@@ -301,8 +301,9 @@ def on_the_runs_role(c: Clients, r: Run, clock: Clock, settle: float) -> bool:
     return str(configuration(c, r, clock, settle).get("Role", "")).endswith(f":role/{names(r.run)['agent_role']}")
 
 
-def deploy(c: Clients, r: Run, clock: Clock, network: bool) -> None:
-    """The run's stack for a copy: no function; the role the copy runs as, kept when the stack is deleted."""
+def deploy(c: Clients, r: Run, clock: Clock, network: dict) -> None:
+    """The run's stack for a copy: no function; the role the copy runs as, kept when the stack is deleted; with the
+    copy's VpcConfig (`network`), Lambda's network actions on the copy's own subnets and security groups."""
     n = names(r.run)
     c.cloudformation.create_stack(StackName=n["stack"],
                                   TemplateBody=template_body(r.run, "", model=r.model, copy=r.copy, network=network),
@@ -406,7 +407,7 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
                          "private_network": network})
     r.began_at = clock.now()
     try:
-        deploy(c, r, clock, network)
+        deploy(c, r, clock, own.get("VpcConfig") or {})
         wait(POINT_AT.format(region=c.region, copy=copy, role=r.outputs.get("AgentRole", "")))
         if not runs_as(c, r, r.outputs.get("AgentRole", ""), clock):
             said = NOT_POINTED.format(copy=copy, role=r.outputs.get("AgentRole", ""))

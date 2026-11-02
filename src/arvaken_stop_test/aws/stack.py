@@ -53,7 +53,7 @@ import ast
 import json
 import re
 import secrets
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from importlib import resources
 from typing import Any
 
@@ -87,6 +87,40 @@ MODEL_STATEMENTS = (
     {"Sid": MODEL_SID, "Effect": "Allow", "Action": "bedrock:InvokeModel",
      "Resource": ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:*:*:inference-profile/*"]},
 )
+# A copy in a VPC of yours: the six actions, each limited to the copy's own subnets and security groups where EC2 lets a
+# policy name them (the founder's ruling on batch 1's fills, 00:48:00 UTC on 2 November 2026: "limited to {copy}'s own
+# subnets and security groups wherever AWS supports that condition (sourced). Otherwise they are listed as AWS
+# requires."). EC2 authorizes CreateNetworkInterface on the subnet and the security groups a call names, as well as on
+# the interface it makes [source: aws-sar-ec2-create-network-interface]; deleting an interface, and assigning or
+# unassigning its addresses, on the interface alone, which ec2:Subnet names by its subnet's ARN
+# [source: aws-sar-ec2-delete-network-interface, aws-sar-ec2-assign-private-ip-addresses,
+# aws-sar-ec2-unassign-private-ip-addresses, aws-sar-ec2-subnet-key]. The two Describe actions name no resource
+# [source: aws-sar-ec2-describe-network-interfaces, aws-sar-ec2-describe-subnets], so they stay on "*", as AWS's Lambda
+# guide asks of all six [source: aws-lambda-vpc-permissions]. That Lambda makes a copy's interfaces under these limits is
+# for install-test to show, beside whether its calls for them carry lambda:SourceFunctionArn (that ruling, its 2).
+COPY_SUBNET = re.compile(r"subnet-[0-9a-f]{8,17}")
+COPY_GROUP = re.compile(r"sg-[0-9a-f]{8,17}")
+ON_ITS_INTERFACES = ("ec2:DeleteNetworkInterface", "ec2:AssignPrivateIpAddresses", "ec2:UnassignPrivateIpAddresses")
+DESCRIBING = ("ec2:DescribeNetworkInterfaces", "ec2:DescribeSubnets")
+
+
+def copy_network_statements(subnets: Sequence[str], security_groups: Sequence[str]) -> list[dict[str, Any]]:
+    """The network actions Lambda needs for a copy's interfaces, on the copy's own subnets and security groups: each ID
+    checked for its shape before it is written into the template, so it can name nothing else."""
+    if not subnets or not all(COPY_SUBNET.fullmatch(s) for s in subnets) or \
+            not all(COPY_GROUP.fullmatch(g) for g in security_groups):
+        raise ValueError(f"not a copy's subnets and security groups: {list(subnets)}, {list(security_groups)}")
+    def ec2(kind: str, name: str) -> dict[str, str]:
+        return {"Fn::Sub": f"arn:${{AWS::Partition}}:ec2:${{AWS::Region}}:${{AWS::AccountId}}:{kind}/{name}"}
+    subnet_arns = [ec2("subnet", s) for s in subnets]
+    return [
+        {"Effect": "Allow", "Action": "ec2:CreateNetworkInterface",
+         "Resource": [*subnet_arns, *(ec2("security-group", g) for g in security_groups),
+                      ec2("network-interface", "*")]},
+        {"Effect": "Allow", "Action": list(ON_ITS_INTERFACES), "Resource": ec2("network-interface", "*"),
+         "Condition": {"ArnEquals": {"ec2:Subnet": subnet_arns}}},
+        {"Effect": "Allow", "Action": list(DESCRIBING), "Resource": "*"},
+    ]
 
 
 def new_run() -> str:
@@ -195,14 +229,15 @@ SOURCE_FUNCTION = "lambda:SourceFunctionArn"    # the function a call comes from
 
 def template(run: str, endpoint: str, outside_key: str | None = None, subnet: str = "",
              security_groups: Sequence[str] = (), model: str = "", copy: str = "",
-             network: bool = False) -> dict[str, Any]:
+             network: Mapping[str, Sequence[str]] | None = None) -> dict[str, Any]:
     """The run's stack. With a subnet, the function is in it, with the security groups named, and its role may make its
     network interfaces there; else the function is on Lambda's default network, as before. With a model, the function's
     environment names it, and its role may invoke it (model_resources); else neither, as before.
 
     For a test copy of the customer's own function (`copy`, its ARN; D575, your_copy.py), no function: the agent's role
     is the role the copy runs as for the test, with the kit's agent role's permissions, and with `network` (a copy in a
-    VPC of theirs) the network actions Lambda needs for it, under the boundary a subnet's run has. Its trust is Lambda's
+    VPC of theirs: its VpcConfig, as Lambda gives it) the network actions Lambda needs for it, on the copy's own subnets
+    and security groups (copy_network_statements), under the boundary a subnet's run has. Its trust is Lambda's
     alone; each of its statements for what the copy's own code uses carries lambda:SourceFunctionArn equal to the
     copy's ARN, which Lambda puts on every AWS request from within a function's execution environment
     [source: aws-lambda-source-function-arn], so only the copy gets its permissions (the founder's ruling, 00:48:00 UTC
@@ -212,7 +247,8 @@ def template(run: str, endpoint: str, outside_key: str | None = None, subnet: st
     longer runs as it, and never while it does."""
     n = names(run)
     tags = [{"Key": TAG, "Value": run}]
-    in_network = bool(subnet) or (copy and network)
+    copy_subnets = list((network or {}).get("SubnetIds") or []) if copy else []
+    in_network = bool(subnet) or bool(copy_subnets)
     second_arn = {"Fn::Sub": f"arn:${{AWS::Partition}}:iam::${{AWS::AccountId}}:role/{n['second_role']}"}
     boundary_arn = f"arn:${{AWS::Partition}}:iam::${{AWS::AccountId}}:policy/{boundary_name(in_network, bool(model))}"
     boundary = {"Fn::Sub": boundary_arn}
@@ -220,7 +256,10 @@ def template(run: str, endpoint: str, outside_key: str | None = None, subnet: st
     own = [{"Effect": "Allow", "Action": ["s3:PutObject", "s3:GetObject"], "Resource": bucket_objects("own")},
            {"Effect": "Allow", "Action": "sts:AssumeRole", "Resource": second_arn}]
     network_config: dict[str, Any] = {}
-    if in_network:
+    # Lambda's own calls for a copy's interfaces carry no function ARN, so these never take the copy's condition below
+    lambdas_own = copy_network_statements(copy_subnets, (network or {}).get("SecurityGroupIds") or []) \
+        if copy_subnets else []
+    if subnet:
         own.append({"Effect": "Allow", "Action": list(NETWORK_ACTIONS), "Resource": "*"})
     if subnet:
         network_config = {"VpcConfig": {"SubnetIds": [subnet], "SecurityGroupIds": list(security_groups)}}
@@ -272,14 +311,14 @@ def template(run: str, endpoint: str, outside_key: str | None = None, subnet: st
         del body["Resources"]["Agent"], body["Outputs"]["Agent"]
         body["Description"] = COPY_DESCRIPTION.format(run=run, copy=copy)
         for statement in own:               # what the copy's own code uses: for calls from the copy alone
-            if statement["Action"] != list(NETWORK_ACTIONS):
-                statement["Condition"] = {"StringEquals": {SOURCE_FUNCTION: copy}}
+            statement["Condition"] = {"StringEquals": {SOURCE_FUNCTION: copy}}
+        own.extend(lambdas_own)
         body["Resources"]["AgentRole"].update({"DeletionPolicy": "Retain", "UpdateReplacePolicy": "Retain"})
     return body
 
 
 def template_body(run: str, endpoint: str, outside_key: str | None = None, subnet: str = "",
                   security_groups: Sequence[str] = (), model: str = "", copy: str = "",
-                  network: bool = False) -> str:
+                  network: Mapping[str, Sequence[str]] | None = None) -> str:
     return json.dumps(template(run, endpoint, outside_key, subnet, security_groups, model, copy, network), indent=1,
                       sort_keys=True)
