@@ -481,6 +481,14 @@
    "sentence": "If either the identity-based policy or the resource-based policy within the same account allows the request and the other doesn't, the request is still allowed.",
    "about": "within one account, a resource-based policy (a role's trust among them) allowing a request is enough without the caller's identity-based policy",
    "read": "2026-11-02"
+  },
+  "aws-arn-partitions": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/IAM/latest/UserGuide/reference-arns.html",
+   "page": "Identify AWS resources with Amazon Resource Names (ARNs) - AWS Identity and Access Management",
+   "sentence": "The partition in which the resource is located. A partition is a group of AWS Regions. Each AWS account is scoped to one partition. The following are the supported partitions: aws - AWS Regions aws-cn - China Regions aws-us-gov - AWS GovCloud (US) Regions",
+   "about": "an ARN's partition, its second part: one group of AWS Regions, to which each AWS account is scoped; the partitions aws, aws-cn and aws-us-gov",
+   "read": "2026-11-02"
   }
  },
  "owed": {

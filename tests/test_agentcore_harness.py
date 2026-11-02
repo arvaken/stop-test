@@ -276,6 +276,20 @@ def test_without_the_harness_boundary_nothing_is_made():
     assert aws.harness is None and not aws.roles and not aws.buckets
 
 
+def test_an_account_outside_the_partition_aws_is_refused_before_anything_is_made(monkeypatch):
+    from arvaken_stop_test.aws.fire import NOT_AWS_PARTITION
+    monkeypatch.setattr(ta.FakeAWS, "get_caller_identity",
+                        lambda self: {"Account": ta.ACCOUNT, "Arn": f"arn:aws-us-gov:iam::{ta.ACCOUNT}:user/tester"})
+    for stop in (ta.DENY_ALL, fire.INLINE):
+        clock = ta.Clock()
+        aws = FakeHarnessAWS(clock)
+        with pytest.raises(fire.Refused) as e:
+            a_run(aws, clock, stop)
+        assert str(e.value) == NOT_AWS_PARTITION.format(partition="aws-us-gov")
+        assert aws.harness is None and not aws.roles and not aws.buckets
+        assert harness.why_no_boundary(aws, aws) == str(e.value)
+
+
 def test_a_model_that_does_not_answer_before_the_stop_times_nothing_and_what_was_made_is_removed():
     clock = ta.Clock()
     aws = FakeHarnessAWS(clock, model_answers=False)

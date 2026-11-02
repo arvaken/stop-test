@@ -243,7 +243,10 @@ def _plan(args, run_name: str) -> str:
     if not reason and args.stop:
         from arvaken_stop_test.aws.boto import clients_for
         c = clients_for(args.region)
-        if not fire.covers(c.iam, stop, run_name):
+        outside = fire.why_not_aws(c.sts.get_caller_identity())       # asked before a stop's coverage is simulated
+        if outside:
+            reason = outside.rstrip(".")
+        elif not fire.covers(c.iam, stop, run_name):
             reason = fire.NOT_COVERED.rstrip(".")
         else:
             reason = (fire.why_no_boundary(c.iam, c.sts, model=bool(args.model)) or "").rstrip(".") or None
@@ -494,8 +497,11 @@ def _harness_plan(args, run_name: str) -> str:
     if not reason:
         from arvaken_stop_test.agentcore.boto import clients_for
         c = clients_for(args.region)
-        if args.stop and not fire.covers(c.iam, stop, run_name):
-            from arvaken_stop_test.aws.fire import NOT_COVERED
+        from arvaken_stop_test.aws.fire import NOT_COVERED, why_not_aws
+        outside = why_not_aws(c.sts.get_caller_identity())            # asked before a stop's coverage is simulated
+        if outside:
+            reason = outside.rstrip(".")
+        elif args.stop and not fire.covers(c.iam, stop, run_name):
             reason = NOT_COVERED.rstrip(".")
         else:
             reason = (harness.why_no_boundary(c.iam, c.sts) or "").rstrip(".") or None
@@ -574,9 +580,12 @@ def _agentcore_plan(args, run_name: str) -> str:
     reason = fire.why_not(stop)
     if not reason and args.stop:
         from arvaken_stop_test.agentcore.boto import clients_for
-        from arvaken_stop_test.aws.fire import NOT_COVERED, why_no_boundary
+        from arvaken_stop_test.aws.fire import NOT_COVERED, why_no_boundary, why_not_aws
         c = clients_for(args.region)
-        if not fire.covers(c.iam, stop, run_name):
+        outside = why_not_aws(c.sts.get_caller_identity())            # asked before a stop's coverage is simulated
+        if outside:
+            reason = outside.rstrip(".")
+        elif not fire.covers(c.iam, stop, run_name):
             reason = NOT_COVERED.rstrip(".")
         else:
             reason = (why_no_boundary(c.iam, c.sts) or "").rstrip(".") or None
@@ -751,6 +760,17 @@ def _copy(args, p, agentcore: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """The kit's command. A refusal raised before anything is made (fire.Refused) is said in its own words, as a copy's
+    run says it, never as a traceback; one after a teardown (NotStarted) is said by its mode, with what was left."""
+    from arvaken_stop_test.aws.fire import Refused
+    try:
+        return _main(argv)
+    except Refused as e:
+        print(str(e))
+        return 1
+
+
+def _main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="stop-test", description="Fire your declared stop on a test agent, and time "
                                                                "what actually stops.")
     sub = p.add_subparsers(dest="command", required=True)

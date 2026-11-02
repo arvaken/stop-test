@@ -395,7 +395,11 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
     probe keeps calling once a second (`wait_calling`; calling_while by default)."""
     from arvaken_stop_test.aws.stack import new_run
     clock = clock or Clock()
-    account = c.sts.get_caller_identity()["Account"]
+    caller = c.sts.get_caller_identity()
+    reason = firing.why_not_aws(caller)
+    if reason:
+        raise firing.Refused(reason)                # before anything is made
+    account = caller["Account"]
     if not function_arn(copy, c.region, account):
         raise ValueError(NOT_A_FUNCTION)
     if model and not is_model_id(model):

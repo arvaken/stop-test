@@ -24,7 +24,7 @@ from arvaken_stop_test.aws import your_copy
 from arvaken_stop_test.aws.stack import COPY_DESCRIPTION, NETWORK_ACTIONS, names, template
 from arvaken_stop_test_probe import aws as probe_aws
 from arvaken_stop_test_probe import core, heartbeat
-from test_aws_run import STOP, ClientError, Clock, FakeAWS, clients
+from test_aws_run import GOV, STOP, ClientError, Clock, FakeAWS, clients
 
 RUN = "r0123abcd"
 COPY = "arn:aws:lambda:eu-central-1:123456789012:function:my-agent-test-copy"
@@ -350,6 +350,16 @@ def test_a_copys_network_actions_reach_only_its_own_subnets_and_security_groups_
                 {"SubnetIds": ["subnet-*"], "SecurityGroupIds": ["sg-0abc1234"]}):
         with pytest.raises(ValueError):
             template(RUN, "", copy=COPY, network=bad)
+
+
+def test_a_copy_in_an_account_outside_the_partition_aws_is_refused_before_anything_is_asked_or_made(monkeypatch):
+    monkeypatch.setattr(FakeAWS, "get_caller_identity", lambda self: {"Account": "123456789012", "Arn": GOV})
+    clock = Clock()
+    aws = CopyAWS(clock)
+    with pytest.raises(firing.Refused) as e:          # not the refusal of a run's name left untyped: nothing was asked
+        a_copy_run(aws, clock, monkeypatch, typed="")
+    assert str(e.value) == firing.NOT_AWS_PARTITION.format(partition="aws-us-gov")
+    assert aws.stack is None and aws.invocations == 0
 
 
 def test_nothing_is_made_unless_the_runs_name_is_typed_to_confirm_a_test_copy(an_account, monkeypatch):

@@ -205,6 +205,36 @@ def test_plan_says_when_the_account_has_no_kits_boundary(capsys, monkeypatch):
             "puts on the roles it makes.") in capsys.readouterr().out
 
 
+def test_each_plan_and_run_says_when_the_account_is_outside_the_partition_aws(capsys, monkeypatch):
+    """Each AWS plan that calls AWS asks first, before a stop's coverage is simulated, and says it will not run in the
+    founder's words (22:07:47 UTC on 2 November 2026); a run whose plan calls no AWS, an inline deny's, is refused by
+    the run in the same words, never as a traceback."""
+    import test_agentcore as ta
+    from arvaken_stop_test.agentcore import boto as agentcore_boto
+    from arvaken_stop_test.aws import boto
+    from arvaken_stop_test.aws.fire import NOT_AWS_PARTITION
+    from test_agentcore_harness import MODEL, FakeHarnessAWS
+    from test_aws_run import GOV, STOP, clients
+    for fake in (FakeAWS, ta.FakeAWS):
+        monkeypatch.setattr(fake, "get_caller_identity", lambda self: {"Account": "123456789012", "Arn": GOV})
+        monkeypatch.setattr(fake, "simulate_custom_policy", lambda self, **_: pytest.fail("a stop's coverage simulated"))
+    refused = NOT_AWS_PARTITION.format(partition="aws-us-gov")
+    aws = FakeAWS(Clock())
+    monkeypatch.setattr(boto, "clients_for", lambda region: clients(aws))
+    cli.main(["aws", "plan", "--stop", STOP, "--region", "eu-central-1", "--run", "r0123abcd"])
+    assert capsys.readouterr().out.endswith(f"\nIt will not run: {refused}\n")
+    agentcore = FakeHarnessAWS(ta.Clock())
+    monkeypatch.setattr(agentcore_boto, "clients_for", lambda region: ta.clients(agentcore))
+    cli.main(["agentcore", "plan", "--stop", ta.DENY_ALL, "--region", "eu-central-1", "--run", "r0a1b2c3d"])
+    assert capsys.readouterr().out.endswith(f"\nIt will not run: {refused}\n")
+    cli.main(["agentcore-harness", "plan", "--inline-deny", "--model", MODEL, "--region", "eu-central-1", "--run",
+              "r0a1b2c3d"])
+    assert capsys.readouterr().out.endswith(f"\nIt will not run: {refused}\n")
+    monkeypatch.setattr("builtins.input", lambda words: "r0123abcd")
+    assert cli.main(["aws", "run", "--inline-deny", "--region", "eu-central-1", "--run", "r0123abcd"]) == 1
+    assert capsys.readouterr().out.endswith(f"\n{refused}\n") and aws.stack is None and aws.invocations == 0
+
+
 def test_each_cloud_times_its_paths_for_its_own_window_by_default(capsys, monkeypatch):
     """The founder, 25 October 2026: "Set the window per cloud before the Azure module runs." Each cloud the command line
     offers has a default window of its own (timing.WINDOWS), and its plan and its help say it: changing one cloud's

@@ -81,8 +81,11 @@ there is named for you to delete.
 
 ## Install
 
-You need Python 3.11 or later; for AWS, credentials where the AWS command line finds them; for Google Cloud, the
+<!-- CUSTOMER TEXT: approved by the founder, word for word, 22:07:47 UTC on 2 November 2026 ("Approve as written") -->
+You need Python 3.11 or later; for AWS, credentials where the AWS command line finds them, for an account in the AWS
+partition `aws` (the kit can't yet run in the China Regions or the AWS GovCloud (US) Regions); for Google Cloud, the
 Google Cloud CLI (`gcloud`), signed in.
+<!-- [source: aws-arn-partitions] -->
 
 Every install is checked first. You check one file's signature, and that file names every file the install takes by its
 SHA-256: the kit's own package and each package it needs. pip then installs exactly those files, or nothing.

@@ -1047,6 +1047,7 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, window: float = WINDOWS["aw
         raise ValueError(f"a window on AgentCore is at most {int(LONGEST - READY_WAIT - LEAD - HOLD - SLACK)} seconds: "
                          "the running session is watched on one streaming response, which AWS keeps up to 60 minutes")
     the_name = run_name or new_run()
+    aws_fire.refuse_outside_aws(c.sts, firing.Refused)  # before anything is made
     if firing.on_the_role(stop_ref) and stop_ref != firing.INLINE and not firing.covers(c.iam, stop_ref, the_name):
         raise firing.Refused(aws_fire.NOT_COVERED)  # before anything is made
     reason = aws_fire.why_no_boundary(c.iam, c.sts)

@@ -792,6 +792,19 @@ def test_without_the_kits_boundary_nothing_is_made():
     assert aws.runtime is None and not aws.roles and not aws.buckets
 
 
+def test_an_account_outside_the_partition_aws_is_refused_before_anything_is_made(monkeypatch):
+    from arvaken_stop_test.aws import fire as aws_fire
+    monkeypatch.setattr(FakeAWS, "get_caller_identity",
+                        lambda self: {"Account": ACCOUNT, "Arn": f"arn:aws-cn:iam::{ACCOUNT}:user/tester"})
+    for stop in (DENY_ALL, fire.INLINE, fire.DENY, fire.DENY_AND_END):
+        clock = Clock()
+        aws = FakeAWS(clock)
+        with pytest.raises(fire.Refused) as e:
+            a_run(aws, clock, stop)
+        assert str(e.value) == aws_fire.NOT_AWS_PARTITION.format(partition="aws-cn")
+        assert aws.runtime is None and not aws.roles and not aws.buckets
+
+
 def test_what_the_run_makes_trusts_agentcore_for_this_runs_runtime_alone_under_the_kits_boundary():
     clock = Clock()
     aws = FakeAWS(clock)

@@ -170,6 +170,9 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
     from arvaken_stop_test.aws.stack import new_run
     clock = clock or Clock()
     caller = c.sts.get_caller_identity()
+    reason = aws_fire.why_not_aws(caller)
+    if reason:
+        raise firing.Refused(reason)                # before anything is made
     found = runtime_arn(copy, c.region, caller["Account"])
     if not found:
         raise ValueError(NOT_A_RUNTIME)

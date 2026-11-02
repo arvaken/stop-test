@@ -115,14 +115,38 @@ def not_the_boundary(network: bool = False, model: bool = False) -> str:
 
 NO_BOUNDARY_VIA, NOT_THE_BOUNDARY_VIA = no_boundary(network=True), not_the_boundary(network=True)
 
+# An account is in one partition, its ARNs' second part [source: aws-arn-partitions]; the kit has run only in aws, and
+# builds some ARNs in it (covers, below), so it refuses any other before a run makes anything. {partition} is the
+# account's, as its credentials' ARN gives it.
+# CUSTOMER TEXT: approved by the founder, word for word, 22:07:47 UTC on 2 November 2026 ("Approve as written")
+NOT_AWS_PARTITION = ("Your account is in the AWS partition {partition}. The kit can't yet run outside the partition aws, "
+                     "such as in the China Regions or the AWS GovCloud (US) Regions.")
+
+
+def why_not_aws(caller: dict[str, Any]) -> str | None:
+    """Why a run cannot be made in this account's partition, or None where it is aws."""
+    partition = str(caller.get("Arn", "")).split(":")[1:2] or [""]
+    return None if partition[0] == "aws" else NOT_AWS_PARTITION.format(partition=partition[0])
+
+
+def refuse_outside_aws(sts: Any, refused: type[Refused] = Refused) -> None:
+    """Refused where the account is not in the partition aws: asked first, before a stop's coverage is simulated,
+    whose ARNs are aws's (covers), and before anything is made. A mode's own refusal is raised, AgentCore's for its."""
+    reason = why_not_aws(sts.get_caller_identity())
+    if reason:
+        raise refused(reason)
+
 
 def why_no_boundary(iam: Any, sts: Any, network: bool = False, model: bool = False) -> str | None:
-    """Why a run cannot make its roles under the kit's permissions boundary, or None: the policy must be in your
-    account, and its default version must be the kit's, statement for statement. A run in a subnet, with a model, or
-    both takes a boundary of its own (stack.py), and only that one; any other run takes arvaken-stop-test-boundary, as
-    to 0.2.1."""
+    """Why a run cannot make its roles under the kit's permissions boundary, or None: the account must be in the
+    partition aws (why_not_aws), the policy must be in your account, and its default version must be the kit's,
+    statement for statement. A run in a subnet, with a model, or both takes a boundary of its own (stack.py), and only
+    that one; any other run takes arvaken-stop-test-boundary, as to 0.2.1."""
     import json
     caller = sts.get_caller_identity()
+    reason = why_not_aws(caller)
+    if reason:
+        return reason
     arn = f"arn:{caller['Arn'].split(':')[1]}:iam::{caller['Account']}:policy/{boundary_name(network, model)}"
     try:
         version = iam.get_policy(PolicyArn=arn)["Policy"]["DefaultVersionId"]

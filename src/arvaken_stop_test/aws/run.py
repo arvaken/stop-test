@@ -1072,6 +1072,7 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", 
         if reason:
             raise firing.Refused(reason)            # before anything is made
     the_name = run_name or new_run()
+    firing.refuse_outside_aws(c.sts)                # before anything is made
     if fired_by == "the kit" and stop_ref not in (firing.REVOKE, firing.INLINE) \
             and not firing.covers(c.iam, stop_ref, the_name):
         raise firing.Refused(firing.NOT_COVERED)    # before anything is made

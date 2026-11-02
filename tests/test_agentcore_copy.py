@@ -276,6 +276,18 @@ def test_a_copy_built_from_a_container_image_is_refused_before_anything_is_made(
     assert r.copy_config["runtime"] == "PYTHON_3_12" and r.repeats
 
 
+def test_a_copy_in_an_account_outside_the_partition_aws_is_refused_before_anything_is_asked_or_made(monkeypatch):
+    from arvaken_stop_test.aws.fire import NOT_AWS_PARTITION
+    monkeypatch.setattr(FakeAWS, "get_caller_identity",
+                        lambda self: {"Account": ACCOUNT, "Arn": f"arn:aws-us-gov:iam::{ACCOUNT}:user/tester"})
+    clock = Clock()
+    aws = CopyAWS(clock)
+    with pytest.raises(fire.Refused) as e:            # not the refusal of a run's name left untyped: nothing was asked
+        a_copy_run(aws, clock, monkeypatch, typed="")
+    assert str(e.value) == NOT_AWS_PARTITION.format(partition="aws-us-gov")
+    assert not aws.roles and not aws.buckets and not aws.role_changes and not aws.payloads
+
+
 def test_nothing_is_made_unless_the_runs_name_is_typed_to_confirm_a_test_copy(monkeypatch):
     clock = Clock()
     aws = CopyAWS(clock)
