@@ -151,14 +151,15 @@ AGENTCORE_COPY_GOES_WITH = ("--copy goes with --stop, --inline-deny or --sdk; no
 SDK_NEEDS_COPY = "--sdk goes with --copy: the kit tests an SDK's switch on a test copy of your own agent."
 # CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (10))
 SDK_IS_THE_STOP = "--sdk is your stop, your SDK's own switch: give it without --stop, --revoke-sessions or --inline-deny."
-# CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (13))
+# CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (13)); its "A
+# call refused by a rate limit" as he changed it by 01:32:51 UTC
 COPY_PLAN = ("Run {run} in {region}, on your test copy {copy}:\n"
              "- makes the role your copy runs as for the test, {role}, with a second role and a bucket of its own, "
              "and asks you to point your copy at that role, then back afterwards: it never deploys, changes or "
              "deletes your copy;\n"
              "- calls your copy about once a second, with the run's settings in each call, for the kit's probe you "
-             "added to it. AWS bills each call, and anything your copy calls, to your account. A call refused for a "
-             "limit on your account is never counted as stopped;\n"
+             "added to it. AWS bills each call, and anything your copy calls, to your account. A call refused by a "
+             "rate limit is never counted as stopped;\n"
              "{stop}"
              "- changes nothing else in your account;\n"
              "- then removes everything it made, and names anything left.")
