@@ -127,10 +127,10 @@ EMAIL = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
 SDK_WINDOW_TOO_SHORT = "For your SDK's stop the kit times each path for at least 15 minutes after your mark."
 # With a model, the kit reads CloudTrail for the copy's calls to it, under the founder's rule for its path (sdk.py,
 # judge_model, approved at 17:10:07 UTC on 2 November 2026), once, 15 minutes after the window ends (sdk.TRAIL_READ).
-# CUSTOMER TEXT: approved by the founder, word for word, by 17:34:50 UTC on 2 November 2026 ("Approve all seven")
+# CUSTOMER TEXT: approved by the founder, word for word, at 17:34:43 UTC on 2 November 2026 ("Approve all seven")
 SDK_MODEL_TRAIL = ("With your SDK's stop, the kit reads CloudTrail for your copy's calls to the model 15 minutes after "
                    "the window ends, so the run ends at least that long after the window does.")
-# CUSTOMER TEXT: approved by the founder, word for word, by 17:34:50 UTC on 2 November 2026 ("Approve all seven")
+# CUSTOMER TEXT: approved by the founder, word for word, at 17:34:43 UTC on 2 November 2026 ("Approve all seven")
 MODEL_TRAIL_WAIT = "Reading CloudTrail for your copy's calls to the model at {time}, 15 minutes after the window ended."
 PAGE_GAP = 0.5      # seconds between pages of the event history: two lookups a second, per account, per region, at
                     # most [source: aws-cloudtrail-lookup-rate]
@@ -470,7 +470,7 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
 
 def calling_while(wait: Callable[[str], object], clock: Clock) -> Callable[[str, Callable[[], None]], float]:
     """Waiting for your Enter with `wait` while the kit makes a heartbeat once a second, so the minute before your mark
-    holds the probe's calls (the founder's answer at 17:34:50 UTC on 2 November 2026, "Keep calling until the mark"):
+    holds the probe's calls (the founder's answer at 17:34:43 UTC on 2 November 2026, "Keep calling until the mark"):
     the wait in a thread of its own, the heartbeats where the kit runs. Gives back the kit's clock when you pressed
     Enter; what the wait raised, it raises."""
 

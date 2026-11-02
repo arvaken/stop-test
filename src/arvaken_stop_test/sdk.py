@@ -46,7 +46,7 @@ aws-bedrock-runtime-management-events]; a stream's call adds a completion event 
 eventType alone [source: aws-bedrock-stream-completion-event]; and a record's time is when the request was completed
 [source: aws-cloudtrail-event-time].
 
-His answers at 17:34:50 UTC on 2 November 2026, on two readings of it: the probe keeps calling once a second while the
+His answers at 17:34:43 UTC on 2 November 2026, on two readings of it: the probe keeps calling once a second while the
 kit waits for the mark ("Keep calling until the mark"), and where the minute before it still holds no call the probe
 saw work, nothing shows that CloudTrail records the copy's calls, so the path reads not measured; and in the second
 before the path's first failure, a record standing for a call the probe saw succeed does not count ("Don't count it"):
@@ -128,21 +128,21 @@ TRAIL_LAG = 5.0                     # how long after a call began its record's t
                                     # after 2 seconds to connect and 2 to read, once (the probe's aws._config)
 TRAIL_READ = 900.0                  # (6): the kit reads CloudTrail 15 minutes after the window ends
 # Why the model's path is not measured, or not stopped, under its rule.
-# CUSTOMER TEXT: approved by the founder, word for word, by 17:34:50 UTC on 2 November 2026 ("Approve all seven")
+# CUSTOMER TEXT: approved by the founder, word for word, at 17:34:43 UTC on 2 November 2026 ("Approve all seven")
 MODEL_STOPPED_WORDS = ("stopped {t} after your mark: every call on it failed after that, through the whole window, "
                        "CloudTrail shows no call from your copy to the model from a second before its first failure to "
                        "the window's end, the kit's witness kept answering, and your SDK's record of acting is in its "
                        "export")
-# CUSTOMER TEXT: approved by the founder, word for word, by 17:34:50 UTC on 2 November 2026 ("Approve all seven")
+# CUSTOMER TEXT: approved by the founder, word for word, at 17:34:43 UTC on 2 November 2026 ("Approve all seven")
 MODEL_ARRIVED = ("CloudTrail shows a call from your copy to the model at {time}, between a second before its first "
                  "failure and the window's end")
-# CUSTOMER TEXT: approved by the founder, word for word, by 17:34:50 UTC on 2 November 2026 ("Approve all seven")
+# CUSTOMER TEXT: approved by the founder, word for word, at 17:34:43 UTC on 2 November 2026 ("Approve all seven")
 MODEL_NOT_IN_TRAIL = ("CloudTrail does not show every call from your copy to the model that worked in the minute "
                       "before your mark")
-# CUSTOMER TEXT: approved by the founder, word for word, by 17:34:50 UTC on 2 November 2026 ("Approve all seven")
+# CUSTOMER TEXT: approved by the founder, word for word, at 17:34:43 UTC on 2 November 2026 ("Approve all seven")
 MODEL_NONE_BEFORE = ("no call from your copy to the model worked in the minute before your mark, so the kit could not "
                      "check that CloudTrail records them")
-# CUSTOMER TEXT: approved by the founder, word for word, by 17:34:50 UTC on 2 November 2026 ("Approve all seven")
+# CUSTOMER TEXT: approved by the founder, word for word, at 17:34:43 UTC on 2 November 2026 ("Approve all seven")
 MODEL_TRAIL_UNREAD = "the kit could not finish reading CloudTrail for your copy's calls to the model ({code})"
 
 

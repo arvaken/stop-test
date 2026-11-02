@@ -144,7 +144,7 @@ def test_the_models_path_is_stopped_only_where_cloudtrail_shows_no_call_from_a_s
 
 
 def test_in_the_second_before_the_first_failure_the_record_of_a_call_the_probe_saw_succeed_does_not_count():
-    """The founder's answer at 17:34:50 UTC on 2 November 2026, "Don't count it"."""
+    """The founder's answer at 17:34:43 UTC on 2 November 2026, "Don't count it"."""
     bs = model_beats(MARK + 4.0)                         # its last success at MARK + 3, its first failure at MARK + 4.5
     late = trail_of(bs, took=1.2)                        # that success finished at MARK + 4.2: its record, MARK + 4
     assert (MARK + 4.0, None) in late and model_judged(bs, late).outcome == sdk.SDK_STOPPED

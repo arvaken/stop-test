@@ -494,7 +494,7 @@ def time_one(c: Clients, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
     `each_second` what it does beside each heartbeat after it (for an SDK's stop on a copy, its witness: sdk.py). With
     `calling_to_the_mark`, the heartbeats go on while the kit waits for the mark: `mark` is given the heartbeat to make
     each second, and gives back the kit's clock when the customer pressed Enter (an SDK's stop on a copy: the founder's
-    answer at 17:34:50 UTC on 2 November 2026, "Keep calling until the mark")."""
+    answer at 17:34:43 UTC on 2 November 2026, "Keep calling until the mark")."""
     rep = Repeat()
     for p, beats in (before or {}).items():
         rep.beats.setdefault(p, []).extend(beats)
