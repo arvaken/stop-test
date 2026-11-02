@@ -446,7 +446,8 @@ AGENTCORE_HELP = {
 }
 
 
-# CUSTOMER TEXT: approved by the founder, with his edits, 29 October 2026 (the harness module's words, ruling 1)
+# CUSTOMER TEXT: approved by the founder, with his edits, 29 October 2026 (the harness module's words, ruling 1); its
+# "A call refused by a rate limit" as he changed it by 01:34:57 UTC on 2 November 2026
 HARNESS_PLAN = (
     "Run {run} in {region}, on an AgentCore harness:\n"
     "- creates a test agent, the AgentCore harness {harness}, which calls the model {model} and has no tools; its "
@@ -458,7 +459,7 @@ HARNESS_PLAN = (
     "command that does nothing, to time when new sessions are refused;\n"
     "- times each path for {window} seconds after firing, {repeats};\n"
     "- calls the model about {turns} times and starts about {sessions} sessions. AWS bills each call to the model and "
-    "each session's use to your account. A call refused for a limit on your account is never counted as stopped;\n"
+    "each session's use to your account. A call refused by a rate limit is never counted as stopped;\n"
     "- changes nothing else in your account;\n"
     "- then takes the stop off the test agent's role, removes everything it made, and names anything left.")
 # What the plan says is fired, and where (his ruling 1, condition c).
