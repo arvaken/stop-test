@@ -106,9 +106,11 @@ SDK_MARKED = ("Marked. Each path is timed from your mark, so a time errs toward 
 # CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (2))
 SDK_SWITCH_OFF = "The timing is done: you can turn your SDK's switch off now. The kit never turns it off itself."
 # CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (3), as he
-# corrected it in batch 4)
+# corrected it in batch 4), its third sentence as he changed it by 01:28:25 UTC ("It keeps only the SHA-256 and the
+# entry you name, never the file.")
 SDK_EXPORT = ("Name the file you exported from your SDK that records it acting. The kit reads it to check that the entry "
-              "you name is in it, and to take its SHA-256. It keeps only the SHA-256, never the file. Keep the file "
+              "you name is in it, and to take its SHA-256. It keeps only the SHA-256 and the entry you name, never the "
+              "file. Keep the file "
               "yourself: its SHA-256 lets you show later that it's the same file:")
 # CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 3 (4))
 SDK_ENTRY_TIME = "The time of the entry in it that records your stop, exactly as the file writes it, with its time zone:"
