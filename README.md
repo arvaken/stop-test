@@ -377,7 +377,9 @@ For every stop, the kit measures three things:
   <!-- [source: aws-agentcore-harness-tools-reasoning, aws-agentcore-harness-execute-command] -->
 - **Its model.** About once a second, the kit asks the harness something in that session, and the harness calls its
   model as its role. <!-- [source: aws-agentcore-harness-bedrock-role] --> AWS bills each call to your account. A call
-  refused for a limit on your account is never counted as stopped.
+  refused by a rate limit is never counted as stopped. <!-- CUSTOMER TEXT: this sentence as the founder changed it,
+  word for word, by 01:37:35 UTC on 2 November 2026, in place of "A call refused for a limit on your account is never
+  counted as stopped." -->
 - **New calls to the agent.** About once a second, the kit runs a command that does nothing, each in a new session of
   the harness's.
 
