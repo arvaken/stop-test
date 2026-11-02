@@ -305,13 +305,20 @@ def test_the_kits_marker_is_the_probes():
     assert running.MARKER == core.MARKER
 
 
-def test_the_kits_policy_does_not_reach_a_copy_which_waits_for_a_policy_of_its_own():
-    """The kit's policy invokes the run's own functions alone; a copy is the customer's, so calling it and reading its
-    configuration go in a policy of their own naming the copy, with the copy's customer words (D575, step 4)."""
+def test_the_kits_policy_does_not_reach_a_copy_and_the_copys_own_policy_reaches_it_alone():
+    """The kit's policy invokes the run's own functions alone. A copy is the customer's, so reading it and calling it
+    are a policy of their own (permissions/aws-copy-policy.json, D575 step 4, a draft for the founder), naming the
+    customer's copy in place of YOUR-TEST-COPY, and allowing exactly what a run on a copy calls on it."""
     from pathlib import Path
-    policy = json.loads((Path(__file__).resolve().parents[1] / "permissions" / "aws-policy.json")
-                        .read_text(encoding="utf-8"))
+    root = Path(__file__).resolve().parents[1] / "permissions"
+    policy = json.loads((root / "aws-policy.json").read_text(encoding="utf-8"))
     reach = {r for s in policy["Statement"] for r in ([s["Resource"]] if isinstance(s["Resource"], str) else
                                                       s["Resource"])
              if "lambda:InvokeFunction" in ([s["Action"]] if isinstance(s["Action"], str) else s["Action"])}
     assert reach and all(":function:arvaken-stop-test-" in r for r in reach)
+    copy = json.loads((root / "aws-copy-policy.json").read_text(encoding="utf-8"))
+    [lambdas] = [s for s in copy["Statement"] if s["Sid"] == "YourTestCopyOnLambda"]
+    assert set(lambdas["Action"]) == {"lambda:GetFunctionConfiguration", "lambda:InvokeFunction"}
+    assert lambdas["Resource"] == "arn:aws:lambda:REGION:ACCOUNT:function:YOUR-TEST-COPY"
+    source = (Path(your_copy.__file__)).read_text(encoding="utf-8")
+    assert set(re.findall(r"c\.lambda_\.([a-z_]+)\(", source)) == {"get_function_configuration"}

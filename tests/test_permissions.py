@@ -63,9 +63,10 @@ def aws_calls() -> set[str]:
 
 # A run on a test copy of yours (D575, aws/your_copy.py) calls your copy itself, a function the kit did not make: it
 # reads its configuration, and invokes it (lambda:InvokeFunction, which the policy allows on the run's own functions
-# alone). The policy names only the run's own resources, so those go in a policy of their own naming your copy, with
-# the copy's customer words (D575, step 4). Until then, held here to exactly these.
+# alone). The policy names only the run's own resources, so those are a policy of their own naming your copy,
+# permissions/aws-copy-policy.json (a draft for the founder, with D575's customer words, step 4).
 COPY_ONLY = {"lambda:GetFunctionConfiguration"}
+COPY_POLICY = json.loads((ROOT / "permissions" / "aws-copy-policy.json").read_text(encoding="utf-8"))
 
 
 def test_every_aws_call_the_kit_makes_and_every_action_cloudformation_takes_for_it_is_in_the_policy():
@@ -74,6 +75,8 @@ def test_every_aws_call_the_kit_makes_and_every_action_cloudformation_takes_for_
             "ec2:DescribeNetworkInterfaces"} <= calls, "the source was read"
     needed = calls | set(TEMPLATE) | set(TEMPLATE_IN_A_SUBNET)
     assert needed - allowed() == COPY_ONLY, sorted(needed - allowed())
+    copy_allows = {a for s in COPY_POLICY["Statement"] for a in s["Action"]}
+    assert COPY_ONLY | {"lambda:InvokeFunction"} <= copy_allows
     # of EC2, the kit itself only reads: it changes nothing of a subnet of yours
     assert {a for a in allowed() if a.startswith("ec2:")} == {"ec2:DescribeNetworkInterfaces", *TEMPLATE_IN_A_SUBNET}
 

@@ -314,17 +314,24 @@ def test_the_probes_watch_takes_only_a_session_named_for_the_run_and_never_longe
     assert heartbeat.LONGEST == kits_agent.LONGEST and heartbeat.EVERY == kits_agent.EVERY
 
 
-def test_the_kits_agentcore_policy_does_not_reach_a_copy_which_waits_for_a_policy_of_its_own():
-    """The kit's policy reads and calls the run's own runtimes alone; a copy is the customer's, so reading it and calling
-    it go in a policy of their own naming the copy, with the copy's customer words (D575, step 4)."""
+def test_the_kits_agentcore_policy_does_not_reach_a_copy_and_the_copys_own_policy_reaches_it_alone():
+    """The kit's policy reads and calls the run's own runtimes alone. A copy is the customer's, so reading it and
+    calling it are a policy of their own (permissions/aws-copy-policy.json, D575 step 4, a draft for the founder),
+    naming the customer's runtime in place of YOUR-TEST-COPY-ID, its endpoints too, as the kit's own statement has them."""
     from pathlib import Path
-    policy = json.loads((Path(__file__).resolve().parents[1] / "permissions" / "aws-agentcore-policy.json")
-                        .read_text(encoding="utf-8"))
+    root = Path(__file__).resolve().parents[1] / "permissions"
+    policy = json.loads((root / "aws-agentcore-policy.json").read_text(encoding="utf-8"))
     reach = {r for s in policy["Statement"] for r in ([s["Resource"]] if isinstance(s["Resource"], str) else
                                                       s["Resource"])
              if {"bedrock-agentcore:GetAgentRuntime", "bedrock-agentcore:InvokeAgentRuntime"} & set(
                  [s["Action"]] if isinstance(s["Action"], str) else s["Action"])}
     assert reach and all("runtime/arvaken_stop_test_" in r for r in reach)
+    copy = json.loads((root / "aws-copy-policy.json").read_text(encoding="utf-8"))
+    [agentcore] = [s for s in copy["Statement"] if s["Sid"] == "YourTestCopyOnAgentCore"]
+    assert set(agentcore["Action"]) == {"bedrock-agentcore:GetAgentRuntime", "bedrock-agentcore:InvokeAgentRuntime"}
+    assert agentcore["Resource"] == [
+        "arn:aws:bedrock-agentcore:REGION:ACCOUNT:runtime/YOUR-TEST-COPY-ID",
+        "arn:aws:bedrock-agentcore:REGION:ACCOUNT:runtime/YOUR-TEST-COPY-ID/runtime-endpoint/*"]
 
 
 
