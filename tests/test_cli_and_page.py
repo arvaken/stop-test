@@ -129,7 +129,7 @@ def test_the_page_says_what_was_not_counted_and_why_a_path_was_not_measured():
                                                              "role_ref": "b"},
         repeats=[(fired, {"own_calls": slowed, "another_identity": mixed})]), result.new_key())
     page = report.page(doc, [{"own_calls": slowed, "another_identity": mixed}])
-    assert f"{ALL_NOT_COUNTED}: not counted: SlowDown 90" in page and "not measured" in page
+    assert f"{ALL_NOT_COUNTED.format(codes='SlowDown 90')}: not counted: SlowDown 90" in page and "not measured" in page
     assert "AccessDenied 89; not counted: SlowDown 1" in page
     assert result.check(doc) and "SlowDown" not in json.dumps(doc)
 

@@ -226,3 +226,28 @@ def test_without_boto3_it_still_runs_and_names_what_it_could_not_make(tmp_path):
     assert json.loads(out.stdout) == {"own_calls": [False, "ModuleNotFoundError"],
                                       "another_identity": [False, "RuntimeError"],
                                       "outside_key": [True, None], "open_internet": [True, None]}
+
+
+
+def test_the_calls_to_arvakens_test_address_carry_only_the_kits_name_and_on_the_keyed_call_the_runs_test_key():
+    """The founder's "Wrote" sentence (2 November 2026): Arvaken's test address receives only the test calls, carrying
+    only the kit's name as their user agent and, on the call with a key, the run's test key; the witness's the same,
+    with no key. Beside the headers set here, a call carries only those every HTTP call has (Host among them)."""
+    from arvaken_stop_test import __version__
+    from arvaken_stop_test.aws import your_copy
+    sent = []
+    for name, fn in core.endpoint_paths({"key": KEY}, lambda url, headers, timeout: sent.append((url, headers)) or 200):
+        fn({})
+    assert sent == [("https://stop-test.arvaken.com/key", {"User-Agent": core.AGENT, "Authorization": "Bearer " + KEY}),
+                    ("https://stop-test.arvaken.com/open", {"User-Agent": core.AGENT})]
+    witnessed = []
+
+    class C:
+        s3 = type("S3", (), {"head_bucket": lambda self, Bucket: None})()
+
+    r = type("R", (), {"offset": 0.0, "outputs": {"Bucket": "b"}, "witness": []})()
+    your_copy.Witness(C(), r, type("K", (), {"now": lambda self: 0.0})(),
+                      lambda url, headers: witnessed.append((url, headers)) or 200)()
+    assert witnessed == [("https://stop-test.arvaken.com/open", {"User-Agent": your_copy.WITNESS_AGENT})]
+    # the kit's name, never its version
+    assert __version__ not in core.AGENT and __version__ not in your_copy.WITNESS_AGENT

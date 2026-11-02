@@ -174,8 +174,15 @@ COPY_PLAN_SDK = ("- you fire your SDK {name}'s switch yourself, after your mark,
                  "is in it, and keeps only its SHA-256 and that entry;\n")
 # CUSTOMER TEXT: approved by the founder, word for word, 01:08:36 UTC on 2 November 2026 (step 4, batch 6)
 COPY_FOUND = "What the run on your copy found:"
-# CUSTOMER TEXT: a draft, for the founder's approval with D575's customer words (step 4)
-COPY_WROTE = "Wrote {out} and its details. Nothing about your account was sent to Arvaken."
+# The bracket's part is said on an SDK's run alone, where the witness calls (his ruling on the "Wrote" sentence).
+# CUSTOMER TEXT: approved by the founder, word for word, on 2 November 2026 (step 4, the "Wrote" sentence)
+COPY_WROTE = ("Wrote {out} and its details. Nothing about your account was sent to Arvaken. Arvaken's test address "
+              "received only the test calls the plan named, carrying only the kit's name as their user agent and, on "
+              "the call with a key, the run's test key, from the address your copy's calls leave from (on Lambda's "
+              "default network, an AWS address; in your own network, your network's){witness}. What Arvaken keeps of "
+              "those addresses, and for how long, is in the README.")
+# CUSTOMER TEXT: approved by the founder, word for word, on 2 November 2026 (step 4, the "Wrote" sentence)
+COPY_WROTE_WITNESS = ", and the kit's witness its checks, from the address of the machine you run the kit on"
 
 
 def write(path: Path, text: str) -> None:
@@ -723,7 +730,7 @@ def _copy(args, p, agentcore: bool) -> int:
                   + (f" ({f.reason})" if f.reason else ""))
     print("Nothing the kit made is left." if not r.left_behind else
           "Left for you to delete:\n" + "\n".join(r.left_behind))
-    print(COPY_WROTE.format(out=out))
+    print(COPY_WROTE.format(out=out, witness=COPY_WROTE_WITNESS if args.sdk else ""))
     print(f"Your result's reference: {result.reference(doc)}. It's the SHA-256 of the result's signature.")
     return 0
 

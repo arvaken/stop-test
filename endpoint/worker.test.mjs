@@ -44,3 +44,16 @@ test("it writes no log and keeps nothing: no console call, no storage binding", 
   assert.deepEqual(Object.keys(tables).sort(), ["", "observability"]);
   assert.ok(!/tail_consumers|kv_namespaces|d1_databases|r2_buckets|durable_objects|analytics_engine/.test(config));
 });
+
+test("a run's calls are never rate-limited: once a second, and many more, are each answered", async () => {
+  // the founder's rate limit ruling, 2 November 2026: the test address must not rate-limit a run's calls
+  for (let i = 0; i < 300; i += 1) {
+    assert.equal((await ask("/open")).status, 200);
+    assert.equal((await ask("/key", { headers: { authorization: `Bearer ${KEY}` } })).status, 200);
+  }
+  const fs = await import("node:fs");
+  const source = fs.readFileSync(new URL("./worker.js", import.meta.url), "utf8");
+  assert.ok(!/429|rate.?limit/i.test(source), "worker.js holds no rate limit");
+  const config = fs.readFileSync(new URL("./wrangler.toml", import.meta.url), "utf8");
+  assert.ok(!/ratelimit|rate_limit/i.test(config), "wrangler.toml binds no rate limiter");
+});

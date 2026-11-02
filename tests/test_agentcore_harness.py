@@ -614,7 +614,8 @@ def test_only_the_stops_own_refusal_counts_as_stopped_and_every_other_failure_is
     assert ta.outcomes(doc)["model"] == "not measured" and ta.outcomes(doc)["own_calls"] == "stopped"
     model = harness.details(r, doc)["repeats"][0]["model"]
     assert model["errors"].get(recorded, 0) > 0 and model["not_counted"] == model["errors"]
-    assert model["reason"] == timing.ALL_NOT_COUNTED and model["first_refused"] is None
+    assert model["reason"] == timing.ALL_NOT_COUNTED.format(
+        codes=", ".join(f"{c} {n}" for c, n in sorted(model["not_counted"].items()))) and model["first_refused"] is None
 
 
 def test_access_denied_counts_and_calls_not_counted_between_do_not_move_the_stopped_time():

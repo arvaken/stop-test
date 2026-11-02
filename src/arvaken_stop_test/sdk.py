@@ -56,8 +56,9 @@ LOST = re.compile(r"(?i)timeout|timed.?out|unreachable|connect|disconnect|broken
                   r"protocol.?error")
 SERVER_CODES = {"InternalError", "InternalFailure", "InternalServerError", "InternalServerException",
                 "ServiceUnavailable", "ServiceUnavailableException", "ServiceException"}
-# A call refused for a limit on your account, by its HTTP status (429) or the code AWS gives it: never counted as
-# stopped (the founder's plan words, 01:15:37 UTC on 2 November 2026, batch 6 (13)).
+# A call refused by a rate limit, by its HTTP status (429) or AWS's throttling and limit codes, which a call's
+# destination may give as well as your account: never counted as stopped (the founder's plan words, 01:15:37 UTC on
+# 2 November 2026, batch 6 (13), and his ruling on its reason, after it).
 LIMIT_CODES = {"ThrottlingException", "Throttling", "TooManyRequestsException", "RequestLimitExceeded", "SlowDown",
                "ProvisionedThroughputExceededException", "LimitExceededException", "ServiceQuotaExceededException",
                "RequestThrottled", "RequestThrottledException"}
@@ -86,8 +87,8 @@ RECORD_NO_TIME = "the time of your SDK's record could not be read as a moment in
 RECORD_OUTSIDE = "your SDK's record is not from the window after your mark"
 WITNESS_FAILED = "the kit's witness did not keep working through the window ({code} at {time})"
 WITNESS_SILENT = "the kit's witness did not answer through the whole window"
-# CUSTOMER TEXT: a draft, for the founder's approval
-LIMIT_WORDS = "a failure on it was a limit on your account ({code})"
+# CUSTOMER TEXT: approved by the founder, word for word, on 2 November 2026 (step 4, the rate limit's reason)
+LIMIT_WORDS = "a failure on it was a rate limit, not your stop ({code})"
 # A path already refused at the mark (the refusal ruling; the gateway's words, aws/run.ALREADY_REFUSED_REASON).
 # CUSTOMER TEXT: approved by the founder, by 17:10:22 UTC on 28 October 2026 (his ten lines)
 ALREADY_REFUSED = "it was already refused at your mark"
