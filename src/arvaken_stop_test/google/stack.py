@@ -100,8 +100,34 @@ def deploy(g: Google, run: str, endpoint: str, *, outside_key: str | None = None
            sleep: Callable[[float], None] = time.sleep, wait: float = 600.0) -> dict[str, str]:
     """Make the run's things, in order; returns their names and the test agent's address."""
     n = names(run, g.project)
+    made = identities(g, run, sleep)
+    key = outside_key or secrets.token_hex(16)        # 32 hexadecimal characters, as the test endpoint takes one
+    parent = f"projects/{g.project}/locations/{g.region}"
+    _retry(lambda: g.call("POST", f"{RUN}/{parent}/services?serviceId={n['service']}",
+                          service_body(g, run, endpoint, key)), sleep)
+    uri, end = "", time.monotonic() + wait
+    while time.monotonic() < end:
+        found = g.call("GET", f"{RUN}/{service_name(g, run)}")
+        state = (found.get("terminalCondition") or {}).get("state")
+        if state == "CONDITION_SUCCEEDED" and found.get("uri"):
+            uri = found["uri"]
+            break
+        if state == "CONDITION_FAILED":
+            raise RuntimeError(f"the test agent's service did not start: {(found.get('terminalCondition') or {}).get('reason')}")
+        sleep(5.0)
+    if not uri:
+        raise TimeoutError(f"the test agent's service was not ready in {int(wait)} seconds")
+    return {**made, "Agent": service_name(g, run), "Uri": uri}
+
+
+def identities(g: Google, run: str, sleep: Callable[[float], None] = time.sleep,
+               copy: bool = False) -> dict[str, str]:
+    """The run's two accounts and its bucket, with the grants between them; for a test copy of yours (your_copy.py),
+    the account the copy runs as for the test is the first (KC1). Returns their names."""
+    n = names(run, g.project)
     made: dict[str, dict] = {}
-    for which, words in (("agent_account", "the test agent"), ("second_account", "a second identity")):
+    first = "your test copy, for the test" if copy else "the test agent"
+    for which, words in (("agent_account", first), ("second_account", "a second identity")):
         made[which] = g.call("POST", f"{IAM}/projects/{g.project}/serviceAccounts", {
             "accountId": n[which].split("@")[0],
             "serviceAccount": {"displayName": f"Arvaken stop test {run}: {words}",
@@ -121,26 +147,9 @@ def deploy(g: Google, run: str, endpoint: str, *, outside_key: str | None = None
         g.call("POST", f"{url}:setIamPolicy", {"policy": _add_binding(
             policy, "roles/iam.serviceAccountTokenCreator", f"serviceAccount:{n['agent_account']}")})
     _retry(token_creator, sleep)
-    key = outside_key or secrets.token_hex(16)        # 32 hexadecimal characters, as the test endpoint takes one
-    parent = f"projects/{g.project}/locations/{g.region}"
-    _retry(lambda: g.call("POST", f"{RUN}/{parent}/services?serviceId={n['service']}",
-                          service_body(g, run, endpoint, key)), sleep)
-    uri, end = "", time.monotonic() + wait
-    while time.monotonic() < end:
-        found = g.call("GET", f"{RUN}/{service_name(g, run)}")
-        state = (found.get("terminalCondition") or {}).get("state")
-        if state == "CONDITION_SUCCEEDED" and found.get("uri"):
-            uri = found["uri"]
-            break
-        if state == "CONDITION_FAILED":
-            raise RuntimeError(f"the test agent's service did not start: {(found.get('terminalCondition') or {}).get('reason')}")
-        sleep(5.0)
-    if not uri:
-        raise TimeoutError(f"the test agent's service was not ready in {int(wait)} seconds")
     # Cloud Audit Logs name a disabled account by its unique ID, never its email: kept, to find the firing call
-    return {"Bucket": n["bucket"], "Agent": service_name(g, run), "AgentAccount": n["agent_account"],
-            "AgentAccountId": str(made["agent_account"].get("uniqueId") or ""), "SecondAccount": n["second_account"],
-            "Uri": uri}
+    return {"Bucket": n["bucket"], "AgentAccount": n["agent_account"],
+            "AgentAccountId": str(made["agent_account"].get("uniqueId") or ""), "SecondAccount": n["second_account"]}
 
 
 def quoted(name: str) -> str:

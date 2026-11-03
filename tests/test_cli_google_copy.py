@@ -1,0 +1,113 @@
+"""The command line for a run on a test copy of your own agent on Google Cloud (D575; cli.py's google --copy and
+--sdk): its plan, the flags it refuses, and a whole run through it against test_google_copy's fake, with the real probe
+in the copy."""
+from __future__ import annotations
+
+import json
+from types import SimpleNamespace
+
+import pytest
+
+from arvaken_stop_test import cli, result
+from arvaken_stop_test.google import api
+from arvaken_stop_test.google import run as running
+from arvaken_stop_test.google import your_copy
+from arvaken_stop_test_probe import core, heartbeat
+from arvaken_stop_test_probe import google as probe_google
+from test_google_copy import COPY, OWN, SKEW, CopyGoogle, fresh_probe  # noqa: F401 - a fixture
+from test_google_run import DECLARED, PROJECT, REGION, RUN_NAME, Clock, N
+
+WHERE = ["--project", PROJECT, "--region", REGION]
+KINDS = ["--tool", "runs code", "--model-kind", "a model service of its cloud"]
+
+
+def no_google(*a, **kw):
+    pytest.fail("a plan, or a refusal before anything, calls no Google")
+
+
+def test_the_plan_for_a_copy_says_what_it_makes_and_that_it_never_changes_the_copy(capsys, monkeypatch):
+    monkeypatch.setattr(api, "Google", no_google)
+    assert cli.main(["google", "plan", *WHERE, "--run", RUN_NAME, "--copy", COPY, "--deny-all"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith(f"Run {RUN_NAME} in {PROJECT}, {REGION}, on your test copy {COPY}:\n")
+    assert f"the service account your copy runs as for the test, {N['agent_account']}" in out
+    assert "it never deploys, changes or deletes your copy" in out and "Google bills each call" in out
+    assert (f"- makes a deny policy, {N['deny_policy']}, naming that account alone and denying what the probe's calls "
+            "use (Cloud Storage and IAM), 1 time, and times each path for ") in out
+    assert cli.main(["google", "plan", *WHERE, "--run", RUN_NAME, "--copy", COPY, "--disable-account",
+                     "--repeats", "3"]) == 0
+    assert "- disables that account, 3 times, enabling it again between repeats" in capsys.readouterr().out
+    assert cli.main(["google", "plan", *WHERE, "--run", RUN_NAME, "--copy", COPY, "--stop", DECLARED]) == 0
+    assert f"what your deny policy {DECLARED} denies (yours is read, never changed)" in capsys.readouterr().out
+    assert cli.main(["google", "plan", *WHERE, "--run", RUN_NAME, "--copy", COPY, "--sdk", "Acme Guard",
+                     "--window", "15m"]) == 0
+    out = capsys.readouterr().out
+    assert "your SDK Acme Guard's switch yourself, after your mark" in out and "fires nothing" in out
+
+
+@pytest.mark.parametrize("argv, says", [
+    (["--sdk", "Acme Guard", "--deny-all"], cli.SDK_NEEDS_COPY),
+    (["--copy", COPY, "--deny-all", "--own-trigger"], cli.GOOGLE_COPY_GOES_WITH),
+    (["--copy", COPY, "--own-trigger", *KINDS], cli.GOOGLE_COPY_GOES_WITH),
+    (["--copy", COPY, "--sdk", "Acme Guard", "--disable-account", *KINDS], cli.GOOGLE_SDK_IS_THE_STOP),
+    (["--copy", COPY, *KINDS], cli.GOOGLE_COPY_GIVE_ONE),
+    (["--copy", COPY, "--deny-all", "--disable-account", *KINDS], cli.GOOGLE_COPY_GIVE_ONE),
+    (["--copy", COPY, "--deny-all"], cli.COPY_NEEDS_KINDS),
+    (["--copy", COPY, "--deny-all", "--model", "gemini-2.5-flash", *KINDS], cli.GOOGLE_NO_MODEL),
+    (["--copy", COPY, "--deny-all", "--via", "http://gateway.example:8888", *KINDS], cli.GOOGLE_NO_VIA.split(":")[0]),
+])
+def test_what_a_copy_cannot_go_with_is_refused_before_anything(argv, says, capsys, monkeypatch):
+    monkeypatch.setattr(api, "Google", no_google)
+    with pytest.raises(SystemExit):
+        cli.main(["google", "run", *WHERE, *argv])
+    assert says in " ".join(capsys.readouterr().err.split())
+
+
+def test_a_run_on_a_copy_through_the_command_line_writes_a_version_3_result_and_prints_what_it_found(
+        tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    clock = Clock()
+    g = CopyGoogle(clock)
+    monkeypatch.setattr(api, "Google", lambda project, region: g)
+    stamp = SimpleNamespace(time=lambda: clock.now() + SKEW)
+    for module in (core, probe_google, heartbeat):
+        monkeypatch.setattr(module, "time", stamp)
+    real = your_copy.run
+    monkeypatch.setattr(your_copy, "run", lambda g, copy, stop, **kw: real(
+        g, copy, stop, clock=running.Clock(clock.now, clock.sleep), **kw))
+    asked = []
+
+    def typed(prompt: str = "") -> str:
+        asked.append(prompt)
+        if prompt.startswith("Point your copy at"):
+            g.point(N["agent_account"])
+        elif prompt.startswith("Point your copy back"):
+            g.point(OWN)
+        return RUN_NAME
+
+    monkeypatch.setattr("builtins.input", typed)
+    assert cli.main(["google", "run", *WHERE, "--run", RUN_NAME, "--copy", COPY, "--deny-all", "--window", "1m",
+                     *KINDS]) == 0
+    out = capsys.readouterr().out
+    assert cli.COPY_FOUND in out and "- its own calls to the cloud: stopped within" in out
+    assert "Nothing the kit made is left." in out
+    assert (f"Wrote stop-test-{RUN_NAME}.json and its details. Nothing about your project was sent to Arvaken. "
+            "Arvaken's test address received only the test calls the plan named,") in out
+    assert sorted(f.name for f in tmp_path.iterdir()) == [f"stop-test-{RUN_NAME}-details.json",
+                                                          f"stop-test-{RUN_NAME}.json"]
+    doc = result.check(json.loads((tmp_path / f"stop-test-{RUN_NAME}.json").read_text(encoding="utf-8")))
+    assert doc["format"] == result.FORMAT_V3 and doc["agent"]["ref"] == COPY and doc["agent"]["whose"] == "yours"
+    assert doc["agent"]["tools"] == ["runs code"] and doc["agent"]["model_kind"] == "a model service of its cloud"
+    assert f"Your result's reference: {result.reference(doc)}" in out
+    assert [a.split()[:3] for a in asked] == [["The", "kit", "will"], ["Point", "your", "copy"],
+                                              your_copy.WARNING.split()[:3], ["Point", "your", "copy"]]
+
+
+def test_a_copy_refused_before_anything_is_said_in_its_own_words_and_nothing_is_written(tmp_path, monkeypatch,
+                                                                                        capsys):
+    monkeypatch.chdir(tmp_path)
+    g = CopyGoogle(Clock(), ingress="INGRESS_TRAFFIC_INTERNAL_ONLY")
+    monkeypatch.setattr(api, "Google", lambda project, region: g)
+    monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("refused before anything is asked"))
+    assert cli.main(["google", "run", *WHERE, "--run", RUN_NAME, "--copy", COPY, "--deny-all", *KINDS]) == 1
+    assert your_copy.NOT_FROM_OUTSIDE in capsys.readouterr().out and not list(tmp_path.iterdir())
