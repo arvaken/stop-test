@@ -54,7 +54,8 @@ from arvaken_stop_test.google import fire as firing
 from arvaken_stop_test.google import run as running
 from arvaken_stop_test.google.api import Google, GoogleError
 from arvaken_stop_test.google.run import Clock, Run
-from arvaken_stop_test.google.stack import IAM, RUN, STORAGE, identities, names, new_run, quoted
+from arvaken_stop_test.google.stack import (FOR_A_COPY, IAM, RUN, STORAGE, display_name, identities, names,
+                                            new_run, quoted)
 from arvaken_stop_test.timing import GATEWAY_WINDOW, WINDOWS
 
 # A Cloud Run service's full name: its project, its region and its own name, as Cloud Run allows them.
@@ -114,6 +115,9 @@ POINT_BACK = ("Point your copy back at its own account:\n"
 # CUSTOMER TEXT: approved by the founder, word for word, by 19:42 UTC on 3 November 2026 (the Google copy, batch 1 (8)),
 # as AWS's STILL_RUNS_AS
 STILL_RUNS_AS = "the account {account}, which your copy {copy} still runs as (point it back, then delete the account)"
+# CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, clean (1))
+CLEAN_NEEDS_COPY = ("This run was on a test copy of yours. Give your copy's name with --copy, so the kit can check that "
+                    "your copy no longer runs as the run's account before it deletes that account. Nothing was removed.")
 
 
 class Witness:
@@ -352,9 +356,41 @@ def run(g: Google, copy: str, stop_ref: str, *, confirm: Callable[[str], str], w
     finally:
         point_back_first(g, r, clock, wait)         # before anything is removed
         running.tear_down(g, r, clock, keep_account=lambda: on_the_runs_account(g, r, clock, SETTLE))
-        r.left_behind = [STILL_RUNS_AS.format(account=account, copy=copy) if x == f"the account {account}" else x
-                         for x in r.left_behind]
+        name_kept(r)
         r.ended_at = clock.now()
+    return r
+
+
+def name_kept(r: Run) -> None:
+    """The run's account, where the teardown kept it because your copy still runs as it, named as that."""
+    account = names(r.run, r.project)["agent_account"]
+    r.left_behind = [STILL_RUNS_AS.format(account=account, copy=r.copy) if x == f"the account {account}" else x
+                     for x in r.left_behind]
+
+
+def made_for_a_copy(g: Google, run: str) -> bool:
+    """Whether the run's account, where it is still there, was made for a test copy of yours: by the name it was made
+    with (stack.identities), as your project's list of accounts holds it."""
+    account, token = names(run, g.project)["agent_account"], None
+    while True:
+        page = g.call("GET", f"{IAM}/projects/{g.project}/serviceAccounts?pageSize=100"
+                      + (f"&pageToken={quoted(token)}" if token else ""))
+        for a in page.get("accounts") or []:
+            if a.get("email") == account:
+                return a.get("displayName") == display_name(run, FOR_A_COPY)
+        token = page.get("nextPageToken")
+        if not token:
+            return False
+
+
+def clean(g: Google, run_name: str, copy: str, clock: Clock, settle: float = SETTLE) -> Run:
+    """`stop-test google clean` for a run that was on your copy: what the run made removed as the run's own teardown
+    removes it, your copy never touched, and the run's account deleted only once your copy no longer runs as it, else
+    named. The account is enabled again first, in case the run had disabled it, so a copy still running as it works."""
+    r = Run(run=run_name, stop_ref=firing.DISABLE, fired_by="the kit", window=0.0, project=g.project, region=g.region,
+            copy=copy)
+    running.tear_down(g, r, clock, keep_account=lambda: on_the_runs_account(g, r, clock, settle))
+    name_kept(r)
     return r
 
 

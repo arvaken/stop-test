@@ -651,6 +651,10 @@ With `--copy`, name the stop with `--stop <name>`, `--deny-all` or `--disable-ac
 alone, or with `--sdk`, as on AWS. Name `--tool` and `--model-kind` as on AWS. `--model` isn't offered on Google
 Cloud. `--window` and `--repeats` work as for the kit's own test agent.
 
+<!-- CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, clean (3)) -->
+If a run on your copy could not clean up, give `stop-test google clean` your copy's name with `--copy` as well: it
+deletes the run's account only once your copy no longer runs as it.
+
 ### What Arvaken's test address sees
 
 <!-- CUSTOMER TEXT: approved by the founder, word for word, 17:50:03 UTC on 2 November 2026 (lines 1 and 2) -->

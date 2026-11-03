@@ -111,3 +111,57 @@ def test_a_copy_refused_before_anything_is_said_in_its_own_words_and_nothing_is_
     monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("refused before anything is asked"))
     assert cli.main(["google", "run", *WHERE, "--run", RUN_NAME, "--copy", COPY, "--deny-all", *KINDS]) == 1
     assert your_copy.NOT_FROM_OUTSIDE in capsys.readouterr().out and not list(tmp_path.iterdir())
+
+
+def interrupted(g: CopyGoogle, *, pointed: bool, disabled: bool = False) -> None:
+    """What a run on the copy left when it could not clean up: its accounts and bucket, the copy pointed at the run's
+    account or back at its own, and the run's account disabled if the run had fired that."""
+    from arvaken_stop_test.google import stack
+    stack.identities(g, RUN_NAME, g.clock.sleep, copy=True)
+    g.point(N["agent_account"] if pointed else OWN)
+    if disabled:
+        g.call("POST", f"{stack.IAM}/projects/-/serviceAccounts/{N['agent_account']}:disable", {})
+
+
+def a_clean(g: CopyGoogle, monkeypatch, *more: str) -> int:
+    monkeypatch.setattr(api, "Google", lambda project, region: g)
+    real = running.Clock
+    monkeypatch.setattr(running, "Clock", lambda: real(g.clock.now, g.clock.sleep))
+    return cli.main(["google", "clean", "--run", RUN_NAME, *WHERE, *more])
+
+
+def test_clean_keeps_the_runs_account_while_your_copy_still_runs_as_it_and_names_it(monkeypatch, capsys):
+    g = CopyGoogle(Clock())
+    interrupted(g, pointed=True, disabled=True)
+    assert a_clean(g, monkeypatch, "--copy", COPY) == 0
+    out = capsys.readouterr().out
+    assert out == "Left for you to delete:\n" + your_copy.STILL_RUNS_AS.format(account=N["agent_account"], copy=COPY) + "\n"
+    # kept, and enabled again, so the copy still running as it works; the rest removed
+    assert set(g.accounts) == {N["agent_account"]} and N["agent_account"] not in g.disabled and g.bucket is None
+
+
+def test_clean_deletes_the_runs_account_once_your_copy_is_pointed_back(monkeypatch, capsys):
+    g = CopyGoogle(Clock())
+    interrupted(g, pointed=False)
+    assert a_clean(g, monkeypatch, "--copy", COPY) == 0
+    assert capsys.readouterr().out == "Nothing the kit made is left.\n" and not g.accounts and g.bucket is None
+
+
+def test_clean_of_a_run_on_a_copy_without_its_name_removes_nothing(monkeypatch, capsys):
+    g = CopyGoogle(Clock())
+    interrupted(g, pointed=True)
+    before = len(g.calls)
+    assert a_clean(g, monkeypatch) == 1
+    assert capsys.readouterr().out == your_copy.CLEAN_NEEDS_COPY + "\n"
+    assert not [m for m, _ in g.calls[before:] if m != "GET"] and len(g.accounts) == 2 and g.bucket is not None
+
+
+def test_clean_of_the_kits_own_test_agents_run_is_as_before_even_with_a_copy_named(monkeypatch, capsys):
+    from arvaken_stop_test.google import stack
+    from test_google_run import FakeGoogle
+    g = FakeGoogle(Clock())
+    stack.identities(g, RUN_NAME, g.clock.sleep)                   # the kit's own: its account names its test agent
+    assert not your_copy.made_for_a_copy(g, RUN_NAME)
+    assert a_clean(g, monkeypatch, "--copy", COPY) == 0
+    assert ("DELETE", f"{stack.RUN}/{stack.service_name(g, RUN_NAME)}") in [(m, u) for m, u in g.calls]
+    assert capsys.readouterr().out == "Nothing the kit made is left.\n" and not g.accounts

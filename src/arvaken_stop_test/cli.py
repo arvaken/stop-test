@@ -390,9 +390,20 @@ def _google(args, p) -> int:
         return 0
     g = Google(args.project, args.region)
     if args.action == "clean":
-        r = running.Run(run=run_name, stop_ref=fire.DENY_ALL, fired_by="the kit", window=0.0, project=args.project,
-                        region=args.region)
-        running.tear_down(g, r, running.Clock())
+        from arvaken_stop_test.google import your_copy as copying
+        # A run on a copy of yours is told by the name its account was made with, never by --copy alone, so the kit's
+        # own test agent's service is never kept for a --copy given by mistake
+        if copying.made_for_a_copy(g, run_name):
+            if not args.copy:
+                print(copying.CLEAN_NEEDS_COPY)
+                return 1
+            if not copying.service_name(args.copy, args.project, args.region):
+                p.error(copying.NOT_A_SERVICE)
+            r = copying.clean(g, run_name, args.copy, running.Clock())
+        else:
+            r = running.Run(run=run_name, stop_ref=fire.DENY_ALL, fired_by="the kit", window=0.0,
+                            project=args.project, region=args.region)
+            running.tear_down(g, r, running.Clock())
         print("Nothing the kit made is left." if not r.left_behind else
               "Left for you to delete:\n" + "\n".join(r.left_behind))
         return 0
@@ -459,6 +470,10 @@ GOOGLE_COPY_STOPS = {
 # The "Wrote" sentence, as approved for AWS (COPY_WROTE), with a project where AWS has an account.
 # CUSTOMER TEXT: approved by the founder, word for word, by 19:44 UTC on 3 November 2026 (the Google copy, batch 2 (9))
 GOOGLE_COPY_WROTE = COPY_WROTE.replace("Nothing about your account was sent", "Nothing about your project was sent")
+# `clean`'s --copy, for a run on a copy of yours that could not clean up (your_copy.clean).
+# CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, clean (2))
+GOOGLE_CLEAN_COPY_HELP = ("your test copy's Cloud Run service's full name, if the run was on a copy of yours: the run's "
+                          "account is deleted only once your copy no longer runs as it")
 
 
 def _google_copy_stop(args) -> str:
@@ -1002,6 +1017,7 @@ def _main(argv: list[str] | None = None) -> int:
     gclean.add_argument("--run", dest="run_name", required=True)
     gclean.add_argument("--project", required=True)
     gclean.add_argument("--region", required=True)
+    gclean.add_argument("--copy", default="", metavar="SERVICE", help=GOOGLE_CLEAN_COPY_HELP)
     verify = sub.add_parser("verify", help="check a result file's format and signature")
     verify.add_argument("file", type=Path)
     args = p.parse_args(argv)

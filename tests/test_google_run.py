@@ -142,11 +142,12 @@ class FakeGoogle:
         if path.endswith("/serviceAccounts") and method == "POST":
             email = f"{body['accountId']}@{PROJECT}.iam.gserviceaccount.com"
             self.accounts[email] = {"email": email, "uniqueId": str(100000000000000000000 + len(self.accounts)),
+                                    "displayName": body["serviceAccount"]["displayName"],
                                     "description": body["serviceAccount"]["description"]
                                     if self.described else "someone else's"}
             return self.accounts[email]
         if path.endswith("/serviceAccounts") and method == "GET":
-            return {"accounts": [{"email": e} for e in self.accounts]}
+            return {"accounts": [{"email": e, "displayName": a.get("displayName", "")} for e, a in self.accounts.items()]}
         if "/serviceAccounts/" in path:
             email = path.split("/serviceAccounts/")[1].split(":")[0]
             if email not in self.accounts:

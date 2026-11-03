@@ -120,19 +120,27 @@ def deploy(g: Google, run: str, endpoint: str, *, outside_key: str | None = None
     return {**made, "Agent": service_name(g, run), "Uri": uri}
 
 
+# What the account a test copy of yours runs as for the test says it is, in your project's list of accounts; and how
+# `clean` tells a run on a copy from a run on the kit's own test agent (your_copy.made_for_a_copy).
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:44 UTC on 3 November 2026 (the Google copy, batch 2 (10))
+FOR_A_COPY = "your test copy, for the test"
+
+
+def display_name(run: str, words: str) -> str:
+    return f"Arvaken stop test {run}: {words}"
+
+
 def identities(g: Google, run: str, sleep: Callable[[float], None] = time.sleep,
                copy: bool = False) -> dict[str, str]:
     """The run's two accounts and its bucket, with the grants between them; for a test copy of yours (your_copy.py),
     the account the copy runs as for the test is the first (KC1). Returns their names."""
     n = names(run, g.project)
     made: dict[str, dict] = {}
-    # CUSTOMER TEXT: approved by the founder, word for word, by 19:44 UTC on 3 November 2026 (the Google copy,
-    # batch 2 (10))
-    first = "your test copy, for the test" if copy else "the test agent"
+    first = FOR_A_COPY if copy else "the test agent"
     for which, words in (("agent_account", first), ("second_account", "a second identity")):
         made[which] = g.call("POST", f"{IAM}/projects/{g.project}/serviceAccounts", {
             "accountId": n[which].split("@")[0],
-            "serviceAccount": {"displayName": f"Arvaken stop test {run}: {words}",
+            "serviceAccount": {"displayName": display_name(run, words),
                                "description": f"{LABEL}={run}. Removed when the run ends."}})
     g.call("POST", f"{STORAGE}/b?project={g.project}", {
         "name": n["bucket"], "location": g.region, "labels": {LABEL: run},
