@@ -471,7 +471,7 @@ GOOGLE_COPY_STOPS = {
 # CUSTOMER TEXT: approved by the founder, word for word, by 19:44 UTC on 3 November 2026 (the Google copy, batch 2 (9))
 GOOGLE_COPY_WROTE = COPY_WROTE.replace("Nothing about your account was sent", "Nothing about your project was sent")
 # `clean`'s --copy, for a run on a copy of yours that could not clean up (your_copy.clean).
-# CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, clean (2))
+# CUSTOMER TEXT: approved by the founder, word for word, by 20:05 UTC on 3 November 2026 (the Google copy, clean (2))
 GOOGLE_CLEAN_COPY_HELP = ("your test copy's Cloud Run service's full name, if the run was on a copy of yours: the run's "
                           "account is deleted only once your copy no longer runs as it")
 

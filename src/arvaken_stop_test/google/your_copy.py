@@ -115,7 +115,7 @@ POINT_BACK = ("Point your copy back at its own account:\n"
 # CUSTOMER TEXT: approved by the founder, word for word, by 19:42 UTC on 3 November 2026 (the Google copy, batch 1 (8)),
 # as AWS's STILL_RUNS_AS
 STILL_RUNS_AS = "the account {account}, which your copy {copy} still runs as (point it back, then delete the account)"
-# CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, clean (1))
+# CUSTOMER TEXT: approved by the founder, word for word, by 20:05 UTC on 3 November 2026 (the Google copy, clean (1))
 CLEAN_NEEDS_COPY = ("This run was on a test copy of yours. Give your copy's name with --copy, so the kit can check that "
                     "your copy no longer runs as the run's account before it deletes that account. Nothing was removed.")
 

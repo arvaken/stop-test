@@ -345,8 +345,14 @@ GOOGLE_COPY_WORDS = (
 )
 
 
+# And clean's line for a run on a copy, approved by the founder, word for word, by 20:05 UTC on 3 November 2026
+# ("Approve as written", clean (3)).
+GOOGLE_COPY_CLEAN = ("If a run on your copy could not clean up, give `stop-test google clean` your copy's name with "
+                     "`--copy` as well: it deletes the run's account only once your copy no longer runs as it.")
+
+
 def test_the_readme_says_what_a_run_on_a_google_test_copy_does_in_the_approved_words():
-    for words in GOOGLE_COPY_WORDS:
+    for words in (*GOOGLE_COPY_WORDS, GOOGLE_COPY_CLEAN):
         assert words in flat(README), words[:80]
 
 
