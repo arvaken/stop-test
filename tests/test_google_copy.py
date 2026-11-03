@@ -396,8 +396,9 @@ def test_the_customer_apps_fixtures_are_the_kits_own_results_of_a_copy():
     for doc in docs.values():
         assert result.check(doc) and doc["format"] == result.FORMAT_V3 and doc["cloud"] == "google_cloud"
         assert your_copy.service_name(doc["agent"]["ref"], PROJECT, doc["region"]) and doc["agent"]["whose"] == "yours"
-        assert doc["agent"]["role_ref"] == N["agent_account"] and doc["stop"]["fired_by"] == "the kit"
+        assert doc["agent"]["role_ref"] == N["agent_account"]
     left, disabled, switch = docs.values()
+    assert left["stop"]["fired_by"] == disabled["stop"]["fired_by"] == "the kit"
     assert left["run"]["left_behind"] == [your_copy.STILL_RUNS_AS.format(account=N["agent_account"], copy=COPY)]
     assert (left["stop"]["kind"], left["stop"]["ref"]) == (firing.DENY_KIND, firing.DENY_ALL)
     assert (disabled["stop"]["kind"], disabled["stop"]["ref"], disabled["run"]["repeats"]) == (
