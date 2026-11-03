@@ -1,6 +1,6 @@
 [project]
 name = "arvaken-stop-test"
-version = "0.4.0"
+version = "0.5.0"
 description = "A kit you run in your own cloud account: it fires your declared stop on a test agent it deploys, and times what actually stops."
 readme = "README.md"
 license = "Apache-2.0"
@@ -34,7 +34,7 @@ only-include = ["src", "tests", "LICENSE", "README.md", "pyproject.toml", "PROVI
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["tests"]
+pythonpath = ["tests", "probe/src"]                 # the probe (D575), tested here from its source
 
 [tool.uv]
 # The build backend and its own dependencies, exactly, so `uv build` makes the same bytes every time: a release's

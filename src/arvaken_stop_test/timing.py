@@ -69,8 +69,12 @@ PATH_WORDS = {
 
 STOPPED, FLAPPED, NOT_STOPPED, NOT_RUN = "stopped", "stopped, then succeeded again", "not stopped", "not run"
 NOT_MEASURED = "not measured"       # the stop's effect could not be counted (the founder, 29 October 2026)
-# CUSTOMER TEXT: approved by the founder, word for word, 30 October 2026
-ALL_NOT_COUNTED = "every call after the stop was not counted"
+# A stop the kit fires, where every call after it was not counted: the founder's words of 2 November 2026 (step 4, the
+# rate limit's ruling), in place of those of 30 October 2026 ("every call after the stop was not counted"); {codes} is
+# each code not counted, with how many.
+# CUSTOMER TEXT: approved by the founder, word for word, on 2 November 2026 (step 4, the rate limit's ruling)
+ALL_NOT_COUNTED = ("every call on it after the stop failed for a reason other than your stop (rate limits, timeouts or "
+                   "server errors: {codes}).")
 NOTHING_COUNTED_AFTER = "nothing after {time} was counted"
 REFUSED_AT_THE_MARK = "it was already refused at the mark"   # through a gateway (judge's refused_at_mark)
 
@@ -218,7 +222,8 @@ def judge(beats: Iterable[Beat], fired_at: float | None, window: float, hold: fl
                                                     if first_refusal is not None and t > first_refusal),
                   refused=tuple(refused), failures=tuple(failures))
     if not kept:
-        return PathResult(NOT_MEASURED, reason=ALL_NOT_COUNTED, **common)
+        codes = ", ".join(f"{code} {n}" for code, n in sorted(common["not_counted"].items()))
+        return PathResult(NOT_MEASURED, reason=ALL_NOT_COUNTED.format(codes=codes), **common)
 
     def effect(stopped_at: float) -> tuple[float, float]:
         before_it = max((t for t in successes if t < stopped_at), default=None)

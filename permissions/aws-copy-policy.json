@@ -1,0 +1,27 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "YourTestCopyOnLambda",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:GetFunctionConfiguration",
+        "lambda:InvokeFunction"
+      ],
+      "Resource": "arn:aws:lambda:REGION:ACCOUNT:function:YOUR-TEST-COPY"
+    },
+    {
+      "Sid": "YourTestCopyOnAgentCore",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:GetAgentRuntime",
+        "bedrock-agentcore:GetAgentRuntimeEndpoint",
+        "bedrock-agentcore:InvokeAgentRuntime"
+      ],
+      "Resource": [
+        "arn:aws:bedrock-agentcore:REGION:ACCOUNT:runtime/YOUR-TEST-COPY-ID",
+        "arn:aws:bedrock-agentcore:REGION:ACCOUNT:runtime/YOUR-TEST-COPY-ID/runtime-endpoint/*"
+      ]
+    }
+  ]
+}

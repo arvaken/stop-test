@@ -1,0 +1,142 @@
+{
+ "about": "What the copy's policy, filled in as a customer fills it at install, must allow of their test copy, and must never allow of any other function or runtime of theirs, nor any change to the copy: each statement with allowed cases and denied ones (the founder's ruling on batch 7, 01:08:36 UTC on 2 November 2026: \"The CI and install-test simulator cases add: invoking an unmarked function or runtime is denied.\"). Read by scripts/policy_cases.py, in CI and in install-test.",
+ "policies": [
+  "permissions/aws-copy-policy.json"
+ ],
+ "fill": {
+  "YOUR-TEST-COPY-ID": "my_test_copy-AbCdEf1234",
+  "YOUR-TEST-COPY": "my-test-copy",
+  "REGION": "eu-central-1",
+  "ACCOUNT": "111122223333"
+ },
+ "cases": [
+  {
+   "id": "copy-lambda-read",
+   "statement": "YourTestCopyOnLambda",
+   "action": "lambda:GetFunctionConfiguration",
+   "resource": "arn:aws:lambda:eu-central-1:111122223333:function:my-test-copy",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "copy-lambda-invoke",
+   "statement": "YourTestCopyOnLambda",
+   "action": "lambda:InvokeFunction",
+   "resource": "arn:aws:lambda:eu-central-1:111122223333:function:my-test-copy",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "copy-lambda-invoke-unmarked",
+   "statement": "YourTestCopyOnLambda",
+   "action": "lambda:InvokeFunction",
+   "resource": "arn:aws:lambda:eu-central-1:111122223333:function:my-agent",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "copy-lambda-read-unmarked",
+   "statement": "YourTestCopyOnLambda",
+   "action": "lambda:GetFunctionConfiguration",
+   "resource": "arn:aws:lambda:eu-central-1:111122223333:function:my-agent",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "copy-lambda-invoke-another-region",
+   "statement": "YourTestCopyOnLambda",
+   "action": "lambda:InvokeFunction",
+   "resource": "arn:aws:lambda:us-east-1:111122223333:function:my-test-copy",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "copy-lambda-change",
+   "statement": "YourTestCopyOnLambda",
+   "action": "lambda:UpdateFunctionConfiguration",
+   "resource": "arn:aws:lambda:eu-central-1:111122223333:function:my-test-copy",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "copy-lambda-change-code",
+   "statement": "YourTestCopyOnLambda",
+   "action": "lambda:UpdateFunctionCode",
+   "resource": "arn:aws:lambda:eu-central-1:111122223333:function:my-test-copy",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "copy-agentcore-read",
+   "statement": "YourTestCopyOnAgentCore",
+   "action": "bedrock-agentcore:GetAgentRuntime",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/my_test_copy-AbCdEf1234",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "copy-agentcore-endpoint",
+   "statement": "YourTestCopyOnAgentCore",
+   "action": "bedrock-agentcore:GetAgentRuntimeEndpoint",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/my_test_copy-AbCdEf1234/runtime-endpoint/DEFAULT",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "copy-agentcore-invoke",
+   "statement": "YourTestCopyOnAgentCore",
+   "action": "bedrock-agentcore:InvokeAgentRuntime",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/my_test_copy-AbCdEf1234",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "copy-agentcore-invoke-endpoint",
+   "statement": "YourTestCopyOnAgentCore",
+   "action": "bedrock-agentcore:InvokeAgentRuntime",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/my_test_copy-AbCdEf1234/runtime-endpoint/DEFAULT",
+   "context": {},
+   "expected": "allowed"
+  },
+  {
+   "id": "copy-agentcore-invoke-unmarked",
+   "statement": "YourTestCopyOnAgentCore",
+   "action": "bedrock-agentcore:InvokeAgentRuntime",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/my_agent-ZyXwVu9876",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "copy-agentcore-invoke-unmarked-endpoint",
+   "statement": "YourTestCopyOnAgentCore",
+   "action": "bedrock-agentcore:InvokeAgentRuntime",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/my_agent-ZyXwVu9876/runtime-endpoint/DEFAULT",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "copy-agentcore-read-unmarked",
+   "statement": "YourTestCopyOnAgentCore",
+   "action": "bedrock-agentcore:GetAgentRuntime",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/my_agent-ZyXwVu9876",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "copy-agentcore-change",
+   "statement": "YourTestCopyOnAgentCore",
+   "action": "bedrock-agentcore:UpdateAgentRuntime",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/my_test_copy-AbCdEf1234",
+   "context": {},
+   "expected": "denied"
+  },
+  {
+   "id": "copy-agentcore-change-endpoint",
+   "statement": "YourTestCopyOnAgentCore",
+   "action": "bedrock-agentcore:UpdateAgentRuntimeEndpoint",
+   "resource": "arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/my_test_copy-AbCdEf1234/runtime-endpoint/DEFAULT",
+   "context": {},
+   "expected": "denied"
+  }
+ ]
+}

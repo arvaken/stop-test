@@ -204,9 +204,13 @@ def boundary_document() -> dict[str, Any]:
 
 
 def why_no_boundary(iam: Any, sts: Any) -> str | None:
-    """Why a run cannot make a harness's roles under the kit's boundary for a harness, or None: the policy must be in
-    your account, and its default version must be the kit's, statement for statement, as aws/fire.py checks its own."""
+    """Why a run cannot make a harness's roles under the kit's boundary for a harness, or None: the account must be in
+    the partition aws, the policy must be in your account, and its default version must be the kit's, statement for
+    statement, as aws/fire.py checks its own."""
     caller = sts.get_caller_identity()
+    reason = aws_fire.why_not_aws(caller)
+    if reason:
+        return reason
     arn = f"arn:{caller['Arn'].split(':')[1]}:iam::{caller['Account']}:policy/{HARNESS_BOUNDARY}"
     try:
         version = iam.get_policy(PolicyArn=arn)["Policy"]["DefaultVersionId"]
@@ -879,6 +883,7 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, model: str, window: float =
                          "for at most an hour, which also has to cover the time before the stop and the report after "
                          "the window")
     the_name = run_name or new_run()
+    aws_fire.refuse_outside_aws(c.sts, firing.Refused)  # before anything is made
     if stop_ref != firing.INLINE and not firing.covers(c.iam, stop_ref, the_name):
         raise firing.Refused(aws_fire.NOT_COVERED)  # before anything is made
     reason = why_no_boundary(c.iam, c.sts)

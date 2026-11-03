@@ -1,0 +1,19 @@
+# The probe (D575): its own package in the kit's repository, under the kit's licence (LICENSE here is the kit's, byte
+# for byte). Its description and README are customer words, held for the founder's approval with the build.
+[project]
+name = "arvaken-stop-test-probe"
+version = "0.5.0"
+license = "Apache-2.0"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+# boto3 makes the runtime's own clients; Lambda's Python runtime already has it, so the probe does not require it.
+aws = ["boto3>=1.26"]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/arvaken_stop_test_probe"]

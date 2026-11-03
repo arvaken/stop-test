@@ -792,6 +792,19 @@ def test_without_the_kits_boundary_nothing_is_made():
     assert aws.runtime is None and not aws.roles and not aws.buckets
 
 
+def test_an_account_outside_the_partition_aws_is_refused_before_anything_is_made(monkeypatch):
+    from arvaken_stop_test.aws import fire as aws_fire
+    monkeypatch.setattr(FakeAWS, "get_caller_identity",
+                        lambda self: {"Account": ACCOUNT, "Arn": f"arn:aws-cn:iam::{ACCOUNT}:user/tester"})
+    for stop in (DENY_ALL, fire.INLINE, fire.DENY, fire.DENY_AND_END):
+        clock = Clock()
+        aws = FakeAWS(clock)
+        with pytest.raises(fire.Refused) as e:
+            a_run(aws, clock, stop)
+        assert str(e.value) == aws_fire.NOT_AWS_PARTITION.format(partition="aws-cn")
+        assert aws.runtime is None and not aws.roles and not aws.buckets
+
+
 def test_what_the_run_makes_trusts_agentcore_for_this_runs_runtime_alone_under_the_kits_boundary():
     clock = Clock()
     aws = FakeAWS(clock)
@@ -1068,6 +1081,13 @@ def test_every_call_the_agentcore_module_makes_is_in_its_policy_and_the_policy_h
         assert s["Effect"] == "Allow"
         allowed |= set(s["Action"] if isinstance(s["Action"], list) else [s["Action"]])
     needed = _calls() | FROM_AWS_FIRE | BESIDE
+    # a run on a copy reads which version its endpoint serves: a call on the customer's runtime, which the copy's own
+    # policy holds (permissions/aws-copy-policy.json), as it holds calling the copy
+    copy_only = {"bedrock-agentcore:GetAgentRuntimeEndpoint"}
+    copy_policy = json.loads((Path(__file__).resolve().parents[1] / "permissions" / "aws-copy-policy.json")
+                             .read_text(encoding="utf-8"))
+    assert copy_only <= {a for s in copy_policy["Statement"] for a in s["Action"]}
+    needed -= copy_only
     assert "bedrock-agentcore:InvokeAgentRuntime" in needed and "cloudtrail:CreateTrail" in needed
     assert needed - allowed == set()
     assert allowed - needed == set()

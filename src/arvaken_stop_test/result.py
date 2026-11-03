@@ -95,7 +95,42 @@ SHAPE: dict[str, tuple[str, ...]] = {
     "stop.product": ("kind", "attachment", "name"),     # or null, where the stop is not a product's control
 }
 IDENTIFYING = (*IDENTIFYING_V1, "stop.product.name", "run.via")
-SHAPES = {FORMAT_V1: SHAPE_V1, FORMAT: SHAPE}
+
+# **Version 3** (D575, a test agent the customer chooses; the kit's terms v5, D721) adds exactly what those terms add.
+# Readable (4.4): whose test agent it was; for a test copy of yours, the kinds of its tools and of its model, chosen from
+# the kit's lists (KC3, D710), and whether the probe used your own clients or the runtime's, for its cloud calls and its
+# web calls apart (KC2, D710); for an SDK's switch (D713, D714), the time of the entry you chose in the SDK's record,
+# and whether each path was timed from it or from your mark. Sealed (4.2): that entry's name and the SHA-256 of the file
+# it came from, beside every identifier the result already seals (the copy's ARN among them, as agent.ref). The kit's
+# own test agent's runs write version 2, as before; a run on a copy of yours writes version 3.
+FORMAT_V3 = "stop-test-result/3"
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:02:12 UTC on 1 November 2026 (D710, KC3)
+TOOL_KINDS = ("no tools", "searches or reads the web", "runs code", "reads or writes files", "reads or writes a database",
+              "sends email or messages", "makes payments", "changes cloud resources", "calls other services' APIs",
+              "something else")
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:02:12 UTC on 1 November 2026 (D710, KC3)
+MODEL_KINDS = ("no model", "a model service of its cloud", "a model provider's API", "a model it runs itself")
+# CUSTOMER TEXT: approved by the founder, word for word, 01:08:36 UTC on 2 November 2026 (step 4, batch 5)
+WHOSE = ("the kit's", "yours")
+# CUSTOMER TEXT: approved by the founder, word for word, 01:08:36 UTC on 2 November 2026 (step 4, batch 5)
+CLIENTS = ("yours", "the runtime's")
+# A path of a stop you fire yourself (an SDK's switch, a gateway's, your own trigger) is timed from your mark; one of a
+# stop the kit fires, from the cloud's audit record, and says none (step 4, batch 5 (6)).
+# CUSTOMER TEXT: approved by the founder, word for word, 01:08:36 UTC on 2 November 2026 (step 4, batch 5)
+TIMED_FROM = ("your mark",)
+SDK_KIND = "in-agent SDK"
+SHAPE_V3: dict[str, tuple[str, ...]] = {
+    **SHAPE,
+    "agent": (*SHAPE["agent"], "whose", "tools", "model_kind", "clients"),
+    "agent.clients": ("cloud", "http"),                 # or null, for the kit's own test agent
+    "stop": (*SHAPE["stop"], "record"),
+    # or null, where the stop is not an SDK's switch: the entry's time as you entered it, marked so, and flagged where
+    # it is before your mark; its name; its file's SHA-256 (step 4, batch 5 (5))
+    "stop.record": ("time", "entered_by_you", "before_mark", "name", "sha256"),
+    "repeat.path": (*SHAPE["repeat.path"], "timed_from"),   # for an SDK's switch; else null
+}
+IDENTIFYING_V3 = (*IDENTIFYING, "stop.record.name", "stop.record.sha256")
+SHAPES = {FORMAT_V1: SHAPE_V1, FORMAT: SHAPE, FORMAT_V3: SHAPE_V3}
 
 # What `check` says of a version-2 result it refuses, beside what it says of any result.
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
@@ -104,6 +139,22 @@ REFUSALS = {
     "product_control": ("a stop is a product's control exactly where it names a product, and is fired by your own "
                         "trigger"),
     "via": "a gateway's address is given only for a gateway, as its scheme, host and port alone",
+}
+# What `check` says of a version-3 result it refuses.
+# CUSTOMER TEXT: approved by the founder, word for word, 01:08:36 UTC on 2 November 2026 (step 4, batch 5 (4) to (7))
+REFUSALS_V3 = {
+    "whose": ("a test agent is the kit's, with no tools, model kind or clients given, or yours, with its tools' and "
+              "model's kinds from the kit's lists and its clients for each kind of call"),
+    "record": ("an SDK's own record is given only where the stop is an SDK's switch, with: the entry's time, as you "
+               "entered it, with its time zone, marked as entered by you and flagged if before your mark; the entry's "
+               "name, 1 to 200 characters; and its file's SHA-256. The SDK's own name is its own field, 1 to 200 "
+               "characters."),
+    "timed_from": ("a path is timed from your mark only where you fire the stop yourself (an SDK's switch, a gateway's "
+                   "switch, or your own trigger). A path of a stop the kit fires is timed from the cloud's audit "
+                   "record, and never says your mark."),
+    "outcomes": ("the outcome 'stopped, by Arvaken's rule for an SDK's stop', and the not-measured reasons about your "
+                 "SDK's record and the kit's witness, belong to an SDK's switch alone. 'Not stopped', 'stopped, then "
+                 "succeeded again' and 'not measured' are shared by every stop."),
 }
 
 
@@ -179,10 +230,13 @@ def heartbeats_lost(lost: list[tuple[float, str]]) -> dict[str, Any]:
 def build(*, kit_version: str, cloud: str, region: str, began_at: float, ended_at: float, window: float,
           clock_gap_ms: int, calls: int, left_behind: list[str], stop_kind: str, fired_by: str, stop_ref: str,
           agent: Mapping[str, Any], repeats: list[tuple[float | None, Mapping[str, PathResult]]],
-          product: Mapping[str, Any] | None = None, via: str | None = None) -> dict[str, Any]:
+          product: Mapping[str, Any] | None = None, via: str | None = None,
+          copy: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """The unsigned result. `repeats` is each repeat's firing moment and each path's result, in the paths' order. A
-    gateway's address is written as its scheme, host and port alone."""
-    return {
+    gateway's address is written as its scheme, host and port alone. With `copy` (a run on a test copy of yours), it is
+    a version-3 result: `copy` holds its tools' kinds, its model's kind, its clients by kind, and for an SDK's switch
+    the SDK's own record (its entry's time, its name and its file's SHA-256)."""
+    doc = {
         "format": FORMAT, "kit": {"version": kit_version}, "cloud": cloud, "region": region,
         "run": {"began_at": iso(began_at), "ended_at": iso(ended_at), "window_seconds": int(window),
                 "repeats": len(repeats), "clock_gap_ms": int(clock_gap_ms), "calls": int(calls),
@@ -193,6 +247,18 @@ def build(*, kit_version: str, cloud: str, region: str, began_at: float, ended_a
         "agent": {k: agent[k] for k in SHAPE["agent"]},
         "repeats": [{p: path_part(paths[p], fired_at) for p in PATHS if p in paths} for fired_at, paths in repeats],
     }
+    if copy is None:
+        return doc
+    sdk_switch = bool(product) and product["kind"] == SDK_KIND
+    record = copy.get("record")
+    doc["format"] = FORMAT_V3
+    doc["agent"].update(whose=WHOSE[1], tools=list(copy["tools"]), model_kind=copy["model_kind"],
+                        clients={k: copy["clients"][k] for k in SHAPE_V3["agent.clients"]})
+    doc["stop"]["record"] = {k: record[k] for k in SHAPE_V3["stop.record"]} if record else None
+    for part in doc["repeats"]:         # from your mark where you fire it yourself (step 4, batch 5 (6))
+        for found in part.values():
+            found["timed_from"] = TIMED_FROM[0] if fired_by == FIRED_BY[1] else None
+    return doc
 
 
 def canonical(doc: Mapping[str, Any]) -> bytes:
@@ -234,7 +300,8 @@ def _check_v2(doc: dict[str, Any]) -> None:
     if product is not None:
         _exactly(product, "stop.product")
         name = product["name"]
-        if product["kind"] not in PRODUCTS or product["attachment"] not in PRODUCTS[product["kind"]] or \
+        if not isinstance(product["kind"], str) or product["kind"] not in PRODUCTS or \
+                product["attachment"] not in PRODUCTS[product["kind"]] or \
                 not isinstance(name, str) or not 0 < len(name) <= NAME_LIMIT:
             raise NotAResult(REFUSALS["product"])
     if (product is not None) != (stop["kind"] == PRODUCT_CONTROL) or \
@@ -245,11 +312,56 @@ def _check_v2(doc: dict[str, Any]) -> None:
         raise NotAResult(REFUSALS["via"])
 
 
+def _check_v3(doc: dict[str, Any]) -> None:
+    """What version 3 adds, each part consistent with the rest: whose test agent, its kinds and clients; the SDK's own
+    record, exactly for an SDK's switch; and each path's timing source, exactly for one."""
+    import re
+    agent, stop = doc["agent"], doc["stop"]
+    if agent["whose"] == WHOSE[0]:
+        if agent["tools"] is not None or agent["model_kind"] is not None or agent["clients"] is not None:
+            raise NotAResult(REFUSALS_V3["whose"])
+    elif agent["whose"] == WHOSE[1]:
+        tools = agent["tools"]
+        if not isinstance(tools, list) or not tools or not all(isinstance(t, str) for t in tools) or \
+                len(set(tools)) != len(tools) or \
+                not set(tools) <= set(TOOL_KINDS) or (TOOL_KINDS[0] in tools and len(tools) > 1) or \
+                agent["model_kind"] not in MODEL_KINDS:
+            raise NotAResult(REFUSALS_V3["whose"])
+        _exactly(agent["clients"], "agent.clients", SHAPE_V3)
+        if not all(v in CLIENTS for v in agent["clients"].values()):
+            raise NotAResult(REFUSALS_V3["whose"])
+    else:
+        raise NotAResult(REFUSALS_V3["whose"])
+    sdk_switch = stop["product"] is not None and stop["product"]["kind"] == SDK_KIND
+    record = stop["record"]                 # for an SDK's switch, or null where you gave none (then not measured)
+    if record is not None and not sdk_switch:
+        raise NotAResult(REFUSALS_V3["record"])
+    if record is not None:
+        from arvaken_stop_test.sdk import time_fits
+        _exactly(record, "stop.record", SHAPE_V3)
+        name, digest = record["name"], record["sha256"]
+        if not time_fits(record["time"]) or record["entered_by_you"] is not True or \
+                not isinstance(record["before_mark"], bool) or not isinstance(name, str) or \
+                not 0 < len(name) <= NAME_LIMIT or not isinstance(digest, str) or \
+                not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise NotAResult(REFUSALS_V3["record"])
+    from arvaken_stop_test.sdk import SDK_STOPPED
+    # stopped by its rule, not stopped, stopped then succeeded again, not run, else not measured (step 4, batch 4)
+    sdk_outcomes = (SDK_STOPPED, NOT_STOPPED, FLAPPED, NOT_MEASURED, NOT_RUN)
+    for repeat in doc["repeats"]:
+        for part in repeat.values():
+            if part["timed_from"] != (TIMED_FROM[0] if stop["fired_by"] == FIRED_BY[1] else None):
+                raise NotAResult(REFUSALS_V3["timed_from"])
+            if (part["outcome"] in sdk_outcomes) != sdk_switch and (sdk_switch or part["outcome"] == SDK_STOPPED):
+                raise NotAResult(REFUSALS_V3["outcomes"])
+
+
 def check(doc: Any) -> dict[str, Any]:
-    """The result, if it is a stop-test-result/2 or /1 in exactly its version's shape and its signature checks; else
-    NotAResult."""
-    if not isinstance(doc, dict) or doc.get("format") not in SHAPES:
-        raise NotAResult(f"the result is not {FORMAT}, or {FORMAT_V1}")
+    """The result, if it is a stop-test-result/3, /2 or /1 in exactly its version's shape and its signature checks;
+    else NotAResult."""
+    # a format, a kind and a tool are each looked up by their text: anything else is refused, never hashed
+    if not isinstance(doc, dict) or not isinstance(doc.get("format"), str) or doc.get("format") not in SHAPES:
+        raise NotAResult(f"the result is not {FORMAT_V3}, {FORMAT}, or {FORMAT_V1}")
     shape = SHAPES[doc["format"]]
     _exactly(doc, "", shape)
     for part in ("kit", "run", "stop", "agent", "signature"):
@@ -258,7 +370,8 @@ def check(doc: Any) -> dict[str, Any]:
         raise NotAResult(f"the stop was fired by one of {', '.join(FIRED_BY)}")
     if not isinstance(doc["repeats"], list) or len(doc["repeats"]) != doc["run"]["repeats"] or not doc["repeats"]:
         raise NotAResult("the repeats are a list, as many as the run says")
-    outcomes = OUTCOMES if shape is SHAPE else OUTCOMES_V1
+    from arvaken_stop_test.sdk import SDK_STOPPED
+    outcomes = {id(SHAPE_V1): OUTCOMES_V1, id(SHAPE): OUTCOMES, id(SHAPE_V3): (*OUTCOMES, SDK_STOPPED)}[id(shape)]
     for i, repeat in enumerate(doc["repeats"]):
         if not isinstance(repeat, dict) or not set(repeat) <= set(PATHS) or not repeat:
             raise NotAResult(f"repeat {i} names only the kit's paths")
@@ -268,8 +381,10 @@ def check(doc: Any) -> dict[str, Any]:
                 raise NotAResult(f"repeat {i}'s {path} has an outcome the rule does not give")
     if doc["run"]["left_anything"] != bool(doc["run"]["left_behind"]):
         raise NotAResult("the run says something was left exactly where it names what")
-    if shape is SHAPE:
+    if shape is not SHAPE_V1:
         _check_v2(doc)
+    if shape is SHAPE_V3:
+        _check_v3(doc)
     sig = doc["signature"]
     if sig["alg"] != "ed25519":
         raise NotAResult("the signature is ed25519")

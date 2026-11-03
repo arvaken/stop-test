@@ -209,6 +209,22 @@ class Run:
     # your own trigger: the kind of stop CloudTrail's record of your action shows, or None, and that record
     trigger_kind: str | None = None
     trigger_record: dict[str, str] | None = None
+    # a test copy of the customer's own function (D575; your_copy.py): its ARN; the role it ran as before the test; the
+    # run's key for the outside path, which the kit sends in its marker, the copy's environment being the customer's; and
+    # which clients the probe used, by kind (KC2: "cloud" and "http", each "customer" or "runtime")
+    copy: str = ""
+    copy_role: str = ""
+    copy_config: dict[str, Any] = field(default_factory=dict)  # its runtime, memory and network, for its result
+    outside_key: str = field(default="", repr=False)
+    clients: dict[str, set[str]] = field(default_factory=dict)
+    # an SDK's stop on a copy (sdk.py, D713): the kit's witness, each call (when, on the agent's clock; worked; its
+    # error's code), and the SDK's own record that it acted, from the customer's export
+    witness: list[tuple[float, bool, str | None]] = field(default_factory=list)
+    sdk_record: Any = None
+    # and with a model, the copy's calls to it as CloudTrail's event history holds them (sdk.judge_model): each (when,
+    # its error's code or None), or None until read; and the code of the error that kept a read from finishing
+    model_trail: list[tuple[float, str | None]] | None = None
+    model_trail_error: str | None = None
 
     @property
     def paths(self) -> tuple[str, ...]:
@@ -346,10 +362,31 @@ def unreached(e: Exception) -> str | None:
     return None
 
 
+MARKER = "arvaken_stop_test"        # what the probe takes as the kit's own invocation (the probe's core.MARKER)
+COPY_ERROR = "CopyError:"           # the prefix of a beat's error where the copy answered with an error of its own
+
+
+class CopyAnswered(Exception):
+    """A copy's invocation that Lambda ran and the copy answered with an error (Lambda's FunctionError): its error's type
+    alone, never its message, which is the customer's code's."""
+
+    def __init__(self, error_type: str):
+        super().__init__(error_type)
+        self.error_type = error_type
+
+
 def _invoke(c: Clients, r: Run, payload: dict, clock: Clock) -> tuple[dict, float, float]:
+    """One invocation of the test agent: the kit's own function; or a copy of the customer's, with the run's settings in
+    the kit's marker (the probe's heartbeat.run), and its own error, where it answers with one, as CopyAnswered."""
     sent = clock.now()
-    response = c.lambda_.invoke(FunctionName=names(r.run)["function"], Payload=json.dumps(payload).encode())
+    if r.copy:
+        payload = {MARKER: {"run": r.run, "bucket": r.outputs.get("Bucket", ""),
+                            "second_role": r.outputs.get("SecondRole", ""), "key": r.outside_key,
+                            **({"model": r.model} if r.model else {}), **payload}}
+    response = c.lambda_.invoke(FunctionName=r.copy or names(r.run)["function"], Payload=json.dumps(payload).encode())
     body = json.loads(response["Payload"].read())
+    if r.copy and response.get("FunctionError"):
+        raise CopyAnswered(str(body.get("errorType") or "Unhandled")[:64] if isinstance(body, dict) else "Unhandled")
     return body, sent, clock.now()
 
 
@@ -370,6 +407,10 @@ def heartbeat(c: Clients, r: Run, n: int, session: dict,
     sent = clock.now()
     try:
         body, sent, received = _invoke(c, r, {"n": n, "session": session, **r.gateway}, clock)
+    except CopyAnswered as e:           # the copy ran and made no path's call: each path's beat is its error, by type
+        received = clock.now()
+        at = (sent + received) / 2 + r.offset
+        return {p: Beat(at, False, COPY_ERROR + e.error_type) for p in r.paths}, sent, received, None
     except Exception as e:
         code = refused_by_lambda(e)
         if code is None:
@@ -386,6 +427,8 @@ def heartbeat(c: Clients, r: Run, n: int, session: dict,
                 for p in r.paths}, sent, received, None
     versions = tuple(str(v) for v in body["v"]) if isinstance(body.get("v"), list) else None
     beats = {p: _beat(p, b, session, versions) for p, b in (body.get("beats") or {}).items()}
+    for kind, whose in (body.get("clients") or {}).items():         # a copy's probe: whose clients it used, by kind
+        r.clients.setdefault(str(kind), set()).add(str(whose))
     if body.get("key") and "own_calls" in beats:
         r.own_keys[beats["own_calls"].at] = str(body["key"])
     r.calls += len(beats)
@@ -442,15 +485,20 @@ def _did_not_work(r: Run, p: str) -> str:
 
 def time_one(c: Clients, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
              before: dict[str, list[Beat]] | None = None, mark: Callable[[], object] | None = None,
-             say: Callable[[str], None] = lambda _: None) -> Repeat:
+             say: Callable[[str], None] = lambda _: None, marked: str = MARKED,
+             each_second: Callable[[], None] | None = None, calling_to_the_mark: bool = False) -> Repeat:
     """One repeat: fire (or wait for the customer's own trigger, or their mark), then a heartbeat a second through the
     window and the hold. `before` is each path's heartbeats before the firing: the warm-up's, or those since the last
     stop was taken off. Through a gateway, the session for the other identity is taken through it, before the mark:
-    where it cannot be, that path did not work before the stop."""
+    where it cannot be, that path did not work before the stop. `marked` is what the kit says at the mark, and
+    `each_second` what it does beside each heartbeat after it (for an SDK's stop on a copy, its witness: sdk.py). With
+    `calling_to_the_mark`, the heartbeats go on while the kit waits for the mark: `mark` is given the heartbeat to make
+    each second, and gives back the kit's clock when the customer pressed Enter (an SDK's stop on a copy: the founder's
+    answer at 17:34:43 UTC on 2 November 2026, "Keep calling until the mark")."""
     rep = Repeat()
     for p, beats in (before or {}).items():
         rep.beats.setdefault(p, []).extend(beats)
-    session = assume_or_none(c, r, clock) if r.via else assume(c, r, clock)
+    session = assume_or_none(c, r, clock) if r.via or r.copy else assume(c, r, clock)
     if session is None:
         if "another_identity" in r.working:
             r.working.discard("another_identity")
@@ -459,10 +507,20 @@ def time_one(c: Clients, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
         session = {}
     rep.session_expires = session.get("expires")
     n = n0
-    if mark is not None:
+    if mark is not None and calling_to_the_mark:
+
+        def one() -> None:
+            nonlocal n
+            beats, _, _, _ = heartbeat(c, r, n, session, clock)
+            for p, b in beats.items():
+                rep.beats.setdefault(p, []).append(b)
+            n += 1
+        rep.fired_before = rep.fired_after = mark(one)      # timed from the Enter, the calls kept up until it
+        say(marked)
+    elif mark is not None:
         mark()                          # the customer presses Enter, then fires their stop: timed from the Enter
         rep.fired_before = rep.fired_after = clock.now()
-        say(MARKED)
+        say(marked)
     elif watch_own_trigger:
         rep.watched_from = clock.now()
         seen = firing.watch(c.iam, c.lambda_, r.run, until=clock.now() + r.window, now=clock.now, sleep=clock.sleep)
@@ -481,6 +539,8 @@ def time_one(c: Clients, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
         beats, _, _, _ = heartbeat(c, r, n, session, clock)
         for p, b in beats.items():
             rep.beats.setdefault(p, []).append(b)
+        if each_second is not None:
+            each_second()
         n += 1
         clock.sleep(1.0)
     return rep
@@ -521,7 +581,7 @@ def firing_moments(c: Clients, r: Run, clock: Clock, wait: float = TRAIL_WAIT) -
         for rep in r.repeats:
             if rep.fired_after:
                 rep.fired_at = rep.fired_after + r.offset
-        if not r.via:                       # through a gateway the stop is a product's control, never identified
+        if not r.product:                   # a product's control (a gateway's, an SDK's) is never identified
             identify(c, r, clock, wait)
         return
     event_name = firing.KINDS[r.stop_kind]
@@ -657,10 +717,11 @@ def own_tokens(c: Clients, r: Run) -> None:
 
 
 def tear_down(c: Clients, r: Run, clock: Clock, eni_wait: float = ENI_WAIT,
-              say: Callable[[str], None] = lambda _: None) -> None:
+              say: Callable[[str], None] = lambda _: None, after_stack: Callable[[], None] | None = None) -> None:
     """Remove the stop the kit fired and everything it made; name anything left (D532, K4). In a subnet of yours, wait
     for the function's network interfaces to be removed first (wait_for_interfaces), then, where the stack was still
-    being deleted, for the stack again: CloudFormation deletes the rest only once those are gone."""
+    being deleted, for the stack again: CloudFormation deletes the rest only once those are gone. `after_stack` runs
+    once the stack is deleted, before anything is checked gone: for a copy, what removes the role the stack kept."""
     n = names(r.run)
     try:
         firing.remove(c.iam, r.run, r.stop_ref)
@@ -688,6 +749,8 @@ def tear_down(c: Clients, r: Run, clock: Clock, eni_wait: float = ENI_WAIT,
             _stack_deleted(c, n["stack"], clock)
         except KeyboardInterrupt:
             pass                                # Ctrl-C ends this wait too: what is still there is named below
+    if after_stack is not None:
+        after_stack()
     r.left_behind, r.checked_gone = check_gone(c, r)
     r.left_behind += left
     r.checked_gone += gone
@@ -765,15 +828,17 @@ class _NotFound(Exception):
 
 def check_gone(c: Clients, r: Run) -> tuple[list[str], list[str]]:
     """Each thing the run made, checked gone by its own identifier; then the run's tag, for anything else. Returns what
-    is left (each named, and why where it could not be checked) and what was checked gone."""
+    is left (each named, and why where it could not be checked) and what was checked gone. For a copy of the customer's
+    own function, no function and no log group of the kit's: the copy and its logs are the customer's, never touched."""
     n = names(r.run)
     log_group = f"/aws/lambda/{n['function']}"
+    logs = c.logs if not r.copy else None
 
     def log_groups() -> list[str]:
         found = c.logs.describe_log_groups(logGroupNamePrefix=log_group).get("logGroups", [])
         return [g["logGroupName"] for g in found if g["logGroupName"] == log_group]
 
-    if c.logs is not None:
+    if logs is not None:
         try:
             if log_groups():
                 c.logs.delete_log_group(logGroupName=log_group)
@@ -790,9 +855,11 @@ def check_gone(c: Clients, r: Run) -> tuple[list[str], list[str]]:
         (f"the role {n['agent_role']}", lambda: c.iam.get_role(RoleName=n["agent_role"])),
         (f"the role {n['second_role']}", lambda: c.iam.get_role(RoleName=n["second_role"])),
     ]
+    if r.copy:
+        del things[1]
     if r.outputs.get("Bucket"):
         things.append((f"the bucket {r.outputs['Bucket']}", lambda: c.s3.head_bucket(Bucket=r.outputs["Bucket"])))
-    if c.logs is not None:
+    if logs is not None:
         things.append((f"the log group {log_group}", log_group_is_there))
     left, gone = [], []
     for what, call in things:
@@ -1005,6 +1072,7 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", 
         if reason:
             raise firing.Refused(reason)            # before anything is made
     the_name = run_name or new_run()
+    firing.refuse_outside_aws(c.sts)                # before anything is made
     if fired_by == "the kit" and stop_ref not in (firing.REVOKE, firing.INLINE) \
             and not firing.covers(c.iam, stop_ref, the_name):
         raise firing.Refused(firing.NOT_COVERED)    # before anything is made

@@ -452,6 +452,34 @@ def test_without_the_kits_boundary_in_the_account_nothing_is_made():
             assert aws.stack is None and aws.invocations == 0
 
 
+GOV = "arn:aws-us-gov:sts::123456789012:assumed-role/runner/you"
+
+
+def test_the_partition_is_the_second_part_of_the_callers_arn():
+    """The kit runs in the partition aws alone, and says so for any other in the founder's words (22:07:47 UTC on 2
+    November 2026)."""
+    assert firing.why_not_aws({"Arn": "arn:aws:sts::123456789012:assumed-role/runner/you"}) is None
+    for partition in ("aws-cn", "aws-us-gov", "aws-iso"):
+        assert firing.why_not_aws({"Arn": f"arn:{partition}:sts::123456789012:assumed-role/runner/you"}) == (
+            f"Your account is in the AWS partition {partition}. The kit can't yet run outside the partition aws, such "
+            "as in the China Regions or the AWS GovCloud (US) Regions.")
+
+
+def test_an_account_outside_the_partition_aws_is_refused_before_anything_is_made(monkeypatch):
+    """Asked first, whatever stop is fired: before a stop's coverage is simulated, whose ARNs are aws's, and before
+    anything is made."""
+    monkeypatch.setattr(FakeAWS, "get_caller_identity", lambda self: {"Account": "123456789012", "Arn": GOV})
+    monkeypatch.setattr(FakeAWS, "simulate_custom_policy", lambda self, **_: pytest.fail("a stop's coverage simulated"))
+    for stop in (STOP, firing.INLINE, firing.REVOKE):
+        clock = Clock()
+        aws = FakeAWS(clock)
+        with pytest.raises(firing.Refused) as e:
+            a_run(aws, clock, stop_ref=stop)
+        assert str(e.value) == firing.NOT_AWS_PARTITION.format(partition="aws-us-gov")
+        assert aws.stack is None and aws.invocations == 0
+        assert firing.why_no_boundary(aws, aws) == str(e.value)
+
+
 def test_both_roles_are_made_under_the_kits_boundary():
     roles = {k: r["Properties"] for k, r in template("r0123abcd", ENDPOINT)["Resources"].items()
              if r["Type"] == "AWS::IAM::Role"}

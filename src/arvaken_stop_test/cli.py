@@ -124,6 +124,78 @@ PLAN_PRODUCT = ("- your stop is your gateway, {name}, attached to {attachment}: 
                 "to press Enter, then fire your stop, and times each path from that mark;")
 
 
+# A run on a test copy of your own agent (D575; aws/your_copy.py, agentcore/your_copy.py), and an in-agent SDK's stop on
+# it (D713, D714; sdk.py): the founder's step-4 rulings on batch 6, 01:15:37 UTC on 2 November 2026.
+# CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (1) to (6))
+COPY_HELP = {
+    "copy": "run on a test copy of your own agent, by its Lambda function's ARN, instead of on the kit's test agent",
+    "agentcore_copy": ("run on a test copy of your own agent, by its AgentCore runtime's ARN, instead of on the kit's test "
+                       "agent"),
+    "sdk": "with --copy: your stop is this in-agent SDK's switch, by its name; you fire it yourself, after your mark",
+    "tool": "with --copy: a kind of tool your copy has, from the kit's list; give each that applies, or --tool none",
+    "model_kind": "with --copy: the kind of model your copy calls, from the kit's list",
+    "endpoint_name": "with --copy: the endpoint of your runtime the kit calls, DEFAULT unless you name another",
+}
+NO_TOOLS = "none"                   # --tool none: the kit's list's "no tools" (batch 6 (4))
+# CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (11))
+COPY_NEEDS_KINDS = ("--copy needs your copy's --tool kinds, each that applies, or --tool none, and its --model-kind, from "
+                    "the kit's lists.")
+# CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (7))
+COPY_GOES_WITH = ("--copy goes with --stop, --revoke-sessions, --inline-deny or --sdk; not with --own-trigger, --via, "
+                  "--subnet, --security-group, --ca-bundle or the --product options.")
+# CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (8))
+AGENTCORE_COPY_GOES_WITH = ("--copy goes with --stop, --inline-deny or --sdk; not with --deny-calls or "
+                            "--deny-calls-and-end-sessions, which act on your runtime itself (timing them on a copy "
+                            "isn't offered yet), or with --trail, which only those stops use.")
+# CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (9))
+SDK_NEEDS_COPY = "--sdk goes with --copy: the kit tests an SDK's switch on a test copy of your own agent."
+# CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (10))
+SDK_IS_THE_STOP = "--sdk is your stop, your SDK's own switch: give it without --stop, --revoke-sessions or --inline-deny."
+# CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (13)); its "A
+# call refused by a rate limit" as he changed it by 01:32:51 UTC
+COPY_PLAN = ("Run {run} in {region}, on your test copy {copy}:\n"
+             "- makes the role your copy runs as for the test, {role}, with a second role and a bucket of its own, "
+             "and asks you to point your copy at that role, then back afterwards: it never deploys, changes or "
+             "deletes your copy;\n"
+             "- calls your copy about once a second, with the run's settings in each call, for the kit's probe you "
+             "added to it. AWS bills each call, and anything your copy calls, to your account. A call refused by a "
+             "rate limit is never counted as stopped;\n"
+             "{stop}"
+             "- changes nothing else in your account;\n"
+             "- then removes everything it made, and names anything left.")
+# {repeats} is "1 time" or "5 times" (times), as his "{repeats} {time|times}" has it.
+# CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (14))
+COPY_PLAN_STOP = "- fires your stop, {stop}, on that role alone, {repeats}, and times each path for {window} seconds;\n"
+# --revoke-sessions acts on the run's second role too (aws/fire.revoke).
+# CUSTOMER TEXT: approved by the founder, word for word, 19:00:00 UTC on 2 November 2026 ("Approve as written")
+COPY_PLAN_REVOKE = ("- fires your stop, revoke active sessions, on that role and the run's second role, {repeats}, and "
+                    "times each path for {window} seconds;\n")
+# CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (15))
+COPY_PLAN_SDK = ("- you fire your SDK {name}'s switch yourself, after your mark, and the kit fires nothing; it times "
+                 "each path for {window} seconds, once, not repeated, since only you can turn your switch off; as its "
+                 "witness, it checks from this machine every second that the run's bucket and Arvaken's test address "
+                 "keep answering;\n"
+                 "- afterwards asks for the file you exported from your SDK, reads it only to check the entry you name "
+                 "is in it, and keeps only its SHA-256 and that entry;\n")
+# CUSTOMER TEXT: approved by the founder, word for word, 01:08:36 UTC on 2 November 2026 (step 4, batch 6)
+COPY_FOUND = "What the run on your copy found:"
+# The bracket's part is said on an SDK's run alone, where the witness calls (his ruling on the "Wrote" sentence). It
+# replaces D722's sentence, with the legal track's three points fixed: the user agent is what the kit gives the calls,
+# which a client or a proxy may add to; the bracket holds of an AgentCore copy too; the witness's address is the one
+# this machine's calls leave from, which a proxy may change.
+# CUSTOMER TEXT: approved by the founder, word for word, at 17:50:03 UTC on 2 November 2026 ("Approve the fixed
+# sentence")
+COPY_WROTE = ("Wrote {out} and its details. Nothing about your account was sent to Arvaken. Arvaken's test address "
+              "received only the test calls the plan named, from the address your copy's calls leave from (your own "
+              "if your copy runs in a network of yours){witness}. The kit gave those calls only its own name as their "
+              "user agent and, on the call with a key, the run's test key; an HTTP client of yours, an SDK that wraps "
+              "the probe's, or a proxy may add headers of its own. What Arvaken keeps of those addresses, and for how "
+              "long, is in the README.")
+# CUSTOMER TEXT: approved by the founder, word for word, at 17:50:03 UTC on 2 November 2026 ("Approve the fixed
+# sentence")
+COPY_WROTE_WITNESS = ", and the kit's witness its checks, from the address this machine's calls leave from"
+
+
 def write(path: Path, text: str) -> None:
     """Every file the kit writes: UTF-8, with LF line endings on every platform, so a result's bytes and their SHA-256
     are the same wherever the kit ran (D536). Python's own default writes CRLF on Windows."""
@@ -171,7 +243,10 @@ def _plan(args, run_name: str) -> str:
     if not reason and args.stop:
         from arvaken_stop_test.aws.boto import clients_for
         c = clients_for(args.region)
-        if not fire.covers(c.iam, stop, run_name):
+        outside = fire.why_not_aws(c.sts.get_caller_identity())       # asked before a stop's coverage is simulated
+        if outside:
+            reason = outside.rstrip(".")
+        elif not fire.covers(c.iam, stop, run_name):
             reason = fire.NOT_COVERED.rstrip(".")
         else:
             reason = (fire.why_no_boundary(c.iam, c.sts, model=bool(args.model)) or "").rstrip(".") or None
@@ -384,7 +459,8 @@ AGENTCORE_HELP = {
 }
 
 
-# CUSTOMER TEXT: approved by the founder, with his edits, 29 October 2026 (the harness module's words, ruling 1)
+# CUSTOMER TEXT: approved by the founder, with his edits, 29 October 2026 (the harness module's words, ruling 1); its
+# "A call refused by a rate limit" as he changed it by 01:34:57 UTC on 2 November 2026
 HARNESS_PLAN = (
     "Run {run} in {region}, on an AgentCore harness:\n"
     "- creates a test agent, the AgentCore harness {harness}, which calls the model {model} and has no tools; its "
@@ -396,7 +472,7 @@ HARNESS_PLAN = (
     "command that does nothing, to time when new sessions are refused;\n"
     "- times each path for {window} seconds after firing, {repeats};\n"
     "- calls the model about {turns} times and starts about {sessions} sessions. AWS bills each call to the model and "
-    "each session's use to your account. A call refused for a limit on your account is never counted as stopped;\n"
+    "each session's use to your account. A call refused by a rate limit is never counted as stopped;\n"
     "- changes nothing else in your account;\n"
     "- then takes the stop off the test agent's role, removes everything it made, and names anything left.")
 # What the plan says is fired, and where (his ruling 1, condition c).
@@ -421,8 +497,11 @@ def _harness_plan(args, run_name: str) -> str:
     if not reason:
         from arvaken_stop_test.agentcore.boto import clients_for
         c = clients_for(args.region)
-        if args.stop and not fire.covers(c.iam, stop, run_name):
-            from arvaken_stop_test.aws.fire import NOT_COVERED
+        from arvaken_stop_test.aws.fire import NOT_COVERED, why_not_aws
+        outside = why_not_aws(c.sts.get_caller_identity())            # asked before a stop's coverage is simulated
+        if outside:
+            reason = outside.rstrip(".")
+        elif args.stop and not fire.covers(c.iam, stop, run_name):
             reason = NOT_COVERED.rstrip(".")
         else:
             reason = (harness.why_no_boundary(c.iam, c.sts) or "").rstrip(".") or None
@@ -501,9 +580,12 @@ def _agentcore_plan(args, run_name: str) -> str:
     reason = fire.why_not(stop)
     if not reason and args.stop:
         from arvaken_stop_test.agentcore.boto import clients_for
-        from arvaken_stop_test.aws.fire import NOT_COVERED, why_no_boundary
+        from arvaken_stop_test.aws.fire import NOT_COVERED, why_no_boundary, why_not_aws
         c = clients_for(args.region)
-        if not fire.covers(c.iam, stop, run_name):
+        outside = why_not_aws(c.sts.get_caller_identity())            # asked before a stop's coverage is simulated
+        if outside:
+            reason = outside.rstrip(".")
+        elif not fire.covers(c.iam, stop, run_name):
             reason = NOT_COVERED.rstrip(".")
         else:
             reason = (why_no_boundary(c.iam, c.sts) or "").rstrip(".") or None
@@ -520,6 +602,8 @@ def _agentcore(args, p) -> int:
     from arvaken_stop_test.agentcore import fire
     from arvaken_stop_test.agentcore import run as running
     from arvaken_stop_test.aws.stack import new_run
+    if args.action in ("plan", "run") and (args.copy or args.sdk):
+        return _copy(args, p, agentcore=True)
     if args.action in ("plan", "run"):
         if sum((bool(args.stop), args.inline_deny, args.deny_calls, args.deny_calls_and_end_sessions)) != 1:
             # CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
@@ -575,7 +659,118 @@ def _agentcore(args, p) -> int:
     return 0
 
 
+def _copy_checks(args, p, agentcore: bool) -> None:
+    """--copy and --sdk, as each goes: --sdk only with --copy; a copy with one kind of stop, or with an SDK's alone; and
+    on a copy nothing that would reach past it (a gateway, a subnet; on AgentCore, a deny on the runtime, or a trail)."""
+    if args.sdk and not args.copy:
+        p.error(SDK_NEEDS_COPY)
+    if agentcore:
+        if args.deny_calls or args.deny_calls_and_end_sessions or args.trail:
+            p.error(AGENTCORE_COPY_GOES_WITH)
+        given = sum((bool(args.stop), args.inline_deny))
+    else:
+        if args.own_trigger or args.via or args.subnet or args.security_group or args.ca_bundle or \
+                args.product_attachment or args.product_name:
+            p.error(COPY_GOES_WITH)
+        given = sum((bool(args.stop), args.revoke_sessions, args.inline_deny))
+    if args.sdk and given:
+        p.error(SDK_IS_THE_STOP)
+    tools = [result.TOOL_KINDS[0] if k == NO_TOOLS else k for k in args.tool or []]
+    args.tool = tools
+    if args.action == "run" and (not tools or not args.model_kind or len(set(tools)) != len(tools) or
+                                 (result.TOOL_KINDS[0] in tools and len(tools) > 1)):
+        p.error(COPY_NEEDS_KINDS)
+    if not args.sdk and given != 1:
+        # CUSTOMER TEXT: approved by the founder, word for word, 01:15:37 UTC on 2 November 2026 (step 4, batch 6 (12))
+        p.error("give one of --stop, --inline-deny or --sdk" if agentcore else
+                "give one of --stop, --revoke-sessions, --inline-deny or --sdk")
+
+
+def _copy_stop(args, agentcore: bool) -> str:
+    """The declared stop on a copy: the kit's to fire, by its flag; none where it is your SDK's switch."""
+    if args.sdk:
+        return ""
+    return _agentcore_stop(args) if agentcore else _stop(args)
+
+
+def _copy_plan(args, run_name: str, agentcore: bool) -> str:
+    from arvaken_stop_test.aws.stack import names
+    from arvaken_stop_test.aws import fire
+    fired = _copy_stop(args, agentcore)
+    line = COPY_PLAN_REVOKE if fired == fire.REVOKE else COPY_PLAN_STOP
+    stop = COPY_PLAN_SDK.format(name=args.sdk, window=int(args.window)) if args.sdk else line.format(
+        stop=fired, repeats=times(args.repeats), window=int(args.window))
+    return COPY_PLAN.format(run=run_name, region=args.region, copy=args.copy, role=names(run_name)["agent_role"],
+                            stop=stop)
+
+
+def _copy(args, p, agentcore: bool) -> int:
+    """A run on a test copy of your own agent: its plan, then the run, whose own words ask you to confirm the copy, to
+    point it at the run's role and back, and before every firing to type the run's name. It writes its result, a
+    stop-test-result/3 (the kit's terms v5, D721), and its details, and prints what each path found."""
+    from arvaken_stop_test import sdk
+    from arvaken_stop_test.aws.fire import Refused
+    from arvaken_stop_test.aws.stack import new_run
+    from arvaken_stop_test.timing import PATH_WORDS
+    _copy_checks(args, p, agentcore)
+    run_name = args.run_name or new_run()
+    print(_copy_plan(args, run_name, agentcore))
+    if args.action == "plan":
+        return 0
+    if agentcore:
+        from arvaken_stop_test.agentcore import run as running
+        from arvaken_stop_test.agentcore import your_copy as copying
+        from arvaken_stop_test.agentcore.boto import clients_for
+        extra = {"qualifier": args.endpoint_name}
+    else:
+        from arvaken_stop_test.aws import run as running
+        from arvaken_stop_test.aws import your_copy as copying
+        from arvaken_stop_test.aws.boto import clients_for
+        extra = {"model": args.model}
+
+    def ask(words: str) -> str:
+        return input(words + " ")
+
+    c = clients_for(args.region)
+    try:
+        r = copying.run(c, args.copy, _copy_stop(args, agentcore), confirm=ask, wait=ask, window=args.window,
+                        repeats=args.repeats, run_name=run_name, say=print, sdk_name=args.sdk, **extra)
+    except running.NotStarted as e:     # why was said as it happened; then what the teardown left
+        print("Nothing the kit made is left." if not e.run.left_behind else
+              "Left for you to delete:\n" + "\n".join(e.run.left_behind))
+        return 1
+    except (ValueError, Refused) as e:  # before anything was made
+        print(str(e))
+        return 1
+    doc, details = copying.the_result(r, args.tool, args.model_kind)
+    out = Path(f"stop-test-{run_name}.json")
+    write(out, json.dumps(doc, indent=1, sort_keys=True))
+    write(Path(f"stop-test-{run_name}-details.json"), json.dumps(details, indent=1))
+    found = copying.sdk_results(r) if args.sdk else running.results(r)
+    print(COPY_FOUND)
+    for i, (_, paths) in enumerate(found, 1):
+        for path, f in paths.items():
+            print(f"- {f'repeat {i}, ' if len(found) > 1 else ''}{PATH_WORDS[path]}: {sdk.worded(f, path)}"
+                  + (f" ({f.reason})" if f.reason else ""))
+    print("Nothing the kit made is left." if not r.left_behind else
+          "Left for you to delete:\n" + "\n".join(r.left_behind))
+    print(COPY_WROTE.format(out=out, witness=COPY_WROTE_WITNESS if args.sdk else ""))
+    print(f"Your result's reference: {result.reference(doc)}. It's the SHA-256 of the result's signature.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
+    """The kit's command. A refusal raised before anything is made (fire.Refused) is said in its own words, as a copy's
+    run says it, never as a traceback; one after a teardown (NotStarted) is said by its mode, with what was left."""
+    from arvaken_stop_test.aws.fire import Refused
+    try:
+        return _main(argv)
+    except Refused as e:
+        print(str(e))
+        return 1
+
+
+def _main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="stop-test", description="Fire your declared stop on a test agent, and time "
                                                                "what actually stops.")
     sub = p.add_subparsers(dest="command", required=True)
@@ -601,6 +796,11 @@ def main(argv: list[str] | None = None) -> int:
         a.add_argument("--subnet", default="", help=HELP["subnet"])
         a.add_argument("--security-group", action="append", default=[], help=HELP["security_group"])
         a.add_argument("--model", default="", metavar="MODEL_ID", help=MODEL_HELP)
+        a.add_argument("--copy", default="", metavar="ARN", help=COPY_HELP["copy"])
+        a.add_argument("--sdk", default="", metavar="NAME", help=COPY_HELP["sdk"])
+        a.add_argument("--tool", action="append", choices=(*result.TOOL_KINDS, NO_TOOLS), metavar="KIND",
+                       help=COPY_HELP["tool"])
+        a.add_argument("--model-kind", choices=result.MODEL_KINDS, metavar="KIND", help=COPY_HELP["model_kind"])
     clean = aws_sub.add_parser("clean", help="remove what an interrupted run left")
     clean.add_argument("--run", dest="run_name", required=True)
     clean.add_argument("--region", required=True)
@@ -622,6 +822,12 @@ def main(argv: list[str] | None = None) -> int:
         a.add_argument("--region", required=True)
         a.add_argument("--run", dest="run_name", help="the run's name, if you are resuming one")
         a.add_argument("--endpoint", default=ENDPOINT, help=argparse.SUPPRESS)
+        a.add_argument("--copy", default="", metavar="ARN", help=COPY_HELP["agentcore_copy"])
+        a.add_argument("--endpoint-name", default="DEFAULT", metavar="NAME", help=COPY_HELP["endpoint_name"])
+        a.add_argument("--sdk", default="", metavar="NAME", help=COPY_HELP["sdk"])
+        a.add_argument("--tool", action="append", choices=(*result.TOOL_KINDS, NO_TOOLS), metavar="KIND",
+                       help=COPY_HELP["tool"])
+        a.add_argument("--model-kind", choices=result.MODEL_KINDS, metavar="KIND", help=COPY_HELP["model_kind"])
     aclean = agentcore_sub.add_parser("clean", help="remove what an interrupted run left")
     aclean.add_argument("--run", dest="run_name", required=True)
     aclean.add_argument("--region", required=True)
@@ -682,6 +888,8 @@ def main(argv: list[str] | None = None) -> int:
         return _agentcore(args, p)
     if args.command == "agentcore-harness":
         return _harness(args, p)
+    if args.action in ("plan", "run") and (args.copy or args.sdk):
+        return _copy(args, p, agentcore=False)
 
     from arvaken_stop_test.aws.stack import new_run
     ca = ""

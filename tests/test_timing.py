@@ -107,7 +107,9 @@ def test_a_throttle_a_server_error_and_a_timeout_after_the_stop_are_never_stoppe
 
 def test_every_call_after_the_stop_not_counted_is_not_measured():
     r = judged(beats((990, 1001, True)) + beats((1001, 1930, False), error="ThrottlingException"))
-    assert (r.outcome, r.reason) == (NOT_MEASURED, ALL_NOT_COUNTED) and r.words() == "not measured"
+    assert (r.outcome, r.reason) == (NOT_MEASURED, ALL_NOT_COUNTED.format(codes=", ".join(f"{c} {n}" for c, n in sorted(r.not_counted.items())))) and r.words() == "not measured"
+    assert r.reason == ("every call on it after the stop failed for a reason other than your stop (rate limits, "
+                        f"timeouts or server errors: ThrottlingException {r.failures_after}).")
 
 
 def test_answered_after_the_stop_then_nothing_counted_is_not_measured_and_says_since_when():
@@ -139,7 +141,7 @@ def test_calls_not_counted_between_refusals_move_nothing():
 def test_a_refusal_on_a_path_that_never_succeeded_before_it_does_not_count():
     """GENERAL: "A refusal counts only if it comes after the firing moment, on a path that succeeded before it.\""""
     r = judged(beats((1001, 1930, False)))
-    assert (r.outcome, r.reason) == (NOT_MEASURED, ALL_NOT_COUNTED)
+    assert (r.outcome, r.reason) == (NOT_MEASURED, ALL_NOT_COUNTED.format(codes=", ".join(f"{c} {n}" for c, n in sorted(r.not_counted.items()))))
 
 
 def test_each_failure_keeps_its_record_and_whether_it_counted():
@@ -182,3 +184,13 @@ def test_a_new_clients_success_first_after_the_mark_does_not_hide_the_kept_clien
     r, at_mark = gateway_judged(kept_and_new((990, 1000, True, False), (1000.5, 1001.5, True, True),
                                              (1002, 1930, False, False)))
     assert (r.outcome, r.reason) == (NOT_MEASURED, at_mark)
+
+
+
+def test_one_rate_limit_among_access_denied_refusals_on_a_stop_the_kit_fires_still_reads_stopped():
+    """The founder's rate limit ruling, 2 November 2026: on a stop the kit fires, a rate-limited call is not counted,
+    and moves no time."""
+    calls = beats((990, 1001, True)) + beats((1001, 1930, False))
+    calls = [Beat(b.at, False, "TooManyRequestsException", status=429) if b.at == 1100 else b for b in calls]
+    r = judged(calls)
+    assert (r.outcome, r.stopped_at) == (STOPPED, 1001) and r.not_counted == {"TooManyRequestsException": 1}

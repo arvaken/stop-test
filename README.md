@@ -1,19 +1,22 @@
 # Arvaken stop test
 
-The stop test is a kit you run yourself, in your own cloud account, with your own credentials. It deploys a test
-agent of its own, fires the stop you have declared on that test agent alone, unless you fire your own, and times what
-actually stops. When it finishes, it removes the stop it fired and everything it made.
+The stop test is a kit you run yourself, in your own cloud account, with your own credentials. It deploys a test agent
+of its own, or uses a test copy of one of your own agents, fires the stop you have declared on that test agent alone,
+unless you fire your own, and times what actually stops. When it finishes, it removes the stop it fired and everything
+it made.
 
 You run it yourself. Arvaken never runs tests in your account. Nothing about your account leaves it, unless you name a
-gateway or a subnet for the test agent's calls. Then the address they leave from may be your own, and is recorded as
-below, and whoever runs your gateway sees the calls that pass through it. Two of the kit's tests, of the open internet
-and of a key for a service outside your cloud, have the kit's test agent call Arvaken's test address,
-stop-test.arvaken.com. Neither call carries anything of yours from the kit: the second carries only a random key the kit
-makes for the run. A gateway you name may add its own headers to the calls it carries, and they may identify you. Our
-test address keeps none of them. Of the headers a gateway could add or change, Cloudflare keeps two: a call's user
-agent, which the kit sets to its own name, and, where Cloudflare's security checks act on the call, its referer, which
-the kit never sends. A gateway that changes either changes what Cloudflare keeps. The address answers with a fixed
-reply. What is kept of each call is Arvaken's one description of what Cloudflare records, word for word:
+gateway or a subnet for the test agent's calls, or run it on a test copy of your own agent. Then the address they leave
+from may be your own, and is recorded as below, and whoever runs your gateway sees the calls that pass through it. Two
+of the kit's tests, of the open internet and of a key for a service outside your cloud, have the test agent call
+Arvaken's test address, stop-test.arvaken.com. Neither call carries anything of yours from the kit: the second carries
+only a random key the kit makes for the run. When you fire an in-agent SDK's switch yourself, the kit also calls the
+address from the machine it runs on, once a second and with no key, to check that the address still answers. A gateway
+you name may add its own headers to the calls it carries, and they may identify you. Our test address keeps none of
+them. Of the headers a gateway could add or change, Cloudflare keeps two: a call's user agent, which the kit sets to its
+own name, and, where Cloudflare's security checks act on the call, its referer, which the kit never sends. A gateway
+that changes either changes what Cloudflare keeps. The address answers with a fixed reply. What is kept of each call is
+Arvaken's one description of what Cloudflare records, word for word:
 
 > Arvaken's test address (stop-test.arvaken.com) and its verification page (verify.arvaken.com) are served by
 > Cloudflare, on arvaken.com's Free plan. Arvaken's code at each writes no request log and stores no request;
@@ -23,15 +26,20 @@ reply. What is kept of each call is Arvaken's one description of what Cloudflare
 > on, which also keeps the request's referer; daily counts of requests, without addresses, for a year; and operational
 > logs, for a period Cloudflare does not state. Each request's time is kept with its address, so for those 31 days a
 > stop test result you submit, which holds its run's times, could be matched to the address the test agent's calls came
-> from. For the test address, the address recorded is the one the test agent's calls come from. Unless you name a
-> gateway or a subnet, the kit runs the test agent on the cloud's default network, so the address is not your account's
-> own: on AWS Lambda, Lambda's default network, where it is an AWS address shared with other AWS customers; on Google
-> Cloud, Cloud Run's default network, where it is an address from Google's dynamic pool, not one of your project's. If
-> you name a gateway (`--via`), the calls go through it, and the address recorded is the one your gateway's calls leave
-> from; if you name a subnet (`--subnet`), it is the one your network's calls leave from. Either may be your own. On
-> Amazon Bedrock AgentCore, where the kit offers neither, it runs the test agent in AgentCore's public network mode, in
-> no network of yours, so the address is not your account's own either; in Arvaken's own runs, it was an AWS address in
-> the agent's region, a different one each run. For the verification page, it is the address of whoever opens it.
+> from, and, when you fire an in-agent SDK's switch yourself, to the one the kit's own calls came from. For the test
+> address, the address recorded is the one the test agent's calls come from. Unless you name a gateway or a subnet, the
+> kit runs the test agent on the cloud's default network, so the address is not your account's own: on AWS Lambda,
+> Lambda's default network, where it is an AWS address shared with other AWS customers; on Google Cloud, Cloud Run's
+> default network, where it is an address from Google's dynamic pool, not one of your project's. If you name a gateway
+> (`--via`), the calls go through it, and the address recorded is the one your gateway's calls leave from; if you name a
+> subnet (`--subnet`), it is the one your network's calls leave from. Either may be your own. On Amazon Bedrock
+> AgentCore, where the kit offers neither, it runs the test agent in AgentCore's public network mode, in no network of
+> yours, so the address is not your account's own either; in Arvaken's own runs, it was an AWS address in the agent's
+> region, a different one each run. On a test copy of your own agent, the kit does not choose the network: the address
+> recorded is the one your copy's calls leave from, which is your own if the copy runs in a network of yours. When you
+> fire an in-agent SDK's switch yourself, the kit's own calls to the test address come from the machine the kit runs on,
+> and the address recorded for them is the one that machine's calls leave from, which is your own network's if the
+> machine is in one. For the verification page, it is the address of whoever opens it.
 
 If you choose, you can send Arvaken a result at https://app.arvaken.com/stop-test/submit, under the kit's terms:
 https://arvaken.com/stop-test/terms.
@@ -73,8 +81,11 @@ there is named for you to delete.
 
 ## Install
 
-You need Python 3.11 or later; for AWS, credentials where the AWS command line finds them; for Google Cloud, the
+<!-- CUSTOMER TEXT: approved by the founder, word for word, 22:07:47 UTC on 2 November 2026 ("Approve as written") -->
+You need Python 3.11 or later; for AWS, credentials where the AWS command line finds them, for an account in the AWS
+partition `aws` (the kit can't yet run in the China Regions or the AWS GovCloud (US) Regions); for Google Cloud, the
 Google Cloud CLI (`gcloud`), signed in.
+<!-- [source: aws-arn-partitions] -->
 
 Every install is checked first. You check one file's signature, and that file names every file the install takes by its
 SHA-256: the kit's own package and each package it needs. pip then installs exactly those files, or nothing.
@@ -91,21 +102,21 @@ SHA-256: the kit's own package and each package it needs. pip then installs exac
 2. Download the release's requirements file and its signature (in Windows PowerShell, type `curl.exe`):
 
    ```
-   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.4.0/requirements-0.4.0.txt
-   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.4.0/requirements-0.4.0.txt.sigstore.json
+   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.5.0/requirements-0.5.0.txt
+   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.5.0/requirements-0.5.0.txt.sigstore.json
    ```
 
 3. Check that this repository's release workflow signed it, for that version. The signature is also recorded in the
    public Rekor log:
 
    ```
-   stop-test/bin/python -m sigstore verify github requirements-0.4.0.txt --cert-identity https://github.com/arvaken/stop-test/.github/workflows/release.yml@refs/tags/v0.4.0
+   stop-test/bin/python -m sigstore verify github requirements-0.5.0.txt --cert-identity https://github.com/arvaken/stop-test/.github/workflows/release.yml@refs/tags/v0.5.0
    ```
 
 4. Install exactly what it names. pip refuses any file whose SHA-256 differs:
 
    ```
-   stop-test/bin/python -m pip install --require-hashes -r requirements-0.4.0.txt
+   stop-test/bin/python -m pip install --require-hashes -r requirements-0.5.0.txt
    ```
 
 The kit is then `stop-test/bin/stop-test`. Each release also lists its files' SHA-256 in `SHA256SUMS`, signed the same
@@ -377,7 +388,9 @@ For every stop, the kit measures three things:
   <!-- [source: aws-agentcore-harness-tools-reasoning, aws-agentcore-harness-execute-command] -->
 - **Its model.** About once a second, the kit asks the harness something in that session, and the harness calls its
   model as its role. <!-- [source: aws-agentcore-harness-bedrock-role] --> AWS bills each call to your account. A call
-  refused for a limit on your account is never counted as stopped.
+  refused by a rate limit is never counted as stopped. <!-- CUSTOMER TEXT: this sentence as the founder changed it,
+  word for word, by 01:37:35 UTC on 2 November 2026, in place of "A call refused for a limit on your account is never
+  counted as stopped." -->
 - **New calls to the agent.** About once a second, the kit runs a command that does nothing, each in a new session of
   the harness's.
 
@@ -454,6 +467,156 @@ If a run could not clean up, remove what it made by the run's name:
 stop-test google clean --run <run> --project my-test-project --region europe-west3
 ```
 
+## On a test copy of your own agent
+
+<!-- CUSTOMER TEXT: approved by the founder, word for word, 18:06:47 UTC on 2 November 2026 (part 2) -->
+On AWS, the kit can also run on a test copy of one of your own agents, in place of its own test agent: a Lambda function
+or an Amazon Bedrock AgentCore runtime. You deploy the copy with the kit's probe in it. The kit calls the copy about
+once a second, and the probe tries the same four paths as the kit's test agent, from inside your copy. The kit never
+deploys, changes or deletes your copy. Run it only on a test copy whose settings reach test systems alone, never on an
+agent whose work matters: each call runs your copy's own code, which does whatever that code does with whatever its
+settings reach.
+
+### Add the probe
+
+The probe is a Python package, `arvaken-stop-test-probe`, in each release of the kit. It needs Python 3.9 or later, and
+boto3, which Lambda's Python runtime has. Check its signature as you check the kit's, then install it with your copy's
+code:
+
+```
+curl -LO https://github.com/arvaken/stop-test/releases/download/v0.5.0/probe-requirements-0.5.0.txt
+curl -LO https://github.com/arvaken/stop-test/releases/download/v0.5.0/probe-requirements-0.5.0.txt.sigstore.json
+stop-test/bin/python -m sigstore verify github probe-requirements-0.5.0.txt --cert-identity https://github.com/arvaken/stop-test/.github/workflows/release.yml@refs/tags/v0.5.0
+stop-test/bin/python -m pip install --require-hashes --no-deps --target <your copy's code> -r probe-requirements-0.5.0.txt
+```
+
+Then, in your handler, before your agent's own work, hand the kit's calls to the probe:
+
+```python
+from arvaken_stop_test_probe import heartbeat
+
+def handler(event, context):
+    if heartbeat.is_mine(event):
+        return heartbeat.run(event)
+    ...  # your agent's own work, unchanged
+```
+
+On AgentCore, do the same in your entrypoint. For the running session, `heartbeat.run` gives back an iterator of events,
+which your entrypoint streams as its response.
+
+A call is the kit's only if it carries the kit's marker, naming a run. The probe reads nothing of your agent's work and
+writes no log. The address it calls is fixed in its code, never taken from the call.
+
+If an SDK of yours wraps only its own clients, pass them, so that the probe's calls go through it: `heartbeat.run(event,
+cloud=..., http=...)`, where `cloud` makes a client as `boto3.client` does, and `http(url, headers, timeout)` makes a
+GET request and gives back its status. Otherwise the probe uses the runtime's own clients, boto3's and Python's urllib.
+The result says which it used.
+
+### What it makes in your account
+
+<!-- CUSTOMER TEXT: approved by the founder, word for word, 18:06:47 UTC on 2 November 2026 (part 3); the second
+paragraph approved by the founder, word for word, 17:10:07 UTC on 2 November 2026 ((c) (1)) -->
+On Lambda, one CloudFormation stack, `arvaken-stop-test-<run>`, with no function: the role your copy runs as for the
+test, `arvaken-stop-test-<run>-agent`, a second role and a bucket, as for the kit's own test agent. On AgentCore, the
+same two roles and a bucket, and no code and no runtime.
+
+For the test, your copy runs as a role the kit makes for the run, not its own. On Lambda, that role grants only what the
+test needs, within the kit's boundary: putting and getting its own objects in the run's bucket, and assuming the run's
+second role, each only for calls from your copy (`lambda:SourceFunctionArn`); calling the model you name with `--model`,
+where you name one; and, for a copy in your VPC, the network actions Lambda needs for its interfaces, on your copy's own
+subnets and security groups wherever EC2 lets a policy name them. On AgentCore, it grants putting and getting its own
+objects in the run's bucket and assuming the run's second role, and AgentCore may use it only for your copy
+(`aws:SourceArn`). Neither grants writing logs. The kit takes these permissions from its own code, never from your
+copy's own role.
+
+You point your copy at that role for the test, and back afterwards, as the kit tells you. On Lambda, that is one
+command. On AgentCore, set the runtime's role in AgentCore's console, changing nothing else: `update-agent-runtime` also
+works, but it needs the runtime's whole configuration again, and anything you leave out is removed. The kit checks that
+your copy runs as the run's role before it times anything. When the run ends, it deletes that role only once your copy
+no longer runs as it; until then, it names the role for you to delete. On Lambda, a copy whose settings are encrypted
+with your own key is refused before anything is made, since the run's role can't use that key.
+
+<!-- CUSTOMER TEXT: approved by the founder, word for word, 19:00:00 UTC on 2 November 2026 ("Approve as written") -->
+A copy in your VPC calls from your network, as your agent does: each path reaches only what your subnets' routes and
+endpoints let it reach. A path that doesn't work before the stop is reported as not run; where you name a model, its call
+must work before anything is timed. The run's role's network actions aren't limited to calls from your copy: Lambda makes
+your copy's interfaces outside its code, and those calls don't name your copy.
+<!-- [source: aws-lambda-source-function-arn-not-enis] -->
+
+### Run it
+
+```
+stop-test aws plan --copy arn:aws:lambda:eu-central-1:111122223333:function:my-agent-test --inline-deny --tool "runs code" --model-kind "a model provider's API" --region eu-central-1
+stop-test agentcore plan --copy arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/my_agent_test-abc123 --inline-deny --tool none --model-kind "no model" --region eu-central-1
+```
+
+<!-- CUSTOMER TEXT: approved by the founder, word for word, 18:06:47 UTC on 2 November 2026 (part 3); each flag's words
+after it are the kit's own help, approved at 01:15:37 UTC on 2 November 2026, and its lists, approved by 19:02:12 UTC on
+1 November 2026 -->
+With `--copy`, name the stop with `--stop <ARN>` or `--inline-deny`, fired on the run's role alone, or on Lambda
+`--revoke-sessions`, on the run's two roles; or with `--sdk` (below). Name also:
+
+- `--tool`: a kind of tool your copy has, from the kit's list; give each that applies, or `--tool none`. The list:
+  searches or reads the web, runs code, reads or writes files, reads or writes a database, sends email or messages,
+  makes payments, changes cloud resources, calls other services' APIs, something else.
+- `--model-kind`: the kind of model your copy calls, from the kit's list: no model, a model service of its cloud, a
+  model provider's API, a model it runs itself.
+- on AgentCore, `--endpoint-name`: the endpoint of your runtime the kit calls, DEFAULT unless you name another.
+
+On Lambda, `--model` works as for the kit's own test agent: the probe also calls the model you name, as the run's role.
+`--window` and `--repeats` work as for the kit's own test agent.
+
+Before it makes anything, the kit asks you to type the run's name, to confirm that your copy is a test copy. Before
+every firing, it warns you that your stop may reach more than the test agent, and asks again. A run on a copy writes two
+files: the result, in the format `stop-test-result/3`, and its details.
+
+### An in-agent SDK's switch
+
+<!-- CUSTOMER TEXT: approved by the founder, word for word, 18:06:47 UTC on 2 November 2026 (part 4); the --sdk line
+approved by the founder, word for word, 17:10:07 UTC on 2 November 2026 ((c) (2)); the witness paragraph, the founder's
+own words, 01:08:36 UTC on 2 November 2026 (D722); the CloudTrail sentence approved by the founder, word for word,
+17:34:43 UTC on 2 November 2026 -->
+If your stop is an in-agent SDK's switch, name the SDK with `--sdk`, in place of a stop:
+
+- `--sdk`: your in-agent SDK's name, in your own words, 1 to 200 characters. It's shown as you wrote it. The kit doesn't
+  check it, and the result is your own test, not Arvaken's rating of that product.
+
+You fire the switch yourself, and the kit fires nothing. When it asks, press Enter, then fire it. Each path is timed
+from that mark, for at least 15 minutes, once and not repeated, since only you can turn your switch off. When the timing
+is done, the kit says so, and you can turn your switch off. Then the kit asks for the file you exported from your SDK
+that records it acting, and for the time and name of the entry in it that records your stop. It keeps only the file's
+SHA-256 and that entry, never the file.
+
+The kit's witness is a check, from the machine you run the kit on, that the run's bucket and Arvaken's test address kept
+answering through the window, so a failure on a path wasn't caused by either of them being down. A failure counts only
+if your SDK raised it in the call itself: a timeout or a lost connection, which a fault in your copy's own network would
+cause, makes the path not measured. If your SDK refuses calls whenever it can't reach its own service, that refusal
+looks the same to the kit as your switch, so check that your SDK's own record shows the switch acting at your mark.
+
+A path reads stopped only by Arvaken's rule for an SDK's stop: it worked before your mark; from its first failure after
+your mark to the window's end, every call on it failed, each with an error the call itself raised; the kit's witness
+kept answering; and your SDK's record of acting is in its export. A rate limit is never counted as stopped. With
+`--model` on Lambda, the path to the model also reads not stopped if CloudTrail shows a call from your copy to the model
+from a second before its first failure to the window's end. With your SDK's stop, the kit reads CloudTrail for your
+copy's calls to the model 15 minutes after the window ends, so the run ends at least that long after the window does.
+
+### What Arvaken's test address sees
+
+<!-- CUSTOMER TEXT: approved by the founder, word for word, 17:50:03 UTC on 2 November 2026 (lines 1 and 2) -->
+On a test copy of yours, the probe's call with a key and its open-internet call reach Arvaken's test address from your
+copy: the address recorded is the one your copy's calls leave from, which is your own if the copy runs in a network of
+yours, and on Lambda's default network an AWS address. With your SDK's switch, the kit's witness also calls the test
+address once a second, with no key, from the machine you run the kit on: the address recorded is the one that machine's
+calls leave from, which is your own network's if the machine is in one. Cloudflare keeps each of those addresses, with
+its network and country, for 31 days, as Arvaken's description of what Cloudflare records says above.
+
+If you pass the probe your own HTTP client, or an SDK in your copy wraps the runtime's, that client may add its own
+headers to the probe's calls, and they may identify you. A proxy that reads the calls, of your copy or of the machine
+you run the kit on, may add headers too. Our test address keeps none of them. Of the headers a client or a proxy could
+add or change, Cloudflare keeps two: a call's user agent, which the kit sets to its own name, and, where Cloudflare's
+security checks act on the call, its referer, which the kit never sends. A client or a proxy that changes either changes
+what Cloudflare keeps.
+
 ## What counts as stopped
 
 <!-- CUSTOMER TEXT: approved by the founder, word for word, 30 October 2026 (his refusal ruling of 29 October 2026,
@@ -473,6 +636,7 @@ it by its code. A refusal counts only on a path that worked before it.
 | `--disable-account` | those, a `401` whose reason is `authError` from a token not yet expired, and a `404` when the test agent asks for its own token |
 | `--via`, your gateway | its own refusal of the test agent's connection through it: a `403`, or a `407` where your gateway's address carries a user name and password, read only where Lambda runs the test agent on the Python, botocore and urllib3 the kit was tested with |
 | `--own-trigger` | those of the kind of stop the cloud's record of your action shows: CloudTrail's on AWS, Cloud Audit Logs' on Google Cloud. If it shows none of these, nothing counts as stopped |
+| `--sdk`, on a test copy | an error your SDK raised in the call itself, on each path, from its first failure after your mark to the window's end, with the kit's witness answering and your SDK's record of acting in its export. A timeout, a lost connection or a rate limit never counts |
 
 <!-- [source: aws-s3-access-denied-example, aws-lambda-invoke-kms-access-denied, google-storage-403-forbidden,
 google-storage-403-insufficient-permissions, google-storage-401-auth-error, aws-bedrock-converse-access-denied,
@@ -480,6 +644,7 @@ aws-agentcore-invoke-access-denied, aws-agentcore-invoke-harness-access-denied, 
 <!-- CUSTOMER TEXT: the AWS row's model path approved by the founder, word for word, 30 October 2026 -->
 <!-- CUSTOMER TEXT: the --via row approved by the founder, word for word, 30 October 2026 (D655) -->
 <!-- CUSTOMER TEXT: the three AgentCore rows approved by the founder, word for word, 30 October 2026 -->
+<!-- CUSTOMER TEXT: the --sdk row approved by the founder, word for word, 18:06:47 UTC on 2 November 2026 (part 4) -->
 
 A path whose calls after the stop were all not counted, or that was answered after the stop and then had nothing counted
 until the window ended, reads "not measured": the kit cannot say whether the stop stopped it.
@@ -552,6 +717,10 @@ The kit runs with your own credentials. To give it only what a run needs, use th
   policy grants it, for the run's own resources only. The kit's harness has no memory, and after each run the kit checks that
   none is left. <!-- [source: aws-agentcore-harness-create-permissions, aws-agentcore-harness-delete-permissions,
   aws-sar-agentcore-create-harness] -->
+- **A test copy:** the kit's own policy doesn't reach your copy. Attach a second policy beside it,
+  [`permissions/aws-copy-policy.json`](permissions/aws-copy-policy.json), with your copy's region, account and name, or
+  runtime ID, in place of the capitals. It lets the kit read your copy's settings and call it, and nothing else.
+  <!-- CUSTOMER TEXT: approved by the founder, word for word, 18:06:47 UTC on 2 November 2026 (part 4) -->
 - **Google Cloud:** [`permissions/google-role.yaml`](permissions/google-role.yaml), a custom role for your test project:
 
   ```

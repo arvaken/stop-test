@@ -385,6 +385,110 @@
    "sentence": "ResourceNotFoundException The exception that occurs when the specified resource does not exist. This can happen when using an invalid identifier or when trying to access a resource that has been deleted. HTTP Status Code: 404",
    "about": "StopRuntimeSession's error ResourceNotFoundException",
    "read": "2026-10-30"
+  },
+  "aws-sar-ec2-create-network-interface": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_ec2.html",
+   "page": "Actions, resources, and condition keys for Amazon EC2 - Service Authorization Reference",
+   "sentence": "CreateNetworkInterface | Grants permission to create a network interface in a subnet | network-interface* | aws:RequestTag/${TagKey} aws:TagKeys ec2:NetworkInterfaceID ec2:Region | security-group | aws:ResourceTag/${TagKey} ec2:Region ec2:ResourceTag/${TagKey} ec2:SecurityGroupID ec2:Vpc | subnet* | aws:ResourceTag/${TagKey} ec2:AvailabilityZone ec2:AvailabilityZoneId ec2:Region ec2:ResourceTag/${TagKey} ec2:SubnetID ec2:Vpc | Write",
+   "about": "the CreateNetworkInterface action: the resource types it is authorized on (network-interface and subnet required, security-group too) and their condition keys",
+   "read": "2026-11-02"
+  },
+  "aws-sar-ec2-delete-network-interface": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_ec2.html",
+   "page": "Actions, resources, and condition keys for Amazon EC2 - Service Authorization Reference",
+   "sentence": "DeleteNetworkInterface | Grants permission to delete a detached network interface | network-interface* | aws:ResourceTag/${TagKey} ec2:AvailabilityZone ec2:ManagedResourceOperator ec2:NetworkInterfaceID ec2:Region ec2:ResourceTag/${TagKey} ec2:Subnet ec2:Vpc | Write",
+   "about": "the DeleteNetworkInterface action: its one resource type, network-interface, and the condition keys it supports, ec2:Subnet among them",
+   "read": "2026-11-02"
+  },
+  "aws-sar-ec2-assign-private-ip-addresses": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_ec2.html",
+   "page": "Actions, resources, and condition keys for Amazon EC2 - Service Authorization Reference",
+   "sentence": "AssignPrivateIpAddresses | Grants permission to assign one or more secondary private IP addresses to a network interface | network-interface* | aws:ResourceTag/${TagKey} ec2:AvailabilityZone ec2:ManagedResourceOperator ec2:NetworkInterfaceID ec2:Region ec2:ResourceTag/${TagKey} ec2:Subnet ec2:Vpc | Write",
+   "about": "the AssignPrivateIpAddresses action: its one resource type, network-interface, and the condition keys it supports, ec2:Subnet among them",
+   "read": "2026-11-02"
+  },
+  "aws-sar-ec2-unassign-private-ip-addresses": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_ec2.html",
+   "page": "Actions, resources, and condition keys for Amazon EC2 - Service Authorization Reference",
+   "sentence": "UnassignPrivateIpAddresses | Grants permission to unassign one or more secondary private IP addresses from a network interface | network-interface* | aws:ResourceTag/${TagKey} ec2:AvailabilityZone ec2:ManagedResourceOperator ec2:NetworkInterfaceID ec2:Region ec2:ResourceTag/${TagKey} ec2:Subnet ec2:Vpc | Write",
+   "about": "the UnassignPrivateIpAddresses action: its one resource type, network-interface, and the condition keys it supports, ec2:Subnet among them",
+   "read": "2026-11-02"
+  },
+  "aws-sar-ec2-describe-network-interfaces": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_ec2.html",
+   "page": "Actions, resources, and condition keys for Amazon EC2 - Service Authorization Reference",
+   "sentence": "DescribeNetworkInterfaces | Grants permission to describe one or more network interfaces |  | ec2:Region | List",
+   "about": "the DescribeNetworkInterfaces action, with no resource type",
+   "read": "2026-11-02"
+  },
+  "aws-sar-ec2-describe-subnets": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_ec2.html",
+   "page": "Actions, resources, and condition keys for Amazon EC2 - Service Authorization Reference",
+   "sentence": "DescribeSubnets | Grants permission to describe one or more subnets |  | ec2:Region | List",
+   "about": "the DescribeSubnets action, with no resource type",
+   "read": "2026-11-02"
+  },
+  "aws-sar-ec2-subnet-key": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/service-authorization/latest/reference/list_ec2.html",
+   "page": "Actions, resources, and condition keys for Amazon EC2 - Service Authorization Reference",
+   "sentence": "ec2:Subnet | Filters access by the ARN of the subnet | ARN",
+   "about": "the condition key ec2:Subnet: what it filters by, and its type",
+   "read": "2026-11-02"
+  },
+  "aws-cloudtrail-event-time": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-event-reference-record-contents.html",
+   "page": "CloudTrail record contents for management, data, and network activity events - AWS CloudTrail",
+   "sentence": "The date and time the request was completed, in coordinated universal time (UTC).",
+   "about": "a CloudTrail record's eventTime field",
+   "read": "2026-11-02"
+  },
+  "aws-cloudtrail-lookup-rate": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/awscloudtrail/latest/APIReference/API_LookupEvents.html",
+   "page": "LookupEvents - AWS CloudTrail",
+   "sentence": "The rate of lookup requests is limited to two per second, per account, per Region.",
+   "about": "CloudTrail's LookupEvents API",
+   "read": "2026-11-02"
+  },
+  "aws-bedrock-runtime-management-events": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/logging-using-cloudtrail.html",
+   "page": "Monitor Amazon Bedrock API calls using CloudTrail - Amazon Bedrock",
+   "sentence": "Amazon Bedrock logs Amazon Bedrock Runtime API operations (InvokeModel, InvokeModelWithResponseStream, Converse, and ConverseStream) as management events.",
+   "about": "Amazon Bedrock Runtime API operations in CloudTrail",
+   "read": "2026-11-02"
+  },
+  "aws-bedrock-stream-completion-event": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/logging-using-cloudtrail.html",
+   "page": "Monitor Amazon Bedrock API calls using CloudTrail - Amazon Bedrock",
+   "sentence": "When you count model invocations, or when you analyze whether a policy blocked a request, restrict your CloudTrail query to events where eventType is AwsApiCall.",
+   "about": "Amazon Bedrock's stream-completion events for InvokeModelWithResponseStream and ConverseStream",
+   "read": "2026-11-02"
+  },
+  "aws-iam-same-account-either-policy-allows": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic_policy-eval-basics.html",
+   "page": "Policy evaluation for requests within a single account - AWS Identity and Access Management",
+   "sentence": "If either the identity-based policy or the resource-based policy within the same account allows the request and the other doesn't, the request is still allowed.",
+   "about": "within one account, a resource-based policy (a role's trust among them) allowing a request is enough without the caller's identity-based policy",
+   "read": "2026-11-02"
+  },
+  "aws-arn-partitions": {
+   "cloud": "aws",
+   "url": "https://docs.aws.amazon.com/IAM/latest/UserGuide/reference-arns.html",
+   "page": "Identify AWS resources with Amazon Resource Names (ARNs) - AWS Identity and Access Management",
+   "sentence": "The partition in which the resource is located. A partition is a group of AWS Regions. Each AWS account is scoped to one partition. The following are the supported partitions: aws - AWS Regions aws-cn - China Regions aws-us-gov - AWS GovCloud (US) Regions",
+   "about": "an ARN's partition, its second part: one group of AWS Regions, to which each AWS account is scoped; the partitions aws, aws-cn and aws-us-gov",
+   "read": "2026-11-02"
   }
  },
  "owed": {

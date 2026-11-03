@@ -1,6 +1,7 @@
-"""The kit's AgentCore policies, the runtime's and the harness's, held to their cases (scripts/policy_cases.py; the founder's ruling of 29 October 2026, 13b):
-in CI by the matcher; in install-test by IAM's policy simulator; and at release, a record of that simulator run, for
-the very files being released, or no release.
+"""The kit's AgentCore policies, the runtime's and the harness's, held to their cases (scripts/policy_cases.py; the founder's ruling of 29 October 2026, 13b),
+and the copy's policy to its own (the founder's ruling on batch 7, 2 November 2026): in CI by the matcher; in
+install-test by IAM's policy simulator; and at release, a record of that simulator run, for the very files being
+released, or no release.
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ spec = importlib.util.spec_from_file_location("policy_cases", ROOT / "scripts" /
 pc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pc)
 CASES, POLICY = pc.load()
+COPY_CASES, COPY_POLICY = pc.load(pc.COPY_CASES)
 spec = importlib.util.spec_from_file_location("policy_trials", ROOT / "scripts" / "policy_trials.py")
 pt = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pt)
@@ -46,6 +48,32 @@ def test_each_limited_statement_has_an_allowed_case_and_a_denied_one():
 
 def test_the_cases_name_nothing_of_a_real_account():
     assert "111122223333" in json.dumps(CASES) and len({c["id"] for c in CASES["cases"]}) == len(CASES["cases"])
+    assert "111122223333" in json.dumps(COPY_CASES)
+    every = [c["id"] for c in CASES["cases"] + COPY_CASES["cases"]]
+    assert len(set(every)) == len(every)            # one record holds both files' cases, each by its id
+
+
+@pytest.mark.parametrize("case", COPY_CASES["cases"], ids=[c["id"] for c in COPY_CASES["cases"]])
+def test_the_matcher_decides_each_case_of_the_copys_policy_as_expected(case):
+    assert pc.decide(COPY_POLICY, case) == case["expected"]
+
+
+def test_the_copys_policy_reaches_the_copy_alone_and_never_changes_it():
+    """Each of its statements has an allowed case and a denied one; the denied include invoking a function and a
+    runtime the customer did not mark, by any endpoint, and changing the copy, on Lambda and on AgentCore."""
+    sids = {s["Sid"] for s in COPY_POLICY["Statement"]}
+    assert sids == {"YourTestCopyOnLambda", "YourTestCopyOnAgentCore"} == {c["statement"] for c in COPY_CASES["cases"]}
+    for sid in sids:
+        assert {c["expected"] for c in COPY_CASES["cases"] if c["statement"] == sid} == {"allowed", "denied"}, sid
+    denied = {(c["action"], c["resource"].split(":", 5)[5]) for c in COPY_CASES["cases"] if c["expected"] == "denied"}
+    assert {("lambda:InvokeFunction", "function:my-agent"),
+            ("bedrock-agentcore:InvokeAgentRuntime", "runtime/my_agent-ZyXwVu9876"),
+            ("bedrock-agentcore:InvokeAgentRuntime", "runtime/my_agent-ZyXwVu9876/runtime-endpoint/DEFAULT"),
+            ("lambda:UpdateFunctionConfiguration", "function:my-test-copy"),
+            ("bedrock-agentcore:UpdateAgentRuntime", "runtime/my_test_copy-AbCdEf1234")} <= denied
+    # the policy as released still holds its placeholders, for the customer to fill in at install
+    text = (ROOT / "permissions" / "aws-copy-policy.json").read_text(encoding="utf-8")
+    assert all(p in text for p in COPY_CASES["fill"]) and "111122223333" not in text
 
 
 @pytest.mark.skipif(not os.environ.get("STOP_TEST_IAM_SIMULATOR"),
@@ -60,10 +88,10 @@ def test_iams_policy_simulator_decides_each_case_as_the_matcher_does():
 def test_a_release_has_a_passing_simulator_record_for_the_very_files_it_releases():
     assert pc.RECORD.exists(), "no record of IAM's policy simulator: run scripts/policy_cases.py in install-test"
     record = json.loads(pc.RECORD.read_text(encoding="utf-8"))
-    assert record["files"] == {**{p: pc.sha256(ROOT / p) for p in CASES["policies"]},
-                               "permissions/policy-cases.json": pc.sha256(pc.CASES)}, \
+    assert record["files"] == pc.files_checked(), \
         "the record is of other files than these: run the simulator again on these"
-    assert record["passed"] and {r["id"] for r in record["cases"]} == {c["id"] for c in CASES["cases"]}
+    assert record["passed"] and {r["id"] for r in record["cases"]} == \
+        {c["id"] for c in CASES["cases"] + COPY_CASES["cases"]}
     assert all(r["expected"] == r["simulator"] == r["matcher"] for r in record["cases"])
 
 
