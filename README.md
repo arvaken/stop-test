@@ -602,7 +602,8 @@ copy's calls to the model 15 minutes after the window ends, so the run ends at l
 
 ### On Google Cloud
 
-<!-- CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, README (1) to (6)) -->
+<!-- CUSTOMER TEXT: approved by the founder, word for word, by 19:45 UTC on 3 November 2026 (the Google copy, README (1)
+to (6)) -->
 On Google Cloud, the kit can run on a test copy that is a Cloud Run service, in the project and region you run the kit
 in. The probe tries the same four paths as the kit's Google test agent, from inside your copy. On Google Cloud it needs
 Python 3.9 or later and nothing else. Check its signature as on AWS, then install it in your copy's image:
@@ -631,9 +632,9 @@ body, timeout)` makes an HTTPS request and gives back the answer's HTTP status a
 Python's urllib, with the token Cloud Run gives your copy.
 
 The kit makes the two service accounts and the bucket it makes for its own test agent, and no service. The account your
-copy runs as for the test, `arvaken-st-<run>`, may write and read the run's bucket and take the second account's token,
-and nothing else; each grant is on those things alone, never on your project. The kit takes them from its own code,
-never from your copy's own account.
+copy runs as for the test, `arvaken-st-<run>`, may write, read and delete objects in the run's bucket and take the
+second account's token, and nothing else; each grant is on those things alone, never on your project. The kit
+takes them from its own code, never from your copy's own account.
 
 You point your copy at that account for the test, and back afterwards, with the `gcloud run services update` command
 the kit gives you, which makes a new revision. The kit checks that your copy's latest revision runs as the run's
@@ -660,7 +661,8 @@ address once a second, with no key, from the machine you run the kit on: the add
 calls leave from, which is your own network's if the machine is in one. Cloudflare keeps each of those addresses, with
 its network and country, for 31 days, as Arvaken's description of what Cloudflare records says above.
 
-<!-- CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, README (7)) -->
+<!-- CUSTOMER TEXT: approved by the founder, word for word, by 19:45 UTC on 3 November 2026 (the Google copy, README (7))
+-->
 On Cloud Run's default network, the address your copy's calls leave from is one from Google's dynamic pool, not one of
 your project's.
 
@@ -783,7 +785,8 @@ The kit runs with your own credentials. To give it only what a run needs, use th
 
   To fire a deny policy, you also need the Deny Admin role (`roles/iam.denyAdmin`) on your organization.
 
-  <!-- CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, README (8)) -->
+  <!-- CUSTOMER TEXT: approved by the founder, word for word, by 19:45 UTC on 3 November 2026 (the Google copy, README
+  (8)) -->
   On a test copy, this role is enough: it lets the kit read and call every Cloud Run service in your test project, not
   your copy alone. Pointing your copy at the run's account and back is yours to do, with your own permission to update
   your copy and to act as each account.

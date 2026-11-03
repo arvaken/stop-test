@@ -421,19 +421,20 @@ def _google(args, p) -> int:
 
 
 # A run on a test copy of your own agent on Google Cloud (D575; google/your_copy.py): its plan and its refusals, as on
-# AWS, in Google's words. Each is a draft, for the founder's approval word for word before any release carries it.
-# CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, batch 2 (1))
+# AWS, in Google's words, each approved by the founder word for word before any release carries it.
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:44 UTC on 3 November 2026 (the Google copy, batch 2 (1))
 GOOGLE_COPY_HELP = ("run on a test copy of your own agent, by its Cloud Run service's full name, instead of on the kit's "
                     "test agent")
-# CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, batch 2 (2))
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:44 UTC on 3 November 2026 (the Google copy, batch 2 (2))
 GOOGLE_COPY_GOES_WITH = ("--copy goes with --stop, --deny-all, --disable-account or --sdk; not with --own-trigger, --via "
                          "or --model.")
-# CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, batch 2 (3))
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:44 UTC on 3 November 2026 (the Google copy, batch 2 (3))
 GOOGLE_SDK_IS_THE_STOP = ("--sdk is your stop, your SDK's own switch: give it without --stop, --deny-all or "
                           "--disable-account.")
-# CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, batch 2 (4))
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:44 UTC on 3 November 2026 (the Google copy, batch 2 (4))
 GOOGLE_COPY_GIVE_ONE = "give one of --stop, --deny-all, --disable-account or --sdk"
-# CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, batch 2 (5)), as AWS's COPY_PLAN
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:44 UTC on 3 November 2026 (the Google copy, batch 2 (5)),
+# as AWS's COPY_PLAN
 GOOGLE_COPY_PLAN = ("Run {run} in {project}, {region}, on your test copy {copy}:\n"
                     "- makes the service account your copy runs as for the test, {account}, with a second account and a "
                     "bucket of its own, and asks you to point your copy at that account, then back afterwards: it never "
@@ -445,7 +446,8 @@ GOOGLE_COPY_PLAN = ("Run {run} in {project}, {region}, on your test copy {copy}:
                     "- changes nothing else in your project;\n"
                     "- then removes everything it made, and names anything left.")
 # What the plan says is fired, by the kit's own Google plan's words for each kind, on the copy's account alone.
-# CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, batch 2 (6) to (8))
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:44 UTC on 3 November 2026 (the Google copy, batch 2 (6)
+# to (8))
 GOOGLE_COPY_STOPS = {
     "deny_all": ("- makes a deny policy, {policy}, naming that account alone and denying what the probe's calls use "
                  "(Cloud Storage and IAM), {repeats}, and times each path for {window} seconds;\n"),
@@ -455,7 +457,7 @@ GOOGLE_COPY_STOPS = {
                  "denies (yours is read, never changed), {repeats}, and times each path for {window} seconds;\n"),
 }
 # The "Wrote" sentence, as approved for AWS (COPY_WROTE), with a project where AWS has an account.
-# CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, batch 2 (9))
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:44 UTC on 3 November 2026 (the Google copy, batch 2 (9))
 GOOGLE_COPY_WROTE = COPY_WROTE.replace("Nothing about your account was sent", "Nothing about your project was sent")
 
 

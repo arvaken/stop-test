@@ -68,12 +68,13 @@ UNITS = {"": 1 / 1048576, "k": 1000 / 1048576, "M": 1e6 / 1048576, "G": 1e9 / 10
          "Ki": 1 / 1024, "Mi": 1, "Gi": 1024}          # a memory limit's units, in mebibytes, as Lambda's MB are
 DEFAULT_MB = 512        # a Cloud Run container's memory where its limit names none
 
-# The words below are drafts, each for the founder's approval word for word before any release carries it (D575's
-# customer words, as on AWS).
-# CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, batch 1 (1))
+# The words below are the founder's, each approved word for word before any release carries it (D575's customer
+# words, as on AWS).
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:42 UTC on 3 November 2026 (the Google copy, batch 1 (1))
 NOT_A_SERVICE = ("a test copy on Google Cloud is named by its Cloud Run service's full name, "
                  "projects/PROJECT/locations/REGION/services/NAME, in the project and region the kit runs in")
-# CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, batch 1 (2)), as AWS's CONFIRM_COPY
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:42 UTC on 3 November 2026 (the Google copy, batch 1 (2)),
+# as AWS's CONFIRM_COPY
 CONFIRM_COPY = ("The kit will call {copy} once a second, with the run's settings (its bucket, its second account, and a "
                 "test key made for the run, which works only with Arvaken's test address), and fire your stop on the "
                 "account it makes for the run. Each call runs your copy's own code, which does whatever that code does "
@@ -85,30 +86,33 @@ CONFIRM_COPY = ("The kit will call {copy} once a second, with the run's settings
 # For an SDK's switch the kit fires nothing, so its words say who fires, as on AWS.
 CONFIRM_COPY_SDK = CONFIRM_COPY.replace("and fire your stop on the account it makes for the run",
                                         "and you fire your SDK's switch yourself, after your mark")
-# CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, batch 1 (3))
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:42 UTC on 3 November 2026 (the Google copy, batch 1 (3))
 NOT_FROM_OUTSIDE = ("Your copy takes calls only from your own networks, and the kit calls it at its address from where "
                     "the kit runs. Nothing was made.")
-# CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, batch 1 (4))
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:42 UTC on 3 November 2026 (the Google copy, batch 1 (4))
 NOT_ALL_TRAFFIC = ("Your copy sends its traffic to a revision you named, so a revision of it running as the run's account "
                    "would get none of the kit's calls. Send all its traffic to its latest revision, then run again. "
                    "Nothing was made.")
-# CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, batch 1 (9)), as AWS's refusal of a
-# copy encrypted with your own key
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:42 UTC on 3 November 2026 (the Google copy, batch 1 (9)),
+# as AWS's refusal of a copy encrypted with your own key
 NOT_SECRETS = ("Your copy's settings read a secret from Secret Manager, which the run's account can't read, so your copy "
                "couldn't start as it. Nothing was made.")
-# CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, batch 1 (5)), as AWS's POINT_AT
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:42 UTC on 3 November 2026 (the Google copy, batch 1 (5)),
+# as AWS's POINT_AT
 POINT_AT = ("Point your copy at the run's account for the test:\n"
             "  gcloud run services update {service} --project {project} --region {region} --service-account {account}\n"
             "Then press Enter.")
-# CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, batch 1 (6)), as AWS's NOT_POINTED
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:42 UTC on 3 November 2026 (the Google copy, batch 1 (6)),
+# as AWS's NOT_POINTED
 NOT_POINTED = ("Your copy {copy} does not run as the run's account {account}, with all its traffic, so nothing was "
                "timed. The kit is removing what it made.")
-# CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, batch 1 (7)), as AWS's POINT_BACK
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:42 UTC on 3 November 2026 (the Google copy, batch 1 (7)),
+# as AWS's POINT_BACK
 POINT_BACK = ("Point your copy back at its own account:\n"
               "  gcloud run services update {service} --project {project} --region {region} --service-account {own}\n"
               "Then press Enter, and the kit removes what it made.")
-# CUSTOMER TEXT: drafted for the founder's approval, word for word (the Google copy, batch 1 (8)), as AWS's
-# STILL_RUNS_AS
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:42 UTC on 3 November 2026 (the Google copy, batch 1 (8)),
+# as AWS's STILL_RUNS_AS
 STILL_RUNS_AS = "the account {account}, which your copy {copy} still runs as (point it back, then delete the account)"
 
 

@@ -126,6 +126,8 @@ def identities(g: Google, run: str, sleep: Callable[[float], None] = time.sleep,
     the account the copy runs as for the test is the first (KC1). Returns their names."""
     n = names(run, g.project)
     made: dict[str, dict] = {}
+    # CUSTOMER TEXT: approved by the founder, word for word, by 19:44 UTC on 3 November 2026 (the Google copy,
+    # batch 2 (10))
     first = "your test copy, for the test" if copy else "the test agent"
     for which, words in (("agent_account", first), ("second_account", "a second identity")):
         made[which] = g.call("POST", f"{IAM}/projects/{g.project}/serviceAccounts", {
