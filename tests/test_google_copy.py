@@ -387,3 +387,18 @@ def test_a_copy_in_a_network_of_yours_says_so_and_its_memory_is_its_containers()
     found = g.copy_service()
     assert your_copy.memory_mb(your_copy.serving(found)["resources"]["limits"]["memory"]) == 2048
     assert bool(found["template"].get("vpcAccess"))
+
+
+def test_the_customer_apps_two_fixtures_are_the_kits_own_results_of_a_copy():
+    # tests/data/google-copy-results.json, written by make_google_copy_results.py beside it, for the customer app's tests
+    from pathlib import Path
+    docs = json.loads((Path(__file__).parent / "data" / "google-copy-results.json").read_text(encoding="utf-8"))
+    for doc in docs.values():
+        assert result.check(doc) and doc["format"] == result.FORMAT_V3 and doc["cloud"] == "google_cloud"
+        assert your_copy.service_name(doc["agent"]["ref"], PROJECT, doc["region"]) and doc["agent"]["whose"] == "yours"
+        assert doc["agent"]["role_ref"] == N["agent_account"] and doc["stop"]["fired_by"] == "the kit"
+    left, disabled = docs.values()
+    assert left["run"]["left_behind"] == [your_copy.STILL_RUNS_AS.format(account=N["agent_account"], copy=COPY)]
+    assert (left["stop"]["kind"], left["stop"]["ref"]) == (firing.DENY_KIND, firing.DENY_ALL)
+    assert (disabled["stop"]["kind"], disabled["stop"]["ref"], disabled["run"]["repeats"]) == (
+        firing.DISABLE_KIND, firing.DISABLE, 2) and not disabled["run"]["left_behind"]
