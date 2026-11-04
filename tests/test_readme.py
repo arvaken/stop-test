@@ -211,7 +211,7 @@ COPY_WORDS = (
     "later, and boto3, which Lambda's Python runtime has. Check its signature as you check the kit's, then install it "
     "with your copy's code:",
     "stop-test/bin/python -m pip install --require-hashes --no-deps --target <your copy's code> -r "
-    "probe-requirements-0.5.0.txt",
+    "probe-requirements-0.6.0.txt",
     "Then, in your handler, before your agent's own work, hand the kit's calls to the probe:",
     "if heartbeat.is_mine(event): return heartbeat.run(event)",
     "On AgentCore, do the same in your entrypoint. For the running session, `heartbeat.run` gives back an iterator of "
@@ -304,3 +304,66 @@ def test_the_readme_says_what_a_run_on_a_test_copy_does_in_the_approved_words():
     from arvaken_stop_test.aws import your_copy
     assert your_copy.SDK_MODEL_TRAIL in flat(README)
     assert ", ".join(result.TOOL_KINDS[1:]) + "." in flat(README) and ", ".join(result.MODEL_KINDS) + "." in flat(README)
+
+
+# A test copy on Google Cloud (D575): the section, the line on the test address and the line on the role, as the founder
+# approved them, word for word, by 19:45 UTC on 3 November 2026 ("Approve as written", README (1) to (8)).
+GOOGLE_COPY_WORDS = (
+    "On Google Cloud, the kit can run on a test copy that is a Cloud Run service, in the project and region you run the "
+    "kit in. The probe tries the same four paths as the kit's Google test agent, from inside your copy. On Google Cloud "
+    "it needs Python 3.9 or later and nothing else. Check its signature as on AWS, then install it in your copy's image:",
+    "pip install --require-hashes --no-deps -r probe-requirements-0.6.0.txt",
+    "The kit calls your copy at its address, signed in as you, with a POST to `/` whose JSON body is the kit's call. In "
+    "your service's handler for it, before your agent's own work, hand the kit's calls to the probe and send back what "
+    "it gives as JSON. In Flask, for one:",
+    "@app.post(\"/\") def agent(): body = request.get_json(silent=True) if heartbeat.is_mine(body): return "
+    "heartbeat.run(body)",
+    "If an SDK of yours wraps only its own clients, pass them, as on AWS. On Google Cloud, `cloud(method, url, headers, "
+    "body, timeout)` makes an HTTPS request and gives back the answer's HTTP status and its body. Otherwise the probe "
+    "uses Python's urllib, with the token Cloud Run gives your copy.",
+    "The kit makes the two service accounts and the bucket it makes for its own test agent, and no service. The account "
+    "your copy runs as for the test, `arvaken-st-<run>`, may write, read and delete objects in the run's bucket and take "
+    "the second account's token, and nothing else; each grant is on those things alone, never on your project. The kit "
+    "takes them from its own code, never from your copy's own account.",
+    "You point your copy at that account for the test, and back afterwards, with the `gcloud run services update` "
+    "command the kit gives you, which makes a new revision. The kit checks that your copy's latest revision runs as the "
+    "run's account, is ready and takes all its traffic before it times anything. When the run ends, it deletes that "
+    "account only once your copy no longer runs as it; until then, it names the account for you to delete. Before "
+    "anything is made, the kit refuses a copy that takes calls only from your own networks, one that sends its traffic "
+    "to a revision you named, and one whose settings read a secret from Secret Manager, which the run's account can't "
+    "read.",
+    "stop-test google plan --copy projects/my-test-project/locations/europe-west3/services/my-agent-test --deny-all "
+    "--tool \"runs code\" --model-kind \"a model provider's API\" --project my-test-project --region europe-west3",
+    "With `--copy`, name the stop with `--stop <name>`, `--deny-all` or `--disable-account`, fired on the run's account "
+    "alone, or with `--sdk`, as on AWS. Name `--tool` and `--model-kind` as on AWS. `--model` isn't offered on Google "
+    "Cloud. `--window` and `--repeats` work as for the kit's own test agent.",
+    "On Cloud Run's default network, the address your copy's calls leave from is one from Google's dynamic pool, not one "
+    "of your project's.",
+    "On a test copy, this role is enough: it lets the kit read and call every Cloud Run service in your test project, "
+    "not your copy alone. Pointing your copy at the run's account and back is yours to do, with your own permission to "
+    "update your copy and to act as each account.",
+)
+
+
+# And clean's line for a run on a copy, approved by the founder, word for word, by 20:05 UTC on 3 November 2026
+# ("Approve as written", clean (3)).
+GOOGLE_COPY_CLEAN = ("If a run on your copy could not clean up, give `stop-test google clean` your copy's name with "
+                     "`--copy` as well: it deletes the run's account only once your copy no longer runs as it.")
+
+
+def test_the_readme_says_what_a_run_on_a_google_test_copy_does_in_the_approved_words():
+    for words in (*GOOGLE_COPY_WORDS, GOOGLE_COPY_CLEAN):
+        assert words in flat(README), words[:80]
+
+
+def test_the_readmes_google_copy_example_is_the_kits_own_plan(capsys):
+    # the command the README gives runs as written, and the role the README says is enough holds what a copy needs
+    import shlex
+    from arvaken_stop_test import cli
+    line = next(w for w in GOOGLE_COPY_WORDS if w.startswith("stop-test google plan"))
+    assert cli.main(shlex.split(line)[1:]) == 0
+    copy = "projects/my-test-project/locations/europe-west3/services/my-agent-test"
+    assert f"on your test copy {copy}:" in capsys.readouterr().out
+    role = (Path(__file__).resolve().parents[1] / "permissions" / "google-role.yaml").read_text(encoding="utf-8")
+    for permission in ("run.services.get", "run.routes.invoke", "iam.serviceAccounts.list"):
+        assert f"- {permission}\n" in role

@@ -102,21 +102,21 @@ SHA-256: the kit's own package and each package it needs. pip then installs exac
 2. Download the release's requirements file and its signature (in Windows PowerShell, type `curl.exe`):
 
    ```
-   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.5.0/requirements-0.5.0.txt
-   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.5.0/requirements-0.5.0.txt.sigstore.json
+   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.6.0/requirements-0.6.0.txt
+   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.6.0/requirements-0.6.0.txt.sigstore.json
    ```
 
 3. Check that this repository's release workflow signed it, for that version. The signature is also recorded in the
    public Rekor log:
 
    ```
-   stop-test/bin/python -m sigstore verify github requirements-0.5.0.txt --cert-identity https://github.com/arvaken/stop-test/.github/workflows/release.yml@refs/tags/v0.5.0
+   stop-test/bin/python -m sigstore verify github requirements-0.6.0.txt --cert-identity https://github.com/arvaken/stop-test/.github/workflows/release.yml@refs/tags/v0.6.0
    ```
 
 4. Install exactly what it names. pip refuses any file whose SHA-256 differs:
 
    ```
-   stop-test/bin/python -m pip install --require-hashes -r requirements-0.5.0.txt
+   stop-test/bin/python -m pip install --require-hashes -r requirements-0.6.0.txt
    ```
 
 The kit is then `stop-test/bin/stop-test`. Each release also lists its files' SHA-256 in `SHA256SUMS`, signed the same
@@ -484,10 +484,10 @@ boto3, which Lambda's Python runtime has. Check its signature as you check the k
 code:
 
 ```
-curl -LO https://github.com/arvaken/stop-test/releases/download/v0.5.0/probe-requirements-0.5.0.txt
-curl -LO https://github.com/arvaken/stop-test/releases/download/v0.5.0/probe-requirements-0.5.0.txt.sigstore.json
-stop-test/bin/python -m sigstore verify github probe-requirements-0.5.0.txt --cert-identity https://github.com/arvaken/stop-test/.github/workflows/release.yml@refs/tags/v0.5.0
-stop-test/bin/python -m pip install --require-hashes --no-deps --target <your copy's code> -r probe-requirements-0.5.0.txt
+curl -LO https://github.com/arvaken/stop-test/releases/download/v0.6.0/probe-requirements-0.6.0.txt
+curl -LO https://github.com/arvaken/stop-test/releases/download/v0.6.0/probe-requirements-0.6.0.txt.sigstore.json
+stop-test/bin/python -m sigstore verify github probe-requirements-0.6.0.txt --cert-identity https://github.com/arvaken/stop-test/.github/workflows/release.yml@refs/tags/v0.6.0
+stop-test/bin/python -m pip install --require-hashes --no-deps --target <your copy's code> -r probe-requirements-0.6.0.txt
 ```
 
 Then, in your handler, before your agent's own work, hand the kit's calls to the probe:
@@ -600,6 +600,62 @@ kept answering; and your SDK's record of acting is in its export. A rate limit i
 from a second before its first failure to the window's end. With your SDK's stop, the kit reads CloudTrail for your
 copy's calls to the model 15 minutes after the window ends, so the run ends at least that long after the window does.
 
+### On Google Cloud
+
+<!-- CUSTOMER TEXT: approved by the founder, word for word, by 19:45 UTC on 3 November 2026 (the Google copy, README (1)
+to (6)) -->
+On Google Cloud, the kit can run on a test copy that is a Cloud Run service, in the project and region you run the kit
+in. The probe tries the same four paths as the kit's Google test agent, from inside your copy. On Google Cloud it needs
+Python 3.9 or later and nothing else. Check its signature as on AWS, then install it in your copy's image:
+
+```
+pip install --require-hashes --no-deps -r probe-requirements-0.6.0.txt
+```
+
+The kit calls your copy at its address, signed in as you, with a POST to `/` whose JSON body is the kit's call. In your
+service's handler for it, before your agent's own work, hand the kit's calls to the probe and send back what it gives
+as JSON. In Flask, for one:
+
+```python
+from arvaken_stop_test_probe import heartbeat
+
+@app.post("/")
+def agent():
+    body = request.get_json(silent=True)
+    if heartbeat.is_mine(body):
+        return heartbeat.run(body)
+    ...  # your agent's own work, unchanged
+```
+
+If an SDK of yours wraps only its own clients, pass them, as on AWS. On Google Cloud, `cloud(method, url, headers,
+body, timeout)` makes an HTTPS request and gives back the answer's HTTP status and its body. Otherwise the probe uses
+Python's urllib, with the token Cloud Run gives your copy.
+
+The kit makes the two service accounts and the bucket it makes for its own test agent, and no service. The account your
+copy runs as for the test, `arvaken-st-<run>`, may write, read and delete objects in the run's bucket and take the
+second account's token, and nothing else; each grant is on those things alone, never on your project. The kit
+takes them from its own code, never from your copy's own account.
+
+You point your copy at that account for the test, and back afterwards, with the `gcloud run services update` command
+the kit gives you, which makes a new revision. The kit checks that your copy's latest revision runs as the run's
+account, is ready and takes all its traffic before it times anything. When the run ends, it deletes that account only
+once your copy no longer runs as it; until then, it names the account for you to delete. Before anything is made, the
+kit refuses a copy that takes calls only from your own networks, one that sends its traffic to a revision you named,
+and one whose settings read a secret from Secret Manager, which the run's account can't read.
+
+```
+stop-test google plan --copy projects/my-test-project/locations/europe-west3/services/my-agent-test --deny-all --tool "runs code" --model-kind "a model provider's API" --project my-test-project --region europe-west3
+```
+
+With `--copy`, name the stop with `--stop <name>`, `--deny-all` or `--disable-account`, fired on the run's account
+alone, or with `--sdk`, as on AWS. Name `--tool` and `--model-kind` as on AWS. `--model` isn't offered on Google
+Cloud. `--window` and `--repeats` work as for the kit's own test agent.
+
+<!-- CUSTOMER TEXT: approved by the founder, word for word, by 20:05 UTC on 3 November 2026 (the Google copy, clean (3))
+-->
+If a run on your copy could not clean up, give `stop-test google clean` your copy's name with `--copy` as well: it
+deletes the run's account only once your copy no longer runs as it.
+
 ### What Arvaken's test address sees
 
 <!-- CUSTOMER TEXT: approved by the founder, word for word, 17:50:03 UTC on 2 November 2026 (lines 1 and 2) -->
@@ -609,6 +665,11 @@ yours, and on Lambda's default network an AWS address. With your SDK's switch, t
 address once a second, with no key, from the machine you run the kit on: the address recorded is the one that machine's
 calls leave from, which is your own network's if the machine is in one. Cloudflare keeps each of those addresses, with
 its network and country, for 31 days, as Arvaken's description of what Cloudflare records says above.
+
+<!-- CUSTOMER TEXT: approved by the founder, word for word, by 19:45 UTC on 3 November 2026 (the Google copy, README (7))
+-->
+On Cloud Run's default network, the address your copy's calls leave from is one from Google's dynamic pool, not one of
+your project's.
 
 If you pass the probe your own HTTP client, or an SDK in your copy wraps the runtime's, that client may add its own
 headers to the probe's calls, and they may identify you. A proxy that reads the calls, of your copy or of the machine
@@ -728,6 +789,12 @@ The kit runs with your own credentials. To give it only what a run needs, use th
   ```
 
   To fire a deny policy, you also need the Deny Admin role (`roles/iam.denyAdmin`) on your organization.
+
+  <!-- CUSTOMER TEXT: approved by the founder, word for word, by 19:45 UTC on 3 November 2026 (the Google copy, README
+  (8)) -->
+  On a test copy, this role is enough: it lets the kit read and call every Cloud Run service in your test project, not
+  your copy alone. Pointing your copy at the run's account and back is yours to do, with your own permission to update
+  your copy and to act as each account.
 
 ## Licence
 

@@ -11,12 +11,15 @@ it when an invocation carries the kit's marker:
             return heartbeat.run(event)   # the four paths, once
         ...                               # the agent's own work, untouched
 
-On AgentCore, the same in your entrypoint: a watch's answer is an iterator of events, which AgentCore streams.
+On AgentCore, the same in your entrypoint: a watch's answer is an iterator of events, which AgentCore streams. On Cloud
+Run, the same in your service's handler for the kit's POST to its address, `/`: the invocation is the request's JSON
+body, and the reply goes back as JSON.
 
-It makes the kit's own test agent's calls (the kit's aws/agent.py; the kit's design, section 4) from inside the copy's
-own process, so an in-agent SDK that wraps the runtime's clients, or host software that sees the process's calls, sees
-them as it sees the agent's. The paths and what each reports are the core's (core.py) and the cloud's (aws.py; AWS is
-the first, D575's section 7).
+It makes the kit's own test agent's calls (the kit's aws/agent.py, and on Google Cloud its google/agent.py; the kit's
+design, section 4) from inside the copy's own process, so an in-agent SDK that wraps the runtime's clients, or host
+software that sees the process's calls, sees them as it sees the agent's. The paths and what each reports are the
+core's (core.py) and the cloud's (aws.py; google.py; AWS is the first, D575's section 7, then Google Cloud). The kit's
+marker names Google Cloud where the copy is on it; one that names no cloud is AWS's, as the kit's 0.5.0 sends it.
 
 **What it reports** is what the kit's test agent reports: for each path, when (by the copy's clock), whether it
 succeeded, and if not its failure record, never a message. Beside them, the access key ID of the credentials the runtime
@@ -34,7 +37,9 @@ takes the clients to use: `cloud`, a function that makes a client as boto3.clien
 for the second role's session its keys as boto3.client takes them), and `http`, a function that makes a GET request
 and gives its HTTP status (`http(url, headers, timeout)`). Each one not passed is the runtime's own: boto3's clients
 and the standard library's urllib. The reply says which each was (`clients`: "customer" or "runtime"), for the kit's
-result. Pass the same function each time: a client is made once a path and kept, as a real agent's are (D655).
+result. Pass the same function each time: a client is made once a path and kept, as a real agent's are (D655). On
+Google Cloud, `cloud` is a function that makes an HTTPS request, `cloud(method, url, headers, body, timeout)`, and
+gives back the answer's HTTP status and its body; the runtime's own is the standard library's (google.py).
 
 It uses only the standard library, and boto3 where it makes the runtime's own clients or reads a cloud error, so it
 adds nothing to a copy that already has boto3, as Lambda's Python runtime does. Its code keeps to Python 3.9's grammar.
@@ -44,7 +49,7 @@ from __future__ import annotations
 import os
 import time
 
-from arvaken_stop_test_probe import aws, core
+from arvaken_stop_test_probe import aws, core, google
 from arvaken_stop_test_probe.core import NotTheKits, is_mine
 
 __all__ = ["NotTheKits", "is_mine", "run"]
@@ -62,8 +67,13 @@ def run(event, http=None, cloud=None):
     hand back. On AgentCore, as the kit's own AgentCore agent answers: "answer", the copy's clock at once and nothing
     else (a new call, which is timed by whether it reaches the copy at all); "watch", the running session, as an
     iterator of its events, which your entrypoint returns for AgentCore to stream: the second role's session taken once,
-    then each path tried about once a second for as long as the kit asks, then "done"."""
+    then each path tried about once a second for as long as the kit asks, then "done". On Cloud Run, as on Lambda, with
+    Google's paths (_google)."""
     m = core.marker(event)
+    if m.get("cloud") is not None:
+        if m["cloud"] != google.CLOUD:
+            raise NotTheKits("cloud")
+        return _google(m, http, cloud)
     s = aws.settings(m)
     make, get = cloud or aws.runtime_client, http or core.runtime_get
     clients = {"cloud": "customer" if cloud else "runtime", "http": "customer" if http else "runtime"}
@@ -76,6 +86,18 @@ def run(event, http=None, cloud=None):
     paths = [*aws.identity_paths(s, make), *core.endpoint_paths(m, get), *aws.model_paths(s, make)]
     return {"at": time.time(), "beats": core.beats(paths, aws.record), "key": os.environ.get("AWS_ACCESS_KEY_ID"),
             "v": core.versions(*aws.LIBRARIES), "clients": clients}
+
+
+def _google(m, http, cloud):
+    """On Cloud Run: each path tried once, as the kit's own Google agent tries them; or, asked to "assume" before the
+    stop, the second account's token for the kit to hand back."""
+    s = google.settings(m)
+    request, get = cloud or google.runtime_request, http or core.runtime_get
+    clients = {"cloud": "customer" if cloud else "runtime", "http": "customer" if http else "runtime"}
+    if s["action"] == "assume":
+        return {"at": time.time(), "session": google.assume(s, request), "clients": clients}
+    paths = [*google.identity_paths(s, request), *core.endpoint_paths(m, get)]
+    return {"at": time.time(), "beats": core.beats(paths, google.record), "v": core.versions(), "clients": clients}
 
 
 def _watch(s, m, make, get, clients):

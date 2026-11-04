@@ -380,6 +380,8 @@ def _google(args, p) -> int:
             p.error(GOOGLE_NO_VIA)
         if args.model:
             p.error(GOOGLE_NO_MODEL)
+        if args.copy or args.sdk:
+            return _google_copy(args, p)
         if sum((bool(args.stop), args.own_trigger, args.deny_all, args.disable_account)) != 1:
             p.error("give one of --stop, --deny-all, --disable-account or --own-trigger")
     run_name = args.run_name or new_run()
@@ -388,9 +390,20 @@ def _google(args, p) -> int:
         return 0
     g = Google(args.project, args.region)
     if args.action == "clean":
-        r = running.Run(run=run_name, stop_ref=fire.DENY_ALL, fired_by="the kit", window=0.0, project=args.project,
-                        region=args.region)
-        running.tear_down(g, r, running.Clock())
+        from arvaken_stop_test.google import your_copy as copying
+        # A run on a copy of yours is told by the name its account was made with, never by --copy alone, so the kit's
+        # own test agent's service is never kept for a --copy given by mistake
+        if copying.made_for_a_copy(g, run_name):
+            if not args.copy:
+                print(copying.CLEAN_NEEDS_COPY)
+                return 1
+            if not copying.service_name(args.copy, args.project, args.region):
+                p.error(copying.NOT_A_SERVICE)
+            r = copying.clean(g, run_name, args.copy, running.Clock())
+        else:
+            r = running.Run(run=run_name, stop_ref=fire.DENY_ALL, fired_by="the kit", window=0.0,
+                            project=args.project, region=args.region)
+            running.tear_down(g, r, running.Clock())
         print("Nothing the kit made is left." if not r.left_behind else
               "Left for you to delete:\n" + "\n".join(r.left_behind))
         return 0
@@ -414,6 +427,136 @@ def _google(args, p) -> int:
                                                           lost=details["heartbeats_lost"]["by_code"]))
     write(Path(f"stop-test-{run_name}-details.json"), json.dumps(details, indent=1))
     print(f"Wrote {out}, its page and its details. Nothing about your project was sent to Arvaken.")
+    print(f"Your result's reference: {result.reference(doc)}. It's the SHA-256 of the result's signature.")
+    return 0
+
+
+# A run on a test copy of your own agent on Google Cloud (D575; google/your_copy.py): its plan and its refusals, as on
+# AWS, in Google's words, each approved by the founder word for word before any release carries it.
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:44 UTC on 3 November 2026 (the Google copy, batch 2 (1))
+GOOGLE_COPY_HELP = ("run on a test copy of your own agent, by its Cloud Run service's full name, instead of on the kit's "
+                    "test agent")
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:44 UTC on 3 November 2026 (the Google copy, batch 2 (2))
+GOOGLE_COPY_GOES_WITH = ("--copy goes with --stop, --deny-all, --disable-account or --sdk; not with --own-trigger, --via "
+                         "or --model.")
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:44 UTC on 3 November 2026 (the Google copy, batch 2 (3))
+GOOGLE_SDK_IS_THE_STOP = ("--sdk is your stop, your SDK's own switch: give it without --stop, --deny-all or "
+                          "--disable-account.")
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:44 UTC on 3 November 2026 (the Google copy, batch 2 (4))
+GOOGLE_COPY_GIVE_ONE = "give one of --stop, --deny-all, --disable-account or --sdk"
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:44 UTC on 3 November 2026 (the Google copy, batch 2 (5)),
+# as AWS's COPY_PLAN
+GOOGLE_COPY_PLAN = ("Run {run} in {project}, {region}, on your test copy {copy}:\n"
+                    "- makes the service account your copy runs as for the test, {account}, with a second account and a "
+                    "bucket of its own, and asks you to point your copy at that account, then back afterwards: it never "
+                    "deploys, changes or deletes your copy;\n"
+                    "- calls your copy about once a second, with the run's settings in each call, for the kit's probe "
+                    "you added to it. Google bills each call, and anything your copy calls, to your project. A call "
+                    "refused by a rate limit is never counted as stopped;\n"
+                    "{stop}"
+                    "- changes nothing else in your project;\n"
+                    "- then removes everything it made, and names anything left.")
+# What the plan says is fired, by the kit's own Google plan's words for each kind, on the copy's account alone.
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:44 UTC on 3 November 2026 (the Google copy, batch 2 (6)
+# to (8))
+GOOGLE_COPY_STOPS = {
+    "deny_all": ("- makes a deny policy, {policy}, naming that account alone and denying what the probe's calls use "
+                 "(Cloud Storage and IAM), {repeats}, and times each path for {window} seconds;\n"),
+    "disable": ("- disables that account, {repeats}, enabling it again between repeats, and times each path for "
+                "{window} seconds;\n"),
+    "declared": ("- makes a deny policy, {policy}, naming that account alone and denying what your deny policy {stop} "
+                 "denies (yours is read, never changed), {repeats}, and times each path for {window} seconds;\n"),
+}
+# The "Wrote" sentence, as approved for AWS (COPY_WROTE), with a project where AWS has an account.
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:44 UTC on 3 November 2026 (the Google copy, batch 2 (9))
+GOOGLE_COPY_WROTE = COPY_WROTE.replace("Nothing about your account was sent", "Nothing about your project was sent")
+# `clean`'s --copy, for a run on a copy of yours that could not clean up (your_copy.clean).
+# CUSTOMER TEXT: approved by the founder, word for word, by 20:05 UTC on 3 November 2026 (the Google copy, clean (2))
+GOOGLE_CLEAN_COPY_HELP = ("your test copy's Cloud Run service's full name, if the run was on a copy of yours: the run's "
+                          "account is deleted only once your copy no longer runs as it")
+
+
+def _google_copy_stop(args) -> str:
+    """The declared stop on a copy on Google Cloud: the kit's to fire, by its flag; none where it is your SDK's."""
+    return "" if args.sdk else _google_stop(args)
+
+
+def _google_copy_checks(args, p) -> None:
+    """--copy and --sdk on Google Cloud, as on AWS (_copy_checks): --sdk only with --copy; a copy with one kind of stop,
+    or with an SDK's alone; and nothing a copy does not take."""
+    if args.sdk and not args.copy:
+        p.error(SDK_NEEDS_COPY)
+    if args.own_trigger:
+        p.error(GOOGLE_COPY_GOES_WITH)
+    given = sum((bool(args.stop), args.deny_all, args.disable_account))
+    if args.sdk and given:
+        p.error(GOOGLE_SDK_IS_THE_STOP)
+    tools = [result.TOOL_KINDS[0] if k == NO_TOOLS else k for k in args.tool or []]
+    args.tool = tools
+    if args.action == "run" and (not tools or not args.model_kind or len(set(tools)) != len(tools) or
+                                 (result.TOOL_KINDS[0] in tools and len(tools) > 1)):
+        p.error(COPY_NEEDS_KINDS)
+    if not args.sdk and given != 1:
+        p.error(GOOGLE_COPY_GIVE_ONE)
+
+
+def _google_copy_plan(args, run_name: str) -> str:
+    from arvaken_stop_test.google import fire
+    from arvaken_stop_test.google.stack import names
+    n, fired = names(run_name, args.project), _google_copy_stop(args)
+    if args.sdk:
+        stop = COPY_PLAN_SDK.format(name=args.sdk, window=int(args.window))
+    else:
+        which = "deny_all" if fired == fire.DENY_ALL else "disable" if fired == fire.DISABLE else "declared"
+        stop = GOOGLE_COPY_STOPS[which].format(policy=n["deny_policy"], stop=fired, repeats=times(args.repeats),
+                                               window=int(args.window))
+    return GOOGLE_COPY_PLAN.format(run=run_name, project=args.project, region=args.region, copy=args.copy,
+                                   account=n["agent_account"], stop=stop)
+
+
+def _google_copy(args, p) -> int:
+    """A run on a test copy of your own agent on Google Cloud, as on AWS (_copy): its plan, then the run, whose own words
+    ask you to confirm the copy, to point it at the run's account and back, and before every firing to type the run's
+    name. It writes its result, a stop-test-result/3, and its details, and prints what each path found."""
+    from arvaken_stop_test import sdk
+    from arvaken_stop_test.google import fire
+    from arvaken_stop_test.google import your_copy as copying
+    from arvaken_stop_test.google.api import Google
+    from arvaken_stop_test.google.stack import new_run
+    from arvaken_stop_test.timing import PATH_WORDS
+    _google_copy_checks(args, p)
+    run_name = args.run_name or new_run()
+    print(_google_copy_plan(args, run_name))
+    if args.action == "plan":
+        return 0
+
+    def ask(words: str) -> str:
+        return input(words + " ")
+
+    g = Google(args.project, args.region)
+    try:
+        r = copying.run(g, args.copy, _google_copy_stop(args), confirm=ask, wait=ask, window=args.window,
+                        repeats=args.repeats, run_name=run_name, say=print, sdk_name=args.sdk)
+    except copying.NotStarted as e:     # why was said as it happened; then what the teardown left
+        print("Nothing the kit made is left." if not e.run.left_behind else
+              "Left for you to delete:\n" + "\n".join(e.run.left_behind))
+        return 1
+    except (ValueError, fire.Refused) as e:     # before anything was made
+        print(str(e))
+        return 1
+    doc, details = copying.the_result(r, args.tool, args.model_kind)
+    out = Path(f"stop-test-{run_name}.json")
+    write(out, json.dumps(doc, indent=1, sort_keys=True))
+    write(Path(f"stop-test-{run_name}-details.json"), json.dumps(details, indent=1))
+    found = copying.results(r)
+    print(COPY_FOUND)
+    for i, (_, paths) in enumerate(found, 1):
+        for path, f in paths.items():
+            print(f"- {f'repeat {i}, ' if len(found) > 1 else ''}{PATH_WORDS[path]}: {sdk.worded(f, path)}"
+                  + (f" ({f.reason})" if f.reason else ""))
+    print("Nothing the kit made is left." if not r.left_behind else
+          "Left for you to delete:\n" + "\n".join(r.left_behind))
+    print(GOOGLE_COPY_WROTE.format(out=out, witness=COPY_WROTE_WITNESS if args.sdk else ""))
     print(f"Your result's reference: {result.reference(doc)}. It's the SHA-256 of the result's signature.")
     return 0
 
@@ -865,10 +1008,16 @@ def _main(argv: list[str] | None = None) -> int:
         a.add_argument("--endpoint", default=ENDPOINT, help=argparse.SUPPRESS)
         a.add_argument("--via", default="", metavar="ADDRESS", help=HELP["google_via"])
         a.add_argument("--model", default="", metavar="MODEL_ID", help=HELP["google_via"])
+        a.add_argument("--copy", default="", metavar="SERVICE", help=GOOGLE_COPY_HELP)
+        a.add_argument("--sdk", default="", metavar="NAME", help=COPY_HELP["sdk"])
+        a.add_argument("--tool", action="append", choices=(*result.TOOL_KINDS, NO_TOOLS), metavar="KIND",
+                       help=COPY_HELP["tool"])
+        a.add_argument("--model-kind", choices=result.MODEL_KINDS, metavar="KIND", help=COPY_HELP["model_kind"])
     gclean = google_sub.add_parser("clean", help="remove what an interrupted run left")
     gclean.add_argument("--run", dest="run_name", required=True)
     gclean.add_argument("--project", required=True)
     gclean.add_argument("--region", required=True)
+    gclean.add_argument("--copy", default="", metavar="SERVICE", help=GOOGLE_CLEAN_COPY_HELP)
     verify = sub.add_parser("verify", help="check a result file's format and signature")
     verify.add_argument("file", type=Path)
     args = p.parse_args(argv)

@@ -91,9 +91,26 @@ class Run:
     # your own trigger: the kind of stop Cloud Audit Logs' record of your action shows, or None, and that record
     trigger_kind: str | None = None
     trigger_record: dict[str, str] | None = None
+    # a test copy of yours (your_copy.py): its service's name, the account it ran as before the run, what its result
+    # keeps of it, the run's key, and whose clients its probe used, by kind (KC2)
+    copy: str = ""
+    copy_account: str = ""
+    copy_config: dict = field(default_factory=dict)
+    outside_key: str = ""
+    clients: dict[str, set[str]] = field(default_factory=dict)
+    product: dict | None = None
+    witness: list[tuple[float, bool, str | None]] = field(default_factory=list)
+    sdk_record: object = None
+    model: str = ""
+
+    @property
+    def paths(self) -> tuple[str, ...]:
+        return GOOGLE_PATHS
 
     @property
     def stop_kind(self) -> str:
+        if self.product:
+            return result.PRODUCT_CONTROL
         if self.fired_by == "your own trigger" and self.trigger_kind:
             return self.trigger_kind
         return firing.kind_of(self.stop_ref)
@@ -104,8 +121,21 @@ class Run:
         return self.trigger_kind if self.fired_by == "your own trigger" else firing.kind_of(self.stop_ref)
 
 
+MARKER = "arvaken_stop_test"        # what the probe takes as the kit's own call (the probe's core.MARKER)
+CLOUD = "google_cloud"              # and the cloud its marker names (the probe's google.CLOUD)
+COPY_ERROR = "CopyError:"           # the prefix of a beat's error where a copy answered with an HTTP error of its own
+# Cloud Run's own refusals to reach a copy, as it refuses to reach the kit's agent: a copy's code may answer anything
+# else, a 500 among them, which is the copy's own error
+COPY_REFUSED_STATUSES = (429, 503)
+
+
 def _invoke(g: Google, r: Run, payload: dict, clock: Clock) -> tuple[dict, float, float]:
+    """One call to the test agent: the kit's own service; or a copy of yours, with the run's settings in the kit's
+    marker (the probe's heartbeat.run), as on Lambda."""
     sent = clock.now()
+    if r.copy:
+        payload = {MARKER: {"run": r.run, "cloud": CLOUD, "bucket": r.outputs.get("Bucket", ""),
+                            "second_account": r.outputs.get("SecondAccount", ""), "key": r.outside_key, **payload}}
     body = g.call("POST", r.outputs["Uri"].rstrip("/") + "/", payload, identity=True)
     return body, sent, clock.now()
 
@@ -151,11 +181,14 @@ def heartbeat(g: Google, r: Run, n: int, session: dict,
     try:
         body, sent, received = _invoke(g, r, {"n": n, "session": session}, clock)
     except GoogleError as e:
-        if e.status not in REFUSED_STATUSES:
+        refused = COPY_REFUSED_STATUSES if r.copy else REFUSED_STATUSES
+        if e.status not in refused and not (r.copy and e.status >= 400):
             raise
         received = clock.now()
         at = (sent + received) / 2 + r.offset
-        return {p: Beat(at, False, f"{REFUSED}HTTP{e.status}", status=e.status) for p in GOOGLE_PATHS}, sent, received, None
+        # on a copy, an answer Cloud Run did not refuse is the copy's own: each path's beat is its status, by its code
+        error = f"{REFUSED}HTTP{e.status}" if e.status in refused else f"{COPY_ERROR}HTTP{e.status}"
+        return {p: Beat(at, False, error, status=e.status) for p in GOOGLE_PATHS}, sent, received, None
     except (urllib.error.URLError, http.client.HTTPException, OSError) as e:
         r.lost.append((sent, unreached(e)))
         return {}, sent, clock.now(), None
@@ -163,6 +196,8 @@ def heartbeat(g: Google, r: Run, n: int, session: dict,
                      provider_status=b.get("provider_status"), step=b.get("step"), token_issued=b.get("token_issued"),
                      token_expires=b.get("token_expires"))
              for p, b in (body.get("beats") or {}).items()}
+    for kind, whose in (body.get("clients") or {}).items():         # a copy's probe: whose clients it used, by kind
+        r.clients.setdefault(str(kind), set()).add(str(whose))
     r.calls += len(beats)
     return beats, sent, received, float(body["at"])
 
@@ -185,16 +220,50 @@ def warm_up(g: Google, r: Run, session: dict, clock: Clock) -> None:
     r.offset = best[1] if best else 0.0
 
 
+def assume_or_none(g: Google, r: Run, clock: Clock) -> dict | None:
+    """On a copy, the second account's token where the copy's probe could take it; else None, as on Lambda."""
+    try:
+        return assume(g, r, clock)
+    except Exception:  # noqa: BLE001 - the stop may still be taking itself off, or the copy answer otherwise
+        return None
+
+
+def _did_not_work(r: Run, p: str) -> str:
+    codes = ", ".join(f"{code} {k}" for code, k in sorted(r.setup_errors.get(p, {}).items()))
+    return f"Before the stop, {PATH_WORDS[p]} did not work ({codes or 'no answer'}): it will be reported as not run."
+
+
 def time_one(g: Google, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
-             before: dict[str, list[Beat]] | None = None) -> Repeat:
-    """One repeat, as aws/run.py's: `before` is each path's heartbeats before the firing."""
+             before: dict[str, list[Beat]] | None = None, mark: Callable | None = None,
+             say: Callable[[str], None] = lambda _: None, marked: str = "",
+             each_second: Callable[[], None] | None = None) -> Repeat:
+    """One repeat, as aws/run.py's: `before` is each path's heartbeats before the firing. On a copy with an SDK's
+    switch, `mark` is given the heartbeat to make each second while the kit waits for your mark, and gives back the
+    kit's clock when you pressed Enter, as on Lambda; `each_second` is what the kit does beside each heartbeat after it
+    (the witness)."""
     rep = Repeat()
     for p, beats in (before or {}).items():
         rep.beats.setdefault(p, []).extend(beats)
-    session = assume(g, r, clock)
+    session = assume_or_none(g, r, clock) if r.copy else assume(g, r, clock)
+    if session is None:
+        if "another_identity" in r.working:
+            r.working.discard("another_identity")
+            r.setup_errors.setdefault("another_identity", {})["NoSession"] = 1
+            say(_did_not_work(r, "another_identity"))
+        session = {}
     rep.session_expires = _seconds(session.get("expires"))
     n = n0
-    if watch_own_trigger:
+    if mark is not None:
+
+        def one() -> None:
+            nonlocal n
+            beats, _, _, _ = heartbeat(g, r, n, session, clock)
+            for p, b in beats.items():
+                rep.beats.setdefault(p, []).append(b)
+            n += 1
+        rep.fired_before = rep.fired_after = mark(one)      # timed from the Enter, the calls kept up until it
+        say(marked)
+    elif watch_own_trigger:
         rep.watched_from = clock.now()
         seen = firing.watch(g, r.run, until=clock.now() + r.window, now=clock.now, sleep=clock.sleep, found=rep.seen)
         if seen is None:
@@ -207,6 +276,8 @@ def time_one(g: Google, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
         beats, _, _, _ = heartbeat(g, r, n, session, clock)
         for p, b in beats.items():
             rep.beats.setdefault(p, []).append(b)
+        if each_second is not None:
+            each_second()
         n += 1
         clock.sleep(1.0)
     return rep
@@ -248,7 +319,8 @@ def firing_moments(g: Google, r: Run, clock: Clock, wait: float = LOG_WAIT) -> N
         for rep in r.repeats:
             if rep.fired_after:
                 rep.fired_at = rep.fired_after + r.offset
-        identify(g, r, clock, wait)
+        if not r.product:           # an SDK's switch is timed from your mark, and Cloud Audit Logs hold no record of it
+            identify(g, r, clock, wait)
         return
     pending = [rep for rep in r.repeats if rep.fired_after]
     end = clock.now() + wait
@@ -351,11 +423,17 @@ def _listed(g: Google, url: str) -> list[dict]:
     return []
 
 
-def tear_down(g: Google, r: Run, clock: Clock) -> None:
-    """Remove the stop the kit fired and everything it made; name anything left (D532, K4)."""
+def tear_down(g: Google, r: Run, clock: Clock, keep_account: Callable[[], bool] = lambda: False) -> None:
+    """Remove the stop the kit fired and everything it made; name anything left (D532, K4). On a copy of yours there is
+    no service of the kit's: yours is never deleted, and the account the run made for it is deleted only where
+    `keep_account` says the copy no longer runs as it (your_copy.py); else it is left, and named."""
     n = names(r.run, r.project)
     _quiet(lambda: firing.remove(g, r.run, firing.DENY_ALL))      # the run's deny policy, whichever kind fired
-    _quiet(lambda: g.call("DELETE", f"{RUN}/projects/{r.project}/locations/{r.region}/services/{n['service']}"))
+    if r.copy:
+        if r.stop_ref == firing.DISABLE:                           # the account the copy runs as, enabled again
+            _quiet(lambda: firing.remove(g, r.run, firing.DISABLE))
+    else:
+        _quiet(lambda: g.call("DELETE", f"{RUN}/projects/{r.project}/locations/{r.region}/services/{n['service']}"))
     # The agent writes an object on every heartbeat, so a run leaves thousands: deleted many at once, page by page,
     # until a page has none or none of a page could be deleted (then the bucket stays, and check_gone names it)
     try:
@@ -371,8 +449,18 @@ def tear_down(g: Google, r: Run, clock: Clock) -> None:
         pass
     _quiet(lambda: g.call("DELETE", f"{STORAGE}/b/{n['bucket']}"))
     for which in ("agent_account", "second_account"):
+        if which == "agent_account" and r.copy and _kept(keep_account):
+            continue
         _quiet(lambda w=which: g.call("DELETE", f"{IAM}/projects/-/serviceAccounts/{n[w]}"))
     r.left_behind, r.checked_gone = check_gone(g, r, clock)
+
+
+def _kept(keep_account: Callable[[], bool]) -> bool:
+    """Whether the account a copy runs as is kept: where the kit cannot tell, it is kept, and named."""
+    try:
+        return bool(keep_account())
+    except Exception:  # noqa: BLE001 - a copy the kit cannot read keeps the account: it is named for you to delete
+        return True
 
 
 class _Unanswered(str):
@@ -417,8 +505,9 @@ def check_gone(g: Google, r: Run, clock: Clock, wait: float = 120.0) -> tuple[li
             return email
         return find
 
-    things = [
-        (f"the service {n['service']}", lambda: g.call("GET", f"{RUN}/projects/{r.project}/locations/{r.region}/services/{n['service']}")),
+    things = [] if r.copy else [       # a copy is yours: the kit made no service
+        (f"the service {n['service']}", lambda: g.call("GET", f"{RUN}/projects/{r.project}/locations/{r.region}/services/{n['service']}"))]
+    things += [
         (f"the bucket {n['bucket']}", lambda: g.call("GET", f"{STORAGE}/b/{n['bucket']}")),
         (f"the account {n['agent_account']}", listed(n["agent_account"])),
         (f"the account {n['second_account']}", listed(n["second_account"])),
@@ -522,9 +611,7 @@ def run(g: Google, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", w
         warm_up(g, r, assume(g, r, clock), clock)
         for p in GOOGLE_PATHS:
             if p not in r.working:
-                codes = ", ".join(f"{code} {k}" for code, k in sorted(r.setup_errors.get(p, {}).items()))
-                say(f"Before the stop, {PATH_WORDS[p]} did not work ({codes or 'no answer'}): it will be reported as "
-                    "not run.")
+                say(_did_not_work(r, p))
         n, before = 0, r.warm_beats
         for i in range(repeats):
             if i:

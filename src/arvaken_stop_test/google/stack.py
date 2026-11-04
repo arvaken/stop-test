@@ -100,27 +100,7 @@ def deploy(g: Google, run: str, endpoint: str, *, outside_key: str | None = None
            sleep: Callable[[float], None] = time.sleep, wait: float = 600.0) -> dict[str, str]:
     """Make the run's things, in order; returns their names and the test agent's address."""
     n = names(run, g.project)
-    made: dict[str, dict] = {}
-    for which, words in (("agent_account", "the test agent"), ("second_account", "a second identity")):
-        made[which] = g.call("POST", f"{IAM}/projects/{g.project}/serviceAccounts", {
-            "accountId": n[which].split("@")[0],
-            "serviceAccount": {"displayName": f"Arvaken stop test {run}: {words}",
-                               "description": f"{LABEL}={run}. Removed when the run ends."}})
-    g.call("POST", f"{STORAGE}/b?project={g.project}", {
-        "name": n["bucket"], "location": g.region, "labels": {LABEL: run},
-        "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": True}, "publicAccessPrevention": "enforced"}})
-    for which in ("agent_account", "second_account"):
-        def grant(member=f"serviceAccount:{n[which]}"):
-            policy = g.call("GET", f"{STORAGE}/b/{n['bucket']}/iam")
-            g.call("PUT", f"{STORAGE}/b/{n['bucket']}/iam", _add_binding(policy, "roles/storage.objectAdmin", member))
-        _retry(grant, sleep)
-
-    def token_creator():
-        url = f"{IAM}/projects/-/serviceAccounts/{n['second_account']}"
-        policy = g.call("POST", f"{url}:getIamPolicy", {})
-        g.call("POST", f"{url}:setIamPolicy", {"policy": _add_binding(
-            policy, "roles/iam.serviceAccountTokenCreator", f"serviceAccount:{n['agent_account']}")})
-    _retry(token_creator, sleep)
+    made = identities(g, run, sleep)
     key = outside_key or secrets.token_hex(16)        # 32 hexadecimal characters, as the test endpoint takes one
     parent = f"projects/{g.project}/locations/{g.region}"
     _retry(lambda: g.call("POST", f"{RUN}/{parent}/services?serviceId={n['service']}",
@@ -137,10 +117,49 @@ def deploy(g: Google, run: str, endpoint: str, *, outside_key: str | None = None
         sleep(5.0)
     if not uri:
         raise TimeoutError(f"the test agent's service was not ready in {int(wait)} seconds")
+    return {**made, "Agent": service_name(g, run), "Uri": uri}
+
+
+# What the account a test copy of yours runs as for the test says it is, in your project's list of accounts; and how
+# `clean` tells a run on a copy from a run on the kit's own test agent (your_copy.made_for_a_copy).
+# CUSTOMER TEXT: approved by the founder, word for word, by 19:44 UTC on 3 November 2026 (the Google copy, batch 2 (10))
+FOR_A_COPY = "your test copy, for the test"
+
+
+def display_name(run: str, words: str) -> str:
+    return f"Arvaken stop test {run}: {words}"
+
+
+def identities(g: Google, run: str, sleep: Callable[[float], None] = time.sleep,
+               copy: bool = False) -> dict[str, str]:
+    """The run's two accounts and its bucket, with the grants between them; for a test copy of yours (your_copy.py),
+    the account the copy runs as for the test is the first (KC1). Returns their names."""
+    n = names(run, g.project)
+    made: dict[str, dict] = {}
+    first = FOR_A_COPY if copy else "the test agent"
+    for which, words in (("agent_account", first), ("second_account", "a second identity")):
+        made[which] = g.call("POST", f"{IAM}/projects/{g.project}/serviceAccounts", {
+            "accountId": n[which].split("@")[0],
+            "serviceAccount": {"displayName": display_name(run, words),
+                               "description": f"{LABEL}={run}. Removed when the run ends."}})
+    g.call("POST", f"{STORAGE}/b?project={g.project}", {
+        "name": n["bucket"], "location": g.region, "labels": {LABEL: run},
+        "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": True}, "publicAccessPrevention": "enforced"}})
+    for which in ("agent_account", "second_account"):
+        def grant(member=f"serviceAccount:{n[which]}"):
+            policy = g.call("GET", f"{STORAGE}/b/{n['bucket']}/iam")
+            g.call("PUT", f"{STORAGE}/b/{n['bucket']}/iam", _add_binding(policy, "roles/storage.objectAdmin", member))
+        _retry(grant, sleep)
+
+    def token_creator():
+        url = f"{IAM}/projects/-/serviceAccounts/{n['second_account']}"
+        policy = g.call("POST", f"{url}:getIamPolicy", {})
+        g.call("POST", f"{url}:setIamPolicy", {"policy": _add_binding(
+            policy, "roles/iam.serviceAccountTokenCreator", f"serviceAccount:{n['agent_account']}")})
+    _retry(token_creator, sleep)
     # Cloud Audit Logs name a disabled account by its unique ID, never its email: kept, to find the firing call
-    return {"Bucket": n["bucket"], "Agent": service_name(g, run), "AgentAccount": n["agent_account"],
-            "AgentAccountId": str(made["agent_account"].get("uniqueId") or ""), "SecondAccount": n["second_account"],
-            "Uri": uri}
+    return {"Bucket": n["bucket"], "AgentAccount": n["agent_account"],
+            "AgentAccountId": str(made["agent_account"].get("uniqueId") or ""), "SecondAccount": n["second_account"]}
 
 
 def quoted(name: str) -> str:
