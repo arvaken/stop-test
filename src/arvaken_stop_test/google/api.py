@@ -8,8 +8,10 @@ asked for.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -20,6 +22,20 @@ from typing import Any
 # expired: so a token is asked for again every few minutes, and at once when Google refuses one (Google.call). A run
 # lasts longer than a token: one kept from its start, for 50 minutes, ran out 23 minutes in (25 October 2026).
 TOKEN_LIFE = 4 * 60.0
+
+# A token, as gcloud prints it on its last line: an OAuth access token's characters, or an identity token's base64url
+# and dots. Anything else is never put in a header (run r893296e2, 4 November 2026: on Windows, two gcloud.cmd at once
+# in one folder print the path of the file each writes there, before the token).
+TOKEN = re.compile(r"[A-Za-z0-9._~+/=-]+")
+# CUSTOMER TEXT: approved by the founder, word for word, 20:16:19 UTC on 4 November 2026 (kit 0.6.1's plan, W1). Where
+# gcloud gives back no token: by the command alone, never with what gcloud printed, which may hold a token. Said with
+# ". Nothing was made." before a run makes anything, and inside a copy's STOPPED after.
+NOT_A_TOKEN = "gcloud auth {command} gave back no token"
+
+
+class NotAToken(Exception):
+    def __init__(self, command: str):
+        super().__init__(NOT_A_TOKEN.format(command=command))
 
 
 class GoogleError(Exception):
@@ -35,20 +51,33 @@ def gcloud() -> str:
     return found
 
 
+def run_gcloud(args: list[str]) -> str:
+    """What gcloud prints, run in a folder of the kit's own made for the call and removed after it: on Windows,
+    gcloud.cmd writes a file in the folder it runs in and deletes it, and two at once in one folder clash."""
+    with tempfile.TemporaryDirectory(prefix="arvaken-stop-test-gcloud-", ignore_cleanup_errors=True) as folder:
+        return subprocess.run([gcloud(), *args], capture_output=True, text=True, check=True, cwd=folder).stdout
+
+
+def last_line(printed: str) -> str:
+    lines = [line.strip() for line in printed.splitlines() if line.strip()]
+    return lines[-1] if lines else ""
+
+
 class Tokens:
     """The customer's access token, and an identity token for calling the test agent, each from gcloud and kept for
     most of its life."""
 
     def __init__(self, run: Callable[[list[str]], str] | None = None, clock: Callable[[], float] = time.time):
-        self._run = run or (lambda args: subprocess.run([gcloud(), *args], capture_output=True, text=True,
-                                                         check=True).stdout.strip())
+        self._run = run or run_gcloud
         self._clock = clock
         self._kept: dict[str, tuple[str, float]] = {}
 
     def _get(self, which: str, args: list[str]) -> str:
         token, until = self._kept.get(which, ("", 0.0))
         if not token or self._clock() >= until:
-            token = self._run(args)
+            token = last_line(self._run(args))
+            if not TOKEN.fullmatch(token):
+                raise NotAToken(args[-1])
             self._kept[which] = (token, self._clock() + TOKEN_LIFE)
         return token
 
@@ -63,7 +92,7 @@ class Tokens:
         return self._get("identity", ["auth", "print-identity-token"])
 
     def account(self) -> str:
-        return self._run(["config", "get-value", "account"])
+        return last_line(self._run(["config", "get-value", "account"]))
 
 
 class Google:

@@ -46,13 +46,13 @@ from arvaken_stop_test import result, sdk
 from arvaken_stop_test.aws.run import MARK_PROMPT
 from arvaken_stop_test.aws.your_copy import (ENDPOINT, NOT_CONFIRMED, NOT_FIRED, NOTHING_WORKED, RECORD_BEFORE_MARK,
                                              SDK_FIRES_NOTHING, SDK_MARKED, SDK_NAMED, SDK_SWITCH_OFF,
-                                             SDK_WINDOW_TOO_SHORT, WARNING, WITNESS_AGENT, calling_while, copy_part,
-                                             sdk_results, take_record)
+                                             SDK_WINDOW_TOO_SHORT, WARNING, WITNESS_AGENT, Stopped, calling_while,
+                                             copy_part, sdk_results, take_record)
 from arvaken_stop_test.aws.your_copy import _get as _witness_get
 from arvaken_stop_test.aws.your_copy import copy_details as _copy_details
 from arvaken_stop_test.google import fire as firing
 from arvaken_stop_test.google import run as running
-from arvaken_stop_test.google.api import Google, GoogleError
+from arvaken_stop_test.google.api import Google, GoogleError, NotAToken
 from arvaken_stop_test.google.run import Clock, Run
 from arvaken_stop_test.google.stack import (FOR_A_COPY, IAM, RUN, STORAGE, display_name, identities, names,
                                             new_run, quoted)
@@ -353,6 +353,10 @@ def run(g: Google, copy: str, stop_ref: str, *, confirm: Callable[[str], str], w
             take_record(r, confirm, read_file)
             if sdk.before_the_mark(r.sdk_record, r.repeats[0].fired_after + r.offset):
                 say(RECORD_BEFORE_MARK)
+    except NotStarted:
+        raise
+    except Exception as e:  # noqa: BLE001 - said by its type alone, or the kit's words, after the teardown below
+        raise Stopped(str(e) if isinstance(e, NotAToken) else type(e).__name__, r) from None
     finally:
         point_back_first(g, r, clock, wait)         # before anything is removed
         running.tear_down(g, r, clock, keep_account=lambda: on_the_runs_account(g, r, clock, SETTLE))

@@ -165,3 +165,67 @@ def test_clean_of_the_kits_own_test_agents_run_is_as_before_even_with_a_copy_nam
     assert a_clean(g, monkeypatch, "--copy", COPY) == 0
     assert ("DELETE", f"{stack.RUN}/{stack.service_name(g, RUN_NAME)}") in [(m, u) for m, u in g.calls]
     assert capsys.readouterr().out == "Nothing the kit made is left.\n" and not g.accounts
+
+
+# a made-up identity token, in what Python's http.client said of the header gcloud's output made in run r893296e2
+SECRET = "eyJhbGciOi.made-up.SECRET"
+
+
+@pytest.mark.parametrize("error, why", [
+    (ValueError(f"Invalid header value b'Bearer C:\\agents\\tmpfile\n{SECRET}'"), "ValueError"),
+    (api.NotAToken("print-identity-token"), "gcloud auth print-identity-token gave back no token")])
+def test_an_error_after_the_runs_things_are_made_is_said_by_its_type_and_what_was_left_is_named(
+        error, why, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    clock = Clock()
+    g = CopyGoogle(clock)
+    monkeypatch.setattr(api, "Google", lambda project, region: g)
+    stamp = SimpleNamespace(time=lambda: clock.now() + SKEW)
+    for module in (core, probe_google, heartbeat):
+        monkeypatch.setattr(module, "time", stamp)
+    real = your_copy.run
+    monkeypatch.setattr(your_copy, "run", lambda g, copy, stop, **kw: real(
+        g, copy, stop, clock=running.Clock(clock.now, clock.sleep), **kw))
+    answered = g.copy_call
+
+    def copy_call(url: str, body: dict) -> dict:
+        if len(g.copy_calls) >= 12:     # the warm-up's, and the first firing's token, answered; then the error
+            raise error
+        return answered(url, body)
+
+    monkeypatch.setattr(g, "copy_call", copy_call)
+    asked = []
+
+    def typed(prompt: str = "") -> str:
+        asked.append(prompt)
+        if prompt.startswith("Point your copy at"):
+            g.point(N["agent_account"])
+        elif prompt.startswith("Point your copy back"):
+            g.point(OWN)
+        return RUN_NAME
+
+    monkeypatch.setattr("builtins.input", typed)
+    assert cli.main(["google", "run", *WHERE, "--run", RUN_NAME, "--copy", COPY, "--deny-all", "--window", "1m",
+                     *KINDS]) == 1
+    out = capsys.readouterr().out
+    assert out.endswith(f"The run stopped on an error ({why}), and wrote no result.\nNothing the kit made is left.\n")
+    assert SECRET not in out and "tmpfile" not in out and not list(tmp_path.iterdir())
+    # the run's accounts were made, the copy was pointed at the run's and back, and then all of it was removed
+    assert [u for m, u in g.calls if m == "POST" and u.endswith("/serviceAccounts")]
+    assert [a.split()[:3] for a in asked][-1] == ["Point", "your", "copy"] and "back" in asked[-1]
+    assert g.copy_account == OWN and N["agent_account"] not in g.accounts and g.bucket is None and not g.deny
+
+
+def test_no_token_before_anything_is_made_is_said_in_its_words(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    g = CopyGoogle(Clock())
+
+    def call(method, url, body=None, **kw):
+        raise api.NotAToken("print-access-token")
+
+    monkeypatch.setattr(g, "call", call)
+    monkeypatch.setattr(api, "Google", lambda project, region: g)
+    monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("refused before anything is asked"))
+    assert cli.main(["google", "run", *WHERE, "--run", RUN_NAME, "--copy", COPY, "--deny-all", *KINDS]) == 1
+    assert capsys.readouterr().out.endswith("gcloud auth print-access-token gave back no token. Nothing was made.\n")
+    assert not list(tmp_path.iterdir()) and not g.accounts and g.bucket is None

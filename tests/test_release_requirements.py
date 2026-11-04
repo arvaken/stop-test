@@ -65,5 +65,5 @@ def test_a_release_builds_checks_hashes_and_signs_the_probe_as_the_readme_instal
     assert '> "dist/probe-requirements-$version.txt"' in release
     assert "requirements-*.txt probe-requirements-*.txt | tee SHA256SUMS" in release
     assert "./kit/dist/probe-requirements-*.txt" in release           # signed with the other files
-    assert "-r probe-requirements-0.6.0.txt" in readme and "--no-deps --target" in readme
+    assert "-r probe-requirements-0.6.1.txt" in readme and "--no-deps --target" in readme
 

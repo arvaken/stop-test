@@ -102,21 +102,21 @@ SHA-256: the kit's own package and each package it needs. pip then installs exac
 2. Download the release's requirements file and its signature (in Windows PowerShell, type `curl.exe`):
 
    ```
-   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.6.0/requirements-0.6.0.txt
-   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.6.0/requirements-0.6.0.txt.sigstore.json
+   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.6.1/requirements-0.6.1.txt
+   curl -LO https://github.com/arvaken/stop-test/releases/download/v0.6.1/requirements-0.6.1.txt.sigstore.json
    ```
 
 3. Check that this repository's release workflow signed it, for that version. The signature is also recorded in the
    public Rekor log:
 
    ```
-   stop-test/bin/python -m sigstore verify github requirements-0.6.0.txt --cert-identity https://github.com/arvaken/stop-test/.github/workflows/release.yml@refs/tags/v0.6.0
+   stop-test/bin/python -m sigstore verify github requirements-0.6.1.txt --cert-identity https://github.com/arvaken/stop-test/.github/workflows/release.yml@refs/tags/v0.6.1
    ```
 
 4. Install exactly what it names. pip refuses any file whose SHA-256 differs:
 
    ```
-   stop-test/bin/python -m pip install --require-hashes -r requirements-0.6.0.txt
+   stop-test/bin/python -m pip install --require-hashes -r requirements-0.6.1.txt
    ```
 
 The kit is then `stop-test/bin/stop-test`. Each release also lists its files' SHA-256 in `SHA256SUMS`, signed the same
@@ -484,10 +484,10 @@ boto3, which Lambda's Python runtime has. Check its signature as you check the k
 code:
 
 ```
-curl -LO https://github.com/arvaken/stop-test/releases/download/v0.6.0/probe-requirements-0.6.0.txt
-curl -LO https://github.com/arvaken/stop-test/releases/download/v0.6.0/probe-requirements-0.6.0.txt.sigstore.json
-stop-test/bin/python -m sigstore verify github probe-requirements-0.6.0.txt --cert-identity https://github.com/arvaken/stop-test/.github/workflows/release.yml@refs/tags/v0.6.0
-stop-test/bin/python -m pip install --require-hashes --no-deps --target <your copy's code> -r probe-requirements-0.6.0.txt
+curl -LO https://github.com/arvaken/stop-test/releases/download/v0.6.1/probe-requirements-0.6.1.txt
+curl -LO https://github.com/arvaken/stop-test/releases/download/v0.6.1/probe-requirements-0.6.1.txt.sigstore.json
+stop-test/bin/python -m sigstore verify github probe-requirements-0.6.1.txt --cert-identity https://github.com/arvaken/stop-test/.github/workflows/release.yml@refs/tags/v0.6.1
+stop-test/bin/python -m pip install --require-hashes --no-deps --target <your copy's code> -r probe-requirements-0.6.1.txt
 ```
 
 Then, in your handler, before your agent's own work, hand the kit's calls to the probe:
@@ -609,7 +609,7 @@ in. The probe tries the same four paths as the kit's Google test agent, from ins
 Python 3.9 or later and nothing else. Check its signature as on AWS, then install it in your copy's image:
 
 ```
-pip install --require-hashes --no-deps -r probe-requirements-0.6.0.txt
+pip install --require-hashes --no-deps -r probe-requirements-0.6.1.txt
 ```
 
 The kit calls your copy at its address, signed in as you, with a POST to `/` whose JSON body is the kit's call. In your

@@ -7,12 +7,12 @@ with `--require-hashes`, installs those bytes or nothing. The release workflow s
 files, so checking that one signature checks everything installed.
 
     uv export --format requirements-txt --frozen --extra aws --no-dev --no-emit-project > deps.txt
-    python scripts/release_requirements.py 0.6.0 dist/arvaken_stop_test-0.6.0-py3-none-any.whl deps.txt > dist/requirements-0.6.0.txt
+    python scripts/release_requirements.py 0.6.1 dist/arvaken_stop_test-0.6.1-py3-none-any.whl deps.txt > dist/requirements-0.6.1.txt
 
 The probe's (D575), which you install into a test copy of your own agent, with `--no-deps` (README, "Add the probe"):
 its one wheel, by its address and SHA-256. It needs nothing beyond boto3, which Lambda's Python runtime has.
 
-    python scripts/release_requirements.py --probe 0.6.0 dist/arvaken_stop_test_probe-0.6.0-py3-none-any.whl > dist/probe-requirements-0.6.0.txt
+    python scripts/release_requirements.py --probe 0.6.1 dist/arvaken_stop_test_probe-0.6.1-py3-none-any.whl > dist/probe-requirements-0.6.1.txt
 """
 from __future__ import annotations
 

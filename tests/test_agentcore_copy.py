@@ -304,6 +304,22 @@ def test_a_copy_not_pointed_at_the_runs_role_is_not_timed_and_everything_made_is
     assert not aws.payloads and not aws.roles and not aws.buckets and aws.runtime["roleArn"] == OWN_ROLE
 
 
+def test_an_error_after_the_runs_things_are_made_is_said_by_its_type_and_everything_made_is_removed(monkeypatch):
+    clock = Clock()
+    aws = CopyAWS(clock)
+
+    def time_one(*a, **kw):             # after the warm-up, at the first firing: an error naming things
+        raise ValueError("the copy's answer named arn:aws:iam::123456789012:role/secret-holder")
+
+    monkeypatch.setattr(running, "time_one", time_one)
+    with pytest.raises(lambdas_copy.Stopped) as stopped:
+        a_copy_run(aws, clock, monkeypatch)
+    assert str(stopped.value) == "The run stopped on an error (ValueError), and wrote no result."
+    assert "secret-holder" not in str(stopped.value) and stopped.value.run.left_behind == []
+    assert aws.payloads and aws.role_changes == 2 and not aws.roles and not aws.buckets
+    assert aws.runtime["roleArn"] == OWN_ROLE
+
+
 def test_a_copy_still_running_as_the_runs_role_keeps_it_and_it_is_named_for_the_customer(monkeypatch):
     clock = Clock()
     aws = CopyAWS(clock)

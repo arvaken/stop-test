@@ -126,3 +126,45 @@ def test_tool_none_is_the_kits_no_tools(an_account, tmp_path, monkeypatch, capsy
     assert cli.COPY_NEEDS_KINDS in " ".join(capsys.readouterr().err.split())
     assert cli.main(["aws", "plan", "--region", "eu-central-1", "--run", RUN, "--copy", COPY, "--stop", STOP,
                      "--tool", "none", "--model-kind", "no model"]) == 0
+
+
+def test_an_error_after_the_runs_things_are_made_is_said_by_its_type_and_what_was_left_is_named(
+        an_account, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    clock = Clock()
+    aws = CopyAWS(clock)
+    answered = aws.invoke
+
+    def invoke(FunctionName, Payload):
+        if aws.invocations >= 12:       # the warm-up's, and the first firing's, answered; then an error naming things
+            raise ValueError("the copy's answer named arn:aws:iam::123456789012:role/secret-holder")
+        return answered(FunctionName=FunctionName, Payload=Payload)
+
+    aws.invoke = invoke
+    c = clients(aws)
+    c.region = "eu-central-1"
+    monkeypatch.setattr(boto, "clients_for", lambda region: c)
+    monkeypatch.setattr(probe_aws, "_MADE", {})
+    stamp = SimpleNamespace(time=lambda: clock.now() + SKEW)
+    for module in (core, probe_aws, heartbeat):
+        monkeypatch.setattr(module, "time", stamp)
+    real = your_copy.run
+    monkeypatch.setattr(your_copy, "run", lambda c, copy, stop, **kw: real(
+        c, copy, stop, clock=running.Clock(clock.now, clock.sleep), **kw))
+
+    def typed(prompt: str = "") -> str:
+        if prompt.startswith("Point your copy at"):
+            aws.copy_role = RUNS_ROLE
+        elif prompt.startswith("Point your copy back"):
+            aws.copy_role = OWN_ROLE
+        return RUN
+
+    monkeypatch.setattr("builtins.input", typed)
+    assert cli.main(["aws", "run", "--region", "eu-central-1", "--run", RUN, "--copy", COPY, "--stop", STOP,
+                     "--window", "1m", *KINDS]) == 1
+    out = capsys.readouterr().out
+    assert out.endswith("The run stopped on an error (ValueError), and wrote no result.\n"
+                        "Nothing the kit made is left.\n")
+    assert "secret-holder" not in out and not list(tmp_path.iterdir())
+    assert aws.invocations >= 12 and aws.role_deleted and aws.stack["status"] == "DELETED"
+    assert aws.copy_role == OWN_ROLE
