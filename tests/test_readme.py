@@ -211,7 +211,7 @@ COPY_WORDS = (
     "later, and boto3, which Lambda's Python runtime has. Check its signature as you check the kit's, then install it "
     "with your copy's code:",
     "stop-test/bin/python -m pip install --require-hashes --no-deps --target <your copy's code> -r "
-    "probe-requirements-0.5.0.txt",
+    "probe-requirements-0.6.0.txt",
     "Then, in your handler, before your agent's own work, hand the kit's calls to the probe:",
     "if heartbeat.is_mine(event): return heartbeat.run(event)",
     "On AgentCore, do the same in your entrypoint. For the running session, `heartbeat.run` gives back an iterator of "
@@ -312,7 +312,7 @@ GOOGLE_COPY_WORDS = (
     "On Google Cloud, the kit can run on a test copy that is a Cloud Run service, in the project and region you run the "
     "kit in. The probe tries the same four paths as the kit's Google test agent, from inside your copy. On Google Cloud "
     "it needs Python 3.9 or later and nothing else. Check its signature as on AWS, then install it in your copy's image:",
-    "pip install --require-hashes --no-deps -r probe-requirements-0.5.0.txt",
+    "pip install --require-hashes --no-deps -r probe-requirements-0.6.0.txt",
     "The kit calls your copy at its address, signed in as you, with a POST to `/` whose JSON body is the kit's call. In "
     "your service's handler for it, before your agent's own work, hand the kit's calls to the probe and send back what "
     "it gives as JSON. In Flask, for one:",

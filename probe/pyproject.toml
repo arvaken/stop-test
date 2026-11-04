@@ -2,7 +2,7 @@
 # for byte). Its description and README are customer words, held for the founder's approval with the build.
 [project]
 name = "arvaken-stop-test-probe"
-version = "0.5.0"
+version = "0.6.0"
 license = "Apache-2.0"
 requires-python = ">=3.9"
 dependencies = []
