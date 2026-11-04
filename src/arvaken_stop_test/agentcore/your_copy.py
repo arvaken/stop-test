@@ -42,8 +42,8 @@ from arvaken_stop_test.aws import fire as aws_fire
 from arvaken_stop_test.aws.run import MARK_PROMPT
 from arvaken_stop_test.aws.your_copy import (CONFIRM_COPY, CONFIRM_COPY_SDK, NOT_CONFIRMED, NOT_FIRED, NOT_POINTED,
                                              RECORD_BEFORE_MARK, SDK_FIRES_NOTHING, SDK_MARKED, SDK_NAMED,
-                                             SDK_SWITCH_OFF, SDK_WINDOW_TOO_SHORT, STILL_RUNS_AS, WARNING, Witness,
-                                             take_record)
+                                             SDK_SWITCH_OFF, SDK_WINDOW_TOO_SHORT, STILL_RUNS_AS, WARNING, Stopped,
+                                             Witness, take_record)
 from arvaken_stop_test.timing import GATEWAY_WINDOW, HOLD, NOT_RUN, WINDOWS, PathResult
 
 # An AgentCore runtime's ARN: its partition, region, account and ID (its name and AgentCore's suffix).
@@ -247,6 +247,10 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
                     say(RECORD_BEFORE_MARK)
         else:
             running.firing_moments(c, r, clock, wait=trail_wait)
+    except NotStarted:
+        raise
+    except Exception as e:  # noqa: BLE001 - said by its type alone, after the teardown below
+        raise Stopped(type(e).__name__, r) from None
     finally:
         point_back_first(c, r, clock, wait)         # before anything is removed (batch 2 (4))
         running.tear_down(c, r, clock, say=say, keeps_the_role=keeps_the_role(c, r, clock))

@@ -98,6 +98,20 @@ POINT_BACK = ("Point your copy back at its own role:\n"
               "Then press Enter, and the kit removes what it made.")
 # CUSTOMER TEXT: approved by the founder, word for word, 00:42:35 UTC on 2 November 2026 (step 4, batch 1 (10))
 STILL_RUNS_AS = "the role {role}, which your copy {copy} still runs as (point it back, then delete the role)"
+# CUSTOMER TEXT: approved by the founder, word for word, 20:16:19 UTC on 4 November 2026 (kit 0.6.1's plan, W2).
+# Where an error stops a copy's run after it made its things, on any cloud: the error by its type alone, never its
+# message, which may hold what the kit was given (the customer's token, in run r893296e2), or the kit's own words for
+# it; then what the teardown left, as for NotStarted.
+STOPPED = "The run stopped on an error ({why}), and wrote no result."
+
+
+class Stopped(Exception):
+    """A copy's run that an error stopped after it made its things: why, in STOPPED's words, and the run's record, its
+    teardown done."""
+
+    def __init__(self, why: str, r: Any):
+        super().__init__(STOPPED.format(why=why))
+        self.run = r
 
 # An in-agent SDK's stop (sdk.py; D713). The mark's own words are the gateway's, approved (run.MARK_PROMPT).
 ENDPOINT = "https://stop-test.arvaken.com"   # Arvaken's test endpoint, as the probe calls it (the probe's core.ENDPOINT)
@@ -474,6 +488,10 @@ def run(c: Clients, copy: str, stop_ref: str, *, confirm: Callable[[str], str], 
             take_record(r, confirm, read)
             if sdk.before_the_mark(r.sdk_record, r.repeats[0].fired_after + r.offset):
                 say(RECORD_BEFORE_MARK)
+    except NotStarted:
+        raise
+    except Exception as e:  # noqa: BLE001 - said by its type alone, after the teardown below
+        raise Stopped(type(e).__name__, r) from None
     finally:
         point_back_first(c, r, clock, wait)         # before anything is removed (batch 1 (6) to (8))
         running.tear_down(c, r, clock, say=say, after_stack=remove_the_runs_role(c, r, clock))

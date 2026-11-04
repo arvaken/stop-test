@@ -521,7 +521,7 @@ def _google_copy(args, p) -> int:
     from arvaken_stop_test import sdk
     from arvaken_stop_test.google import fire
     from arvaken_stop_test.google import your_copy as copying
-    from arvaken_stop_test.google.api import Google
+    from arvaken_stop_test.google.api import Google, NotAToken
     from arvaken_stop_test.google.stack import new_run
     from arvaken_stop_test.timing import PATH_WORDS
     _google_copy_checks(args, p)
@@ -540,6 +540,14 @@ def _google_copy(args, p) -> int:
     except copying.NotStarted as e:     # why was said as it happened; then what the teardown left
         print("Nothing the kit made is left." if not e.run.left_behind else
               "Left for you to delete:\n" + "\n".join(e.run.left_behind))
+        return 1
+    except copying.Stopped as e:        # after its things were made: why, by the error's type; then what was left
+        print(str(e))
+        print("Nothing the kit made is left." if not e.run.left_behind else
+              "Left for you to delete:\n" + "\n".join(e.run.left_behind))
+        return 1
+    except NotAToken as e:              # before anything was made
+        print(f"{e}. Nothing was made.")
         return 1
     except (ValueError, fire.Refused) as e:     # before anything was made
         print(str(e))
@@ -879,6 +887,11 @@ def _copy(args, p, agentcore: bool) -> int:
         r = copying.run(c, args.copy, _copy_stop(args, agentcore), confirm=ask, wait=ask, window=args.window,
                         repeats=args.repeats, run_name=run_name, say=print, sdk_name=args.sdk, **extra)
     except running.NotStarted as e:     # why was said as it happened; then what the teardown left
+        print("Nothing the kit made is left." if not e.run.left_behind else
+              "Left for you to delete:\n" + "\n".join(e.run.left_behind))
+        return 1
+    except copying.Stopped as e:        # after its things were made: why, by the error's type; then what was left
+        print(str(e))
         print("Nothing the kit made is left." if not e.run.left_behind else
               "Left for you to delete:\n" + "\n".join(e.run.left_behind))
         return 1
