@@ -9,6 +9,7 @@ the second account's token, taken before the stop, keep working, as neither stop
 customer's SDK switch is on (`sdk_on_from`), each call the SDK guards raises its own error first."""
 from __future__ import annotations
 
+import http.client
 import json
 import urllib.parse
 from datetime import datetime, timezone
@@ -43,8 +44,12 @@ class CopyGoogle(FakeGoogle):
     """The project, with the customer's copy in it, as a run on a copy sees it."""
 
     def __init__(self, clock: Clock, *, ingress="INGRESS_TRAFFIC_ALL", traffic=None, own=OWN, vpc=False,
-                 memory="1Gi", answers_with=None, env=(), volumes=(), **kw):
+                 memory="1Gi", answers_with=None, env=(), volumes=(), grant_lag=0.0, drops=None, **kw):
         super().__init__(clock, **kw)
+        # seconds after the copy is pointed at the run's account before IAM Credentials sees its grant on the second
+        # account; and how the copy's server answers the probe's error: with its own 500 (None), or by dropping the
+        # call, which Cloud Run answers with a 503 ("503") or which gets no answer ("no answer")
+        self.grant_lag, self.drops, self.grant_from = grant_lag, drops, 0.0
         self.copy_account, self.ingress, self.vpc, self.memory = own, ingress, vpc, memory
         self.env, self.volumes = list(env), list(volumes)
         self.traffic = traffic or [{"type": your_copy.LATEST, "percent": 100}]
@@ -70,6 +75,8 @@ class CopyGoogle(FakeGoogle):
         """The customer's gcloud run services update: a new revision, as the account named, in a new process."""
         self.copy_account, self.revision = account, self.revision + 1
         probe_google._OWN.update(token=None, until=0.0, issued=0.0)
+        if account == N["agent_account"]:
+            self.grant_from = self.clock.now() + self.grant_lag
 
     def refused(self, token: str) -> bool:
         since = self.stopped_since()
@@ -87,7 +94,7 @@ class CopyGoogle(FakeGoogle):
             return 200, json.dumps({"access_token": f"token:{self.copy_account or DEFAULT}",
                                     "expires_in": 3599}).encode()
         if url.endswith(":generateAccessToken"):
-            if self.refused(token):
+            if self.refused(token) or self.clock.now() < self.grant_from:
                 return 403, json.dumps({"error": {"code": 403, "status": "PERMISSION_DENIED"}}).encode()
             expires = datetime.fromtimestamp(self.clock.now() + 3600, tz=timezone.utc)
             return 200, json.dumps({"accessToken": "token:second",
@@ -114,7 +121,9 @@ class CopyGoogle(FakeGoogle):
             out = heartbeat.run(body, cloud=self.request, http=self.http)
         except Exception:  # noqa: BLE001 - the customer's server answers the probe's error with its own 500
             self.clock.t += 0.1
-            raise GoogleError(500, "HTTP") from None
+            if self.drops == "no answer":
+                raise http.client.RemoteDisconnected("Remote end closed connection without response") from None
+            raise GoogleError(503 if self.drops == "503" else 500, "HTTP") from None
         self.clock.t += 0.1
         return json.loads(json.dumps(out))
 
@@ -297,6 +306,31 @@ def test_a_copy_on_its_projects_default_account_is_pointed_back_at_it_by_name(mo
     r, _, asked = a_copy_run(g, monkeypatch)
     assert r.copy_account == DEFAULT and f"--service-account {DEFAULT}" in asked[-1]
     assert g.copy_account == DEFAULT and r.left_behind == []
+
+
+@pytest.mark.parametrize("drops", [None, "503", "no answer"])
+def test_the_second_accounts_grant_not_yet_seen_is_waited_for_however_the_copy_answers_the_probes_error(
+        drops, monkeypatch):
+    # run r04f3dca9 (4 November 2026): the grant not yet seen 2 seconds after the copy was pointed, and the copy's
+    # server dropping the call as the probe raised, so Cloud Run answered 503
+    g = CopyGoogle(Clock(), grant_lag=45.0, drops=drops)
+    r, said, _ = a_copy_run(g, monkeypatch)
+    [(_, found)] = your_copy.results(r)
+    assert found["another_identity"].outcome == "not stopped" and "another_identity" in r.working
+    assert "another_identity" not in r.setup_errors and not [s for s in said if "another identity" in s]
+    asked = [b for b in g.copy_calls if b[running.MARKER].get("action") == "assume"]
+    assert len(asked) >= 5 and r.left_behind == []
+
+
+def test_the_kits_own_agents_refusal_of_the_second_accounts_token_is_waited_for_only_as_its_500():
+    clock = Clock()
+    r = SimpleNamespace(copy="", run=RUN_NAME, outputs={"Uri": "https://agent.example"}, outside_key="")
+    for answer in (GoogleError(503, "HTTP"), http.client.RemoteDisconnected("closed")):
+        def call(method, url, body=None, *, identity=False, raw=None, answer=answer):
+            raise answer
+        with pytest.raises(type(answer)):
+            running.assume(SimpleNamespace(call=call), r, running.Clock(clock.now, clock.sleep))
+    assert clock.now() == Clock().now()
 
 
 def test_a_copy_that_answers_with_its_own_error_has_no_path_working_and_nothing_is_timed(monkeypatch):

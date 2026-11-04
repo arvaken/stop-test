@@ -141,20 +141,29 @@ def _invoke(g: Google, r: Run, payload: dict, clock: Clock) -> tuple[dict, float
 
 
 ASSUME_WAIT = 300.0           # seconds a new grant may take to reach IAM Credentials: the second account's token
+# On a copy, what the probe's refusal there may come back as, besides the 500 of a server that answers an error with
+# one: Cloud Run's 502, 503 or 504 where the copy's handler dropped the call as the probe raised, as the copies in runs
+# r04f3dca9 and r893296e2 did 2 seconds after they were pointed (4 November 2026), or no answer at all.
+COPY_ASSUME_AGAIN = (500, 502, 503, 504)
 
 
 def assume(g: Google, r: Run, clock: Clock, wait: float = ASSUME_WAIT) -> dict:
     """The second account's token, taken by the agent. A grant made seconds ago may not yet be seen everywhere (Google
-    says IAM changes take up to minutes), so a refusal is asked again until `wait` seconds have passed."""
+    says IAM changes take up to minutes), so a refusal is asked again until `wait` seconds have passed: the kit's own
+    agent's 500, and on a copy also COPY_ASSUME_AGAIN's statuses and a call that got no answer."""
     end = clock.now() + wait
+    again = COPY_ASSUME_AGAIN if r.copy else (500,)
     while True:
         try:
             body, _, _ = _invoke(g, r, {"action": "assume"}, clock)
             return body["session"]
         except GoogleError as e:
-            if e.status != 500 or clock.now() >= end:
+            if e.status not in again or clock.now() >= end:
                 raise
-            clock.sleep(10.0)
+        except (urllib.error.URLError, http.client.HTTPException, OSError):
+            if not r.copy or clock.now() >= end:
+                raise
+        clock.sleep(10.0)
 
 
 def _seconds(text: str | None) -> float | None:
