@@ -16,7 +16,10 @@ printed and kept as its scheme, host and port alone: never with a user name, pas
 
 **A call to a model (`--model`; the design's section 4), on AWS alone in this version.** Off by default, as each call
 costs money: given a Bedrock model's ID or an inference profile's, the test agent also calls that model with each
-invocation, and its plan says so. The ID is checked for its shape before anything is asked or made.
+invocation, and its plan says so. The ID is checked for its shape before anything is asked or made. On AgentCore
+(`agentcore plan|run`; the Run 1 kit brief, section 3.6), with every kind of stop the kit fires, the test agent calls it
+in the session it watches, with each try, and the plan says so (AGENTCORE_PLAN_MODEL); on a test copy there, `--model`
+is refused (AGENTCORE_COPY_NO_MODEL), as D735 has "an AgentCore copy has no model path".
 """
 from __future__ import annotations
 
@@ -590,6 +593,13 @@ AGENTCORE_PLAN = (
     "- times each path for {window} seconds after firing, {repeats};\n"
     "- calls the test agent about {calls} times. AWS bills each session's use to your account;\n"
     "- then removes the stop it fired and everything it made, and names anything left.")
+# With --model on AgentCore: the plan's line after the stop's, and what is said on a test copy there (the Run 1 kit
+# brief, section 5, items 1 and 2). PLAN_MODEL's "each invocation" is Lambda's, so it is not used here.
+# CUSTOMER TEXT: a draft, for the founder's approval
+AGENTCORE_PLAN_MODEL = ("- in the session it watches, the test agent also calls the model {model} about once a second, "
+                        "as its own role, asking for one token each time: AWS bills each call to your account;")
+# CUSTOMER TEXT: a draft, for the founder's approval
+AGENTCORE_COPY_NO_MODEL = "--model is not for a test copy on AgentCore in this version of the kit."
 # CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618); its bucket's objects added, approved by
 # him word for word on 30 October 2026
 AGENTCORE_PLAN_TRAIL = (
@@ -725,7 +735,7 @@ def _agentcore_plan(args, run_name: str) -> str:
     from arvaken_stop_test.agentcore import fire, trail
     from arvaken_stop_test.agentcore.run import LEAD
     from arvaken_stop_test.agentcore.stack import names
-    n, stop = names(run_name), _agentcore_stop(args)
+    n, stop, model = names(run_name), _agentcore_stop(args), getattr(args, "model", "")
     which = ("inline" if stop == fire.INLINE else "deny" if stop == fire.DENY else
              "deny_and_end" if stop == fire.DENY_AND_END else "attached")
     reason = fire.why_not(stop)
@@ -739,12 +749,14 @@ def _agentcore_plan(args, run_name: str) -> str:
         elif not fire.covers(c.iam, stop, run_name):
             reason = NOT_COVERED.rstrip(".")
         else:
-            reason = (why_no_boundary(c.iam, c.sts) or "").rstrip(".") or None
+            reason = (why_no_boundary(c.iam, c.sts, model=bool(model)) or "").rstrip(".") or None
     t = trail.names(run_name)
     plan = AGENTCORE_PLAN.format(
         run=run_name, region=args.region, runtime=n["runtime"], bucket=n["bucket"],
         trail=AGENTCORE_PLAN_TRAIL.format(trail=t["trail"], bucket=t["bucket"]) if args.trail else "",
-        stop=AGENTCORE_STOPS[which].format(stop=stop), window=int(args.window), repeats=times(args.repeats),
+        stop=AGENTCORE_STOPS[which].format(stop=stop) + (
+            "\n" + AGENTCORE_PLAN_MODEL.format(model=model) if model else ""),
+        window=int(args.window), repeats=times(args.repeats),
         calls=int(args.repeats * (args.window + HOLD + LEAD)))
     return plan + (f"\nIt will not run: {reason}." if reason else "")
 
@@ -754,11 +766,16 @@ def _agentcore(args, p) -> int:
     from arvaken_stop_test.agentcore import run as running
     from arvaken_stop_test.aws.stack import new_run
     if args.action in ("plan", "run") and (args.copy or args.sdk):
+        if args.model:
+            p.error(AGENTCORE_COPY_NO_MODEL)
         return _copy(args, p, agentcore=True)
     if args.action in ("plan", "run"):
         if sum((bool(args.stop), args.inline_deny, args.deny_calls, args.deny_calls_and_end_sessions)) != 1:
             # CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618)
             p.error("give one of --stop, --inline-deny, --deny-calls or --deny-calls-and-end-sessions")
+        from arvaken_stop_test.aws.stack import is_model_id
+        if args.model and not is_model_id(args.model):
+            p.error(NOT_A_MODEL)
     run_name = args.run_name or new_run()
     if args.action == "plan":
         print(_agentcore_plan(args, run_name))
@@ -793,7 +810,8 @@ def _agentcore(args, p) -> int:
         return 1
     try:
         r, doc = running.run(c, _agentcore_stop(args), endpoint=args.endpoint, window=args.window,
-                             repeats=args.repeats, run_name=run_name, trail=args.trail, trail_folder=folder, say=print)
+                             repeats=args.repeats, run_name=run_name, trail=args.trail, trail_folder=folder, say=print,
+                             model=args.model)
     except running.NotStarted as e:     # said with why; then what the teardown left, as `clean` says it
         print(str(e))
         print("Nothing the kit made is left." if not e.run.left_behind else
@@ -978,6 +996,7 @@ def _main(argv: list[str] | None = None) -> int:
         a.add_argument("--region", required=True)
         a.add_argument("--run", dest="run_name", help="the run's name, if you are resuming one")
         a.add_argument("--endpoint", default=ENDPOINT, help=argparse.SUPPRESS)
+        a.add_argument("--model", default="", metavar="MODEL_ID", help=MODEL_HELP)
         a.add_argument("--copy", default="", metavar="ARN", help=COPY_HELP["agentcore_copy"])
         a.add_argument("--endpoint-name", default="DEFAULT", metavar="NAME", help=COPY_HELP["endpoint_name"])
         a.add_argument("--sdk", default="", metavar="NAME", help=COPY_HELP["sdk"])

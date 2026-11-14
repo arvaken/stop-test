@@ -18,7 +18,10 @@ The paths (the design's section 1):
 - own_calls: writes and reads one small object in the run's bucket, as the runtime's own role;
 - another_identity: writes to the bucket with the session it took for the second role before the stop;
 - outside_key: calls Arvaken's test endpoint with the run's key, held in the runtime's environment;
-- open_internet: fetches Arvaken's test endpoint with no key.
+- open_internet: fetches Arvaken's test endpoint with no key;
+- model: with MODEL set, one Converse call to that model, as the runtime's own role, asking for one token: one user
+  message, "1", and one token of output, the Lambda agent's call word for word (aws/agent.py). Its answer is never kept
+  or returned. Without MODEL, the agent makes no such call, makes no Bedrock client, and its tries have no "model".
 
 Each object it writes is named by the watch's tag (the kit's name for the session) and the try's number, so the kit can
 tell afterwards whether a session went on writing once its stream had closed (run.py).
@@ -29,8 +32,9 @@ time_of_last_update, which AWS says not to set to the current time on every ping
 aws-agentcore-ping-last-update].
 
 It prints nothing and writes no logs of its own: http.server's line for each request is turned off, and the runtime's
-role may not write logs. An error is reported by its code alone, never its message, which can name resources and
-principals; every failure is caught, as each is a try's result.
+role may not write logs. An error is reported by its failure record (D646): its code, the HTTP status AWS answered with,
+and AWS's own reason field where the error has one, as the Lambda agent's are (aws/agent.py); never its message, which
+can name resources and principals. Every failure is caught, as each is a try's result.
 
 The kit ships boto3 and botocore beside it in the zip, from its own installation (stack.py): AgentCore's Python runtime
 is not promised to hold them, and they are pure Python.
@@ -69,13 +73,25 @@ def _code(e):
     return type(e).__name__[:64]
 
 
+def _record(e):
+    status = reason = None
+    if isinstance(e, botocore.exceptions.ClientError):
+        status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        reason = e.response.get("Reason") or e.response.get("reason")
+    elif isinstance(e, urllib.error.HTTPError):
+        status = e.code
+    if not (isinstance(reason, str) and reason.replace("_", "").isalnum()):
+        reason = None
+    return {"error": _code(e), "status": status, "reason": reason and reason[:64]}
+
+
 def _try(fn):
     at = time.time()
     try:
         fn()
         return {"at": at, "ok": True}
     except Exception as e:  # noqa: BLE001
-        return {"at": at, "ok": False, "error": _code(e)}
+        return {"at": at, "ok": False, **_record(e)}
 
 
 def _get(url, headers):
@@ -97,8 +113,8 @@ def assume():
             "expires": c["Expiration"].timestamp()}
 
 
-def probe(s3, other, tag, n):
-    """One try of each path."""
+def probe(s3, other, tag, n, model=None):
+    """One try of each path; of the model's too, where MODEL is set (`model`, its Bedrock Runtime client)."""
     bucket, endpoint = os.environ["BUCKET"], os.environ["ENDPOINT"].rstrip("/")
 
     def own_calls():
@@ -116,8 +132,15 @@ def probe(s3, other, tag, n):
     def open_internet():
         _get(f"{endpoint}/open", {})
 
-    return {"own_calls": _try(own_calls), "another_identity": _try(another_identity),
-            "outside_key": _try(outside_key), "open_internet": _try(open_internet)}
+    def model_call():
+        model.converse(modelId=os.environ["MODEL"], inferenceConfig={"maxTokens": 1},
+                       messages=[{"role": "user", "content": [{"text": "1"}]}])
+
+    beats = {"own_calls": _try(own_calls), "another_identity": _try(another_identity),
+             "outside_key": _try(outside_key), "open_internet": _try(open_internet)}
+    if os.environ.get("MODEL"):
+        beats["model"] = _try(model_call)
+    return beats
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -183,6 +206,7 @@ class Handler(BaseHTTPRequestHandler):
             _busy += 1
         try:
             s3 = boto3.client("s3", config=CONFIG)
+            model = boto3.client("bedrock-runtime", config=CONFIG) if os.environ.get("MODEL") else None
             session = assume()
             other = None if "error" in session else boto3.client(
                 "s3", config=CONFIG, aws_access_key_id=session["key"], aws_secret_access_key=session["secret"],
@@ -190,7 +214,7 @@ class Handler(BaseHTTPRequestHandler):
             self._event({"at": time.time(), "session_expires": session.get("expires"), "error": session.get("error")})
             end, n, due = time.time() + seconds, 0, time.time()
             while time.time() < end:
-                self._event({"at": time.time(), "n": n, "beats": probe(s3, other, tag, n)})
+                self._event({"at": time.time(), "n": n, "beats": probe(s3, other, tag, n, model)})
                 n, due = n + 1, due + EVERY
                 time.sleep(max(0.0, due - time.time()))
             self._event({"at": time.time(), "done": True})

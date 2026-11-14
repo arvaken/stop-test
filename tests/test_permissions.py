@@ -179,11 +179,13 @@ def test_the_boundary_is_the_kits_and_allows_what_the_two_roles_do_and_no_more()
 
 def test_the_kits_own_policy_needs_nothing_for_a_model():
     """The test agent calls the model as its own role, under the boundary; the kit itself never calls Bedrock, and
-    giving the agent's role a policy that allows it is iam:PutRolePolicy, already allowed under the boundary."""
+    giving the agent's role a policy that allows it is iam:PutRolePolicy, already allowed under the boundary. On
+    AgentCore, the runtime's test agent calls it as the runtime's role, the same way."""
     assert not {a for a in allowed() if a.startswith("bedrock:")}
     package = ROOT / "src" / "arvaken_stop_test"
     sources = {p.relative_to(package).as_posix(): p.read_text(encoding="utf-8") for p in package.rglob("*.py")}
-    assert [name for name, text in sources.items() if '"bedrock-runtime"' in text] == ["aws/agent.py"]
+    assert sorted(name for name, text in sources.items() if '"bedrock-runtime"' in text) == [
+        "agentcore/agent.py", "aws/agent.py"]
 
 
 def test_a_subnet_of_yours_is_named_in_the_functions_network_settings_and_nothing_else_of_yours_is():
@@ -239,3 +241,73 @@ def test_every_request_a_google_run_makes_is_in_the_role_or_is_a_deny_policys(st
     needed |= {"iam.serviceAccounts.actAs"}               # deploying a service that runs as an account of the run's
     assert needed - DENY_ADMIN <= set(GOOGLE_ROLE), sorted(needed - DENY_ADMIN - set(GOOGLE_ROLE))
     assert not (set(GOOGLE_ROLE) & DENY_ADMIN), "a deny policy's permissions are the organization's Deny Admin role's"
+
+
+
+# -- a model in the AgentCore runtime (the Run 1 kit brief, section 6, tests 19 and 20) -------------------------------
+
+def test_the_agentcore_runtimes_role_may_call_the_model_named_and_nothing_else_of_bedrocks():
+    """The runtime's own policy grants bedrock:InvokeModel on the model in the run's region alone; for a cross-Region
+    inference profile, on the profile there and the model it names in every region, as the Lambda agent's role is
+    given them (aws/stack.py's model_resources), written as plain ARNs, each within the kit's boundary for a model.
+    Without a model the policy is as it was."""
+    import fnmatch
+
+    from arvaken_stop_test.agentcore import stack as agentcore_stack
+    from arvaken_stop_test.aws.stack import boundary_document
+    run, account, region = "r0a1b2c3d", "111122223333", "eu-central-1"
+    plain = agentcore_stack.own_policy(run, account)
+    assert len(plain["Statement"]) == 2 and "bedrock" not in json.dumps(plain)
+    assert agentcore_stack.own_policy(run, account, "aws", "", region) == plain
+    one = agentcore_stack.own_policy(run, account, "aws", "openai.gpt-oss-20b-1:0", region)
+    assert one["Statement"][:2] == plain["Statement"]
+    assert one["Statement"][2] == {
+        "Effect": "Allow", "Action": "bedrock:InvokeModel",
+        "Resource": ["arn:aws:bedrock:eu-central-1::foundation-model/openai.gpt-oss-20b-1:0"]}
+    profile = agentcore_stack.own_policy(run, account, "aws", "eu.amazon.nova-micro-v1:0", region)
+    assert profile["Statement"][2]["Resource"] == [
+        f"arn:aws:bedrock:eu-central-1:{account}:inference-profile/eu.amazon.nova-micro-v1:0",
+        "arn:aws:bedrock:*::foundation-model/amazon.nova-micro-v1:0"]
+    within = {r for a, r in _effect(boundary_document(model=True), "Allow") if a == "bedrock:InvokeModel"}
+    for granted in (one, profile):
+        assert all(any(fnmatch.fnmatchcase(arn, pattern) for pattern in within)
+                   for arn in granted["Statement"][2]["Resource"])
+    with pytest.raises(ValueError):
+        agentcore_stack.own_policy(run, account, "aws", "amazon.*", region)
+
+
+def test_with_a_model_the_agentcore_runs_roles_are_made_under_its_boundary_for_a_model_which_the_policy_allows(
+        tmp_path):
+    import copy
+
+    import test_agentcore as ta
+    from arvaken_stop_test.agentcore import stack as agentcore_stack
+
+    def made(aws, go) -> dict:
+        seen = {}
+        real = aws.create_agent_runtime
+
+        def keep(**req):
+            seen.update(roles=copy.deepcopy(aws.roles), request=req)
+            return real(**req)
+        aws.create_agent_runtime = keep
+        go(aws)
+        return seen
+    n = agentcore_stack.names("r0a1b2c3d")
+    seen = made(ta.ModelAWS(ta.Clock()), lambda aws: ta.a_model_run(aws, aws.clock, tmp_path))
+    assert {seen["roles"][n[w]]["boundary"] for w in ("agent_role", "second_role")} == {
+        f"arn:aws:iam::{ta.ACCOUNT}:policy/arvaken-stop-test-boundary-model"}
+    assert seen["roles"][n["agent_role"]]["inline"]["own-calls"] == agentcore_stack.own_policy(
+        "r0a1b2c3d", ta.ACCOUNT, "aws", ta.MODEL_ID, ta.REGION)
+    assert "bedrock" not in json.dumps(seen["roles"][n["second_role"]]["inline"])
+    assert seen["request"]["environmentVariables"]["MODEL"] == ta.MODEL_ID
+    plain = made(ta.FakeAWS(ta.Clock()), lambda aws: ta.a_run(aws, aws.clock, ta.fire.DENY))
+    assert {plain["roles"][n[w]]["boundary"] for w in ("agent_role", "second_role")} == {
+        f"arn:aws:iam::{ta.ACCOUNT}:policy/arvaken-stop-test-boundary"}
+    assert "MODEL" not in plain["request"]["environmentVariables"]
+    assert "bedrock" not in json.dumps(plain["roles"][n["agent_role"]]["inline"])
+    # the AgentCore policy lets its holder make a role under that boundary too, and still under no other
+    policy = json.loads((ROOT / "permissions" / "aws-agentcore-policy.json").read_text(encoding="utf-8"))
+    [roles] = [s for s in policy["Statement"] if s["Sid"] == "TheRunsRolesEachUnderTheKitsBoundary"]
+    assert roles["Condition"] == {"StringLike": {"iam:PermissionsBoundary": [
+        f"arn:aws:iam::*:policy/arvaken-stop-test-boundary{s}" for s in ("", "-model", "-harness")]}}

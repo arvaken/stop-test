@@ -21,11 +21,11 @@ stop"; "Measure both kinds, recording both results for each"):
    answers)". Unless the session went on writing its objects after its stream closed, which the kit checks in the
    bucket: then nothing is assumed after the close, and what was seen before it is judged as it is.
 
-**Before each stop**, the session's paths must work: the kit waits for its own calls to succeed READY_TRIES times in a
-row, up to READY_WAIT, opening a new session if one does not get there (READY_SESSIONS). A path whose last try before
-the stop failed reads "not run", as on Lambda. New calls are made from LEAD seconds before the stop, and the path is
-tried only where the last call sent before the stop was answered; where it was refused, the path's errors are each
-refusal of a call sent before the stop, the last call's among them.
+**Before each stop**, the session's paths must work: the kit waits for its own calls (and with a model, its calls to the
+model) to succeed READY_TRIES times in a row, up to READY_WAIT, opening a new session if one does not get there
+(READY_SESSIONS). A path whose last try before the stop failed reads "not run", as on Lambda. New calls are made from
+LEAD seconds before the stop, and the path is tried only where the last call sent before the stop was answered; where
+it was refused, the path's errors are each refusal of a call sent before the stop, the last call's among them.
 
 **The firing moment** comes from CloudTrail's record of the call (D569):
 - a policy on the role: AttachRolePolicy or PutRolePolicy, in event history in us-east-1, where IAM's calls are
@@ -51,6 +51,24 @@ probe report, and only where the cross-check sees no call of the path's after it
 and with `--trail` S3's records of them (the founder, 30 October 2026). Arvaken's test address keeps no log, so its two
 paths rest on the confirmation alone, and the details say the address was not checked.
 
+**With a model** (the kit's `--model`; the Run 1 kit brief, section 3.3), the running session has a fifth path, MODEL:
+with each try, the test agent calls the model once, as the runtime's own role, asking for one token (agent.py). It is
+one of the session's paths (Run.session_paths), so it counts from AWS's confirmation where the session was ended, as
+the four do, and is timed from the call that ended the session. Its readiness waits for it too, and where it did not
+work before the first stop, nothing is timed (MODEL_DID_NOT_WORK), as on Lambda. Its cross-check is CloudTrail's event
+history in the run's region, as Bedrock's runtime calls are management events, which event history holds
+[source: aws-bedrock-runtime-management-events]: read once, sdk.TRAIL_READ seconds after the last window ends
+(model_calls), paged at two lookups a second at most [source: aws-cloudtrail-lookup-rate], for the calls to a model
+made as a session of the run's role, never a stream's completion event (sdk.a_model_call)
+[source: aws-bedrock-stream-completion-event]. Each repeat's model calls that worked in the minute before the stop must
+each have a record of their own there (sdk.in_trail), else the path is not measured, as it is where the read was not
+finished. Under "deny calls and end its sessions", any record of a call from sdk.TRAIL_LAG seconds after the
+confirmation to the window's end, whatever its answer, makes the path not stopped: a record's time is when the request
+was completed [source: aws-cloudtrail-event-time], and the agent's call gives up after 2 seconds to connect and 2 to
+read, so a call begun before the confirmation can be recorded up to sdk.TRAIL_LAG seconds after it. The records read
+are kept as CloudTrail returned them, one a line, in the trail's folder (keep_model_calls), with their SHA-256 in its
+SHA256SUMS. The run's own trail is unchanged: data events alone (D618).
+
 **What was made is checked gone by its own identifier** (the founder, 23 October 2026, as on Lambda): the runtime, its
 endpoints, its workload identity, its code in S3, the bucket, both roles, any log group AgentCore made for the runtime
 (none is expected: its role may not write logs), the stop, and with `--trail` the trail and its bucket, once its records
@@ -58,6 +76,7 @@ are kept. Then the run's tag is asked, to catch anything else.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import queue
 import threading
@@ -70,7 +89,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from arvaken_stop_test import __version__, refusals, result
+from arvaken_stop_test import __version__, refusals, result, sdk
 from arvaken_stop_test.agentcore import fire as firing
 from arvaken_stop_test.agentcore import trail as trailing
 from arvaken_stop_test.agentcore.agent import LONGEST
@@ -78,11 +97,16 @@ from arvaken_stop_test.agentcore.stack import (CODE_KEY, IDLE, MAX_LIFETIME, NET
                                                boundary_arn, code_sha256, code_zip, names, own_policy, private_bucket,
                                                runtime_request, second_policy, second_trust, to_json, trust)
 from arvaken_stop_test.aws import fire as aws_fire
-from arvaken_stop_test.timing import HOLD, NOT_STOPPED, PATH_WORDS, WINDOWS, Beat, PathResult, judge
+from arvaken_stop_test.aws.run import MODEL_DID_NOT_WORK
+from arvaken_stop_test.aws.stack import model_resources
+from arvaken_stop_test.aws.your_copy import PAGE_GAP
+from arvaken_stop_test.timing import (HOLD, NOT_MEASURED, NOT_RUN, NOT_STOPPED, PATH_WORDS, WINDOWS, Beat, PathResult,
+                                      judge)
 
 SESSION_PATHS = ("own_calls", "another_identity", "outside_key", "open_internet")
 NEW_CALLS = "new_calls"
 PATHS = (*SESSION_PATHS, NEW_CALLS)
+MODEL = "model"             # the running session's fifth path, with a model (Run.session_paths)
 AGENT_KIND = "aws-agentcore-runtime"
 WARM_UP = 10                 # calls before the first stop, to read the agent's clock
 READY_WAIT = 180.0           # seconds a session has to show its own calls working before its stop
@@ -111,6 +135,17 @@ NOT_FOUND = {"NoSuchEntity", "ResourceNotFoundException", "NoSuchBucket", "NoSuc
 AUDIT_RECORD = "CloudTrail's record of the call, to the whole second"
 TRAIL_RECORD = "CloudTrail's record of the call, a data event in the run's own trail, to the whole second"
 POLL_TRAIL = 30.0            # how often the kit looks in the trail's bucket
+MODEL_CALLS_FILE = "cloudtrail-{run}-model-calls.jsonl"     # the model's calls' records read, in the trail's folder
+# Why the model's path is not measured: the founder's words for a copy's (sdk.py), "your copy" read as "the test agent"
+# and "your mark" as "the stop" (the Run 1 kit brief, section 5, item 3).
+# CUSTOMER TEXT: a draft, for the founder's approval
+MODEL_NOT_IN_TRAIL = ("CloudTrail does not show every call from the test agent to the model that worked in the minute "
+                      "before the stop")
+# CUSTOMER TEXT: a draft, for the founder's approval
+MODEL_TRAIL_UNREAD = "the kit could not finish reading CloudTrail for the test agent's calls to the model ({code})"
+# CUSTOMER TEXT: a draft, for the founder's approval
+MODEL_NONE_BEFORE = ("no call from the test agent to the model worked in the minute before the stop, so the kit could "
+                     "not check that CloudTrail records them")
 
 
 class NotStarted(aws_fire.Refused):
@@ -172,7 +207,7 @@ class Repeat:
     confirm_answers: dict[str, int] = field(default_factory=dict)
     seen_after_confirmation: dict[str, list[float]] = field(default_factory=dict)
     new_calls: int = 0
-    beats: dict[str, list[Beat]] = field(default_factory=lambda: {p: [] for p in PATHS})
+    beats: dict[str, list[Beat]] = field(default_factory=lambda: {p: [] for p in (*PATHS, MODEL)})
 
 
 @dataclass
@@ -211,6 +246,23 @@ class Run:
     product: dict[str, str] | None = None
     witness: list[tuple[float, bool, str | None]] = field(default_factory=list)
     sdk_record: Any = None
+    # with a model (the kit's `--model`): its ID; CloudTrail's event history of the test agent's calls to it, each by
+    # its time and its error's code or None, or None where it was not read (model_trail_error, why); each record kept,
+    # as CloudTrail returned it; and the file they were kept in (keep_model_calls)
+    model: str = ""
+    model_trail: list[tuple[float, str | None]] | None = None
+    model_trail_error: str | None = None
+    model_events: list[str] | None = field(default=None, repr=False)
+    model_calls_kept: dict[str, Any] | None = None
+
+    @property
+    def session_paths(self) -> tuple[str, ...]:
+        """The running session's paths: the four, and with a model, MODEL."""
+        return (*SESSION_PATHS, MODEL) if self.model else SESSION_PATHS
+
+    @property
+    def paths(self) -> tuple[str, ...]:
+        return (*self.session_paths, NEW_CALLS)
 
     @property
     def stop_kind(self) -> str:
@@ -255,12 +307,12 @@ def make(c: Clients, r: Run, endpoint: str, clock: Clock) -> None:
     """Make the run's roles, bucket, code and runtime, in that order, and wait for the runtime to be ready."""
     n = names(r.run)
     tags = [{"Key": TAG, "Value": r.run}]
-    boundary = boundary_arn(r.account, r.partition)
+    boundary = boundary_arn(r.account, r.partition, model=bool(r.model))
     r.outputs["AgentRole"] = c.iam.create_role(
         RoleName=n["agent_role"], AssumeRolePolicyDocument=to_json(trust(r.run, r.region, r.account, r.partition)),
         PermissionsBoundary=boundary, Tags=tags)["Role"]["Arn"]
     c.iam.put_role_policy(RoleName=n["agent_role"], PolicyName="own-calls",
-                          PolicyDocument=to_json(own_policy(r.run, r.account, r.partition)))
+                          PolicyDocument=to_json(own_policy(r.run, r.account, r.partition, r.model, r.region)))
     r.outputs["SecondRole"] = _retrying(lambda: c.iam.create_role(
         RoleName=n["second_role"], AssumeRolePolicyDocument=to_json(second_trust(r.outputs["AgentRole"])),
         PermissionsBoundary=boundary, Tags=tags), {"MalformedPolicyDocument"}, clock)["Role"]["Arn"]
@@ -272,7 +324,7 @@ def make(c: Clients, r: Run, endpoint: str, clock: Clock) -> None:
     r.code_sha256 = code_sha256(zipped)
     c.s3.put_object(Bucket=n["bucket"], Key=CODE_KEY, Body=zipped)
     made = _retrying(lambda: c.control.create_agent_runtime(**runtime_request(
-        r.run, r.region, r.outputs["AgentRole"], endpoint, r.outputs["SecondRole"])),
+        r.run, r.region, r.outputs["AgentRole"], endpoint, r.outputs["SecondRole"], model=r.model)),
         {"ValidationException", "AccessDeniedException"}, clock)
     r.outputs["Runtime"], r.outputs["RuntimeId"] = made["agentRuntimeArn"], made["agentRuntimeId"]
     r.outputs["WorkloadIdentity"] = (made.get("workloadIdentityDetails") or {}).get("workloadIdentityArn", "")
@@ -382,8 +434,18 @@ class Stream:
         self.thread.join(timeout=10.0)
 
 
+def _beat(b: dict) -> Beat:
+    """A try as the session reported it, with its failure record (D646, item 4): its code, and where the error gave
+    them, the HTTP status AWS answered with and AWS's own reason field."""
+    status, reason = b.get("status"), b.get("reason")
+    return Beat(float(b["at"]), bool(b["ok"]), b.get("error"),
+                status=status if isinstance(status, int) and not isinstance(status, bool) else None,
+                reason=reason if isinstance(reason, str) else None)
+
+
 def _take(r: Run, rep: Repeat, events: list[dict]) -> None:
-    """The session's events into the repeat: when its second role's session expires, and each try."""
+    """The session's events into the repeat: when its second role's session expires, and each try of the run's
+    session paths (Run.session_paths)."""
     for e in events:
         for kind, whose in (e.get("clients") or {}).items():       # a copy's probe: whose clients it used, by kind
             r.clients.setdefault(str(kind), set()).add(str(whose))
@@ -392,24 +454,30 @@ def _take(r: Run, rep: Repeat, events: list[dict]) -> None:
             if e.get("error"):              # the second role's session could not be taken
                 rep.setup_errors.setdefault("another_identity", {})[f"AssumeRole: {e['error']}"] = 1
         for p, b in (e.get("beats") or {}).items():
-            if p in SESSION_PATHS:
-                rep.beats[p].append(Beat(float(b["at"]), bool(b["ok"]), b.get("error")))
+            if p in r.session_paths:
+                rep.beats[p].append(_beat(b))
                 r.calls += 1
 
 
+def _worked(beats: list[Beat]) -> bool:
+    """Whether a path's last READY_TRIES tries each worked."""
+    last = beats[-READY_TRIES:]
+    return len(last) == READY_TRIES and all(b.ok for b in last)
+
+
 def open_session(c: Clients, r: Run, rep: Repeat, clock: Clock, seconds: float) -> Any:
-    """The repeat's running session, once its own calls work: READY_TRIES in a row within READY_WAIT, in at most
-    READY_SESSIONS sessions; else the last, as it is. Which paths work is read from each path's last try."""
+    """The repeat's running session, once its own calls work, and with a model its calls to the model: READY_TRIES in
+    a row within READY_WAIT, in at most READY_SESSIONS sessions; else the last, as it is. Which paths work is read from
+    each path's last try."""
     stream = None
     for _ in range(READY_SESSIONS):
-        rep.session, rep.opened, rep.beats = _session(r, "session"), clock.now(), {p: [] for p in PATHS}
+        rep.session, rep.opened, rep.beats = _session(r, "session"), clock.now(), {p: [] for p in (*PATHS, MODEL)}
         stream = (c.stream or Stream)(c, r, rep.session, seconds, clock)
         r.watched_until = max(r.watched_until or 0.0, clock.now() + seconds)
         end = clock.now() + READY_WAIT
         while clock.now() < end and stream.ended is None:
             _take(r, rep, stream.poll())
-            own = rep.beats["own_calls"][-READY_TRIES:]
-            if len(own) == READY_TRIES and all(b.ok for b in own):
+            if all(_worked(rep.beats[p]) for p in ("own_calls", MODEL) if p in r.session_paths):
                 rep.ready = clock.now()
                 break
             clock.sleep(1.0)
@@ -418,8 +486,8 @@ def open_session(c: Clients, r: Run, rep: Repeat, clock: Clock, seconds: float) 
             break
         if stream.ended is None:
             stream.close()
-    rep.working = {p for p in SESSION_PATHS if rep.beats[p] and rep.beats[p][-1].ok}
-    for p in SESSION_PATHS:
+    rep.working = {p for p in r.session_paths if rep.beats[p] and rep.beats[p][-1].ok}
+    for p in r.session_paths:
         for b in rep.beats[p]:
             if not b.ok:
                 errors = rep.setup_errors.setdefault(p, {})
@@ -492,7 +560,9 @@ def time_one(c: Clients, r: Run, clock: Clock, say: Callable[[str], None] = lamb
     rep = Repeat()
     seconds = READY_WAIT + LEAD + r.window + HOLD + SLACK
     stream = open_session(c, r, rep, clock, seconds)
-    for p in SESSION_PATHS:
+    for p in r.session_paths:
+        if p == MODEL and not r.repeats:
+            continue                        # before the first stop, a model that does not work ends the run (below)
         if p not in rep.working:
             say(f"Before the stop, {PATH_WORDS[p]} did not work ({_codes(rep, p)}): it will be reported as not run.")
     new = NewCalls(c, r, clock)
@@ -503,16 +573,20 @@ def time_one(c: Clients, r: Run, clock: Clock, say: Callable[[str], None] = lamb
             _take(r, rep, stream.poll())
             clock.sleep(1.0)
         _take(r, rep, stream.poll())        # a path works before the stop where its last try before it worked
-        for p in SESSION_PATHS:
+        for p in r.session_paths:
             if p in rep.working and not rep.beats[p][-1].ok:
                 rep.working.discard(p)
                 errors = rep.setup_errors.setdefault(p, {})
                 errors[rep.beats[p][-1].error or "unknown"] = errors.get(rep.beats[p][-1].error or "unknown", 0) + 1
         if stream.ended is not None:        # the session ended before its stop: none of its paths was running
-            for p in SESSION_PATHS:
+            for p in r.session_paths:
                 if p in rep.working:
                     rep.working.discard(p)
                     rep.setup_errors.setdefault(p, {})["SessionEndedBeforeTheStop"] = 1
+        if r.model and not r.repeats and MODEL not in rep.working:
+            # no call to the model worked before the first stop: nothing is timed, as on Lambda (aws/run.py)
+            new.pool.shutdown(wait=False, cancel_futures=True)
+            raise NotStarted(MODEL_DID_NOT_WORK.format(model=r.model, codes=_codes(rep, MODEL), region=r.region), r)
         if mark is not None:
             mark()                          # you press Enter, then fire your stop: timed from the Enter
             rep.fired_before = rep.fired_after = clock.now()
@@ -556,7 +630,7 @@ def time_one(c: Clients, r: Run, clock: Clock, say: Callable[[str], None] = lamb
             if not rep.writes_after_close:
                 t = rep.stream_ended + r.offset
                 while t <= end + r.offset:
-                    for p in SESSION_PATHS:
+                    for p in r.session_paths:
                         rep.beats[p].append(Beat(t, False, SESSION_ENDED))
                     t += 1.0
     if rep.end_confirmed is not None:           # the cross-check: the session's objects written after the confirmation
@@ -708,6 +782,93 @@ def firing_moments(c: Clients, r: Run, clock: Clock, wait: float = TRAIL_WAIT) -
                                                   f"{after - before:.3f} seconds")
 
 
+def model_calls(c: Clients, r: Run, clock: Clock) -> None:
+    """With a model, the test agent's calls to it as CloudTrail's event history in the run's region holds them
+    (sdk.py's rule for a copy's model, D735, its pieces reused): read once, sdk.TRAIL_READ seconds after the last window
+    ends, from the minute before the first repeat's stop to the last window's end, paged PAGE_GAP seconds apart. Each
+    record of a call to a model made as a session of the run's role (sdk.a_model_call) is kept by its time and its
+    error's code, and as CloudTrail returned it, for the evidence. A lookup the kit can't finish leaves them unread, by
+    the error's code, and the path not measured. Then, for each repeat whose session AWS confirmed ended, each record
+    from sdk.TRAIL_LAG seconds after the confirmation to the window's end, whatever its answer, is a call seen after
+    it."""
+    timed = [(rep, at) for rep in r.repeats if (at := _moment(r, rep, MODEL)[0]) is not None]
+    if not r.model or not timed:
+        return
+    last = timed[-1][0]
+    due = max(last.fired_after, last.end_after) + r.window + HOLD + sdk.TRAIL_READ     # the kit's clock
+    if clock.now() < due:
+        clock.sleep(due - clock.now())
+    start = timed[0][1] - sdk.TRAIL_BEFORE - sdk.TRAIL_SLACK                         # the agent's clock
+    end = timed[-1][1] + r.window + HOLD + sdk.TRAIL_LAG
+    role, found, events, token = names(r.run)["agent_role"], [], [], None
+    try:
+        while True:
+            page = c.cloudtrail.lookup_events(
+                LookupAttributes=[{"AttributeKey": "EventSource", "AttributeValue": sdk.MODEL_SOURCE}],
+                StartTime=start, EndTime=end, **({"NextToken": token} if token else {}))
+            for e in page.get("Events", []):
+                raw = e.get("CloudTrailEvent") or "{}"
+                event = json.loads(raw)
+                if sdk.a_model_call(event, role):
+                    when = e["EventTime"]
+                    found.append((when.timestamp() if hasattr(when, "timestamp") else float(when),
+                                  event.get("errorCode")))
+                    events.append(raw)
+            token = page.get("NextToken")
+            if not token:
+                break
+            clock.sleep(PAGE_GAP)
+    except Exception as e:  # noqa: BLE001 - a read not finished leaves the model's path not measured, by its code
+        r.model_trail_error = code(e)
+        return
+    r.model_trail, r.model_events = sorted(found, key=lambda x: x[0]), events
+    for rep, at in timed:
+        if rep.end_confirmed is None:
+            continue
+        since = rep.end_confirmed + r.offset + sdk.TRAIL_LAG
+        seen = [t for t, _ in r.model_trail if since < t <= at + r.window + HOLD]
+        if seen:
+            rep.seen_after_confirmation[MODEL] = seen
+
+
+def _model_seen_before(r: Run, rep: Repeat, at: float) -> list[float]:
+    """When each of the repeat's calls to the model that worked in the minute before the stop began."""
+    return [b.at for b in rep.beats.get(MODEL, []) if b.ok and at - sdk.TRAIL_BEFORE <= b.at <= at]
+
+
+def model_not_measured(r: Run, rep: Repeat, at: float) -> str | None:
+    """Why the model's path is not measured, or None, in the order of sdk.judge_model: CloudTrail not read to the end;
+    no call that worked in the minute before the stop; or one of them without a record of its own (sdk.in_trail)."""
+    if r.model_trail is None:
+        return MODEL_TRAIL_UNREAD.format(code=r.model_trail_error or "unknown")
+    seen = _model_seen_before(r, rep, at)
+    if not seen:
+        return MODEL_NONE_BEFORE
+    if not sdk.in_trail(seen, r.model_trail):
+        return MODEL_NOT_IN_TRAIL
+    return None
+
+
+def keep_model_calls(r: Run, folder: Path) -> None:
+    """The records of the model's calls read (model_calls), exactly as CloudTrail returned them, one a line, in
+    `folder` as MODEL_CALLS_FILE, read back against what was written, with their SHA-256 added to its SHA256SUMS."""
+    folder.mkdir(parents=True, exist_ok=True)
+    name = MODEL_CALLS_FILE.format(run=r.run)
+    body = "".join(f"{e}\n" for e in r.model_events or []).encode("utf-8")
+    path = folder / name
+    path.write_bytes(body)
+    if path.read_bytes() != body:
+        raise OSError(f"the copy of {name} does not read back as it was written")
+    sha = hashlib.sha256(body).hexdigest()
+    sums = folder / "SHA256SUMS"
+    text = (sums.read_bytes() if sums.exists() else b"") + f"{sha}  {name}\n".encode("utf-8")
+    sums.write_bytes(text)
+    if r.trail_kept and r.trail_kept.get("folder"):         # the trail's records are kept there: its sums hold both
+        r.trail_kept["sha256sums"] = hashlib.sha256(text).hexdigest()
+        r.trail_kept["files"] = r.trail_kept.get("files", 0) + 1
+    r.model_calls_kept = {"file": path.as_posix(), "sha256": sha, "events": len(r.model_events or [])}
+
+
 def seen_in_trail(c: Clients, r: Run) -> None:
     """The cross-check in the run's trail: S3's record of each call on a session's objects after AWS confirmed it ended,
     by the object's prefix: its own calls', or its work under another identity's."""
@@ -802,18 +963,23 @@ def tear_down(c: Clients, r: Run, clock: Clock, trail_folder: Path | None = None
     For a copy of the customer's own runtime, the runtime, its workload identity and its logs are the customer's: none
     is deleted or touched. The agent's role is deleted only where `keeps_the_role` says the copy no longer runs as it."""
     n = names(r.run)
+    folder = trail_folder or Path(f"stop-test-{r.run}-trail")
     try:
         firing.remove(c.iam, c.control, r.run, r.stop_ref, r.outputs.get("Runtime"))
     except Exception:  # noqa: BLE001 - a role or runtime already gone has no stop on it
         pass
     if r.trail:
         try:
-            r.trail_kept = trailing.keep(c.cloudtrail, c.s3, r.run, trail_folder or Path(f"stop-test-{r.run}-trail"),
-                                         now=clock.now, sleep=clock.sleep)
+            r.trail_kept = trailing.keep(c.cloudtrail, c.s3, r.run, folder, now=clock.now, sleep=clock.sleep)
             r.trail_records = r.trail_kept.pop("records", {})
             trailing.remove(c.cloudtrail, c.s3, r.run)
         except Exception as e:  # noqa: BLE001 - what is not kept is not deleted, and is named below as left
             r.trail_kept = {**(r.trail_kept or {}), "error": code(e)}
+    if r.model_events is not None:          # the records of the model's calls read, beside the trail's
+        try:
+            keep_model_calls(r, folder)
+        except Exception as e:  # noqa: BLE001 - named in the details
+            r.model_calls_kept = {"error": code(e)}
     try:
         rid = runtime_id(c, r) if not r.copy else None          # a copy's runtime is the customer's: never deleted
         if rid:
@@ -931,9 +1097,9 @@ def check_gone(c: Clients, r: Run) -> tuple[list[str], list[str]]:
 
 
 def _moment(r: Run, rep: Repeat, p: str) -> tuple[float | None, float, str | None]:
-    """A path's firing moment, its precision, and where the moment came from: the session's four paths from the call
-    that ended the session, where there was one; else the stop's."""
-    if p in SESSION_PATHS and rep.end_after:
+    """A path's firing moment, its precision, and where the moment came from: the session's paths (Run.session_paths)
+    from the call that ended the session, where there was one; else the stop's."""
+    if p in r.session_paths and rep.end_after:
         return rep.end_at, rep.end_precision, rep.end_source
     return rep.fired_at, rep.fired_precision, rep.fired_source
 
@@ -941,18 +1107,24 @@ def _moment(r: Run, rep: Repeat, p: str) -> tuple[float | None, float, str | Non
 def _one(r: Run, rep: Repeat, p: str) -> PathResult:
     """A path judged by its kind of stop's refusals (refusals.py). Where AWS confirmed the session ended, each of its
     four paths that the cross-check saw no call of after it is refused from the confirmation on; one seen calling after
-    it is not stopped (the founder's refusal ruling of 29 October 2026, item 3)."""
+    it is not stopped (the founder's refusal ruling of 29 October 2026, item 3). With a model, its path is first not
+    measured where model_not_measured says why, as sdk.judge_model has it."""
     at, precision, source = _moment(r, rep, p)
     kind, beats = r.stop_kind, list(rep.beats.get(p, []))
     seen = rep.seen_after_confirmation.get(p, [])
-    if rep.end_confirmed is not None and p in SESSION_PATHS and not seen and at is not None:
+    if rep.end_confirmed is not None and p in r.session_paths and not seen and at is not None:
         t = rep.end_confirmed + r.offset
         while t <= at + r.window + HOLD:
             beats.append(Beat(t, False, refusals.SESSION_CONFIRMED_ENDED))
             t += 1.0
     found = judge(beats, at, window=r.window, tried=p in rep.working, setup_errors=rep.setup_errors.get(p),
                   fired_precision=precision, counts=lambda b, before: refusals.counts(kind, p, b, before))
-    if seen:
+    why = model_not_measured(r, rep, at) if p == MODEL and MODEL in r.session_paths and at is not None \
+        and found.outcome not in (NOT_RUN, NOT_MEASURED) else None
+    if why:
+        found = replace(found, outcome=NOT_MEASURED, reason=why, first_failure_after=None, stopped_at=None,
+                        effect_between=None)
+    elif seen:
         found = replace(found, outcome=NOT_STOPPED, stopped_at=None, effect_between=None)
     keeps = rep.session_expires if p == "another_identity" and found.outcome == NOT_STOPPED else None
     return replace(found, fired_source=source if at is not None else None, keeps_working_until=keeps, fired_at=at)
@@ -960,7 +1132,7 @@ def _one(r: Run, rep: Repeat, p: str) -> PathResult:
 
 def results(r: Run) -> list[tuple[float | None, dict[str, PathResult]]]:
     """Each repeat's paths, each judged from its own firing moment."""
-    return [(rep.fired_at, {p: _one(r, rep, p) for p in PATHS}) for rep in r.repeats]
+    return [(rep.fired_at, {p: _one(r, rep, p) for p in r.paths}) for rep in r.repeats]
 
 
 def details(r: Run, doc: dict) -> dict:
@@ -992,10 +1164,11 @@ def details(r: Run, doc: dict) -> dict:
                  # a deny of calls alone: any access denied on the session's paths, which goes to Jeff and Amanda (the
                  # founder's refusal ruling of 29 October 2026, item 2)
                  **({"access_denied_on_the_session": {
-                     p: n for p in SESSION_PATHS
+                     p: n for p in r.session_paths
                      if (n := sum(1 for b in rep.beats.get(p, []) if rep.fired_at is not None and b.at > rep.fired_at
                                   and b.error in ("AccessDenied", "AccessDeniedException")))}}
-                    if r.stop_kind == firing.DENY_KIND else {})} for rep in r.repeats]
+                    if r.stop_kind == firing.DENY_KIND else {}),
+                 **({"model_trail": _model_trail(r, rep)} if r.model else {})} for rep in r.repeats]
     out = {"format": "stop-test-details/1", "run": r.run, "result_signature": doc["signature"],
            "stop_kind": r.stop_kind, "window_seconds": r.window, "left_behind": r.left_behind,
            "checked_gone": r.checked_gone, "repeats": repeats,
@@ -1003,13 +1176,29 @@ def details(r: Run, doc: dict) -> dict:
                      "idle_runtime_session_timeout_seconds": IDLE, "max_lifetime_seconds": MAX_LIFETIME,
                      "code_sha256": r.code_sha256},
            "sessions": sessions}
+    if r.model:                 # the model, and the file of its calls' records (keep_model_calls)
+        out["model"], out["model_calls"] = r.model, r.model_calls_kept
     if r.trail:
         out["trail"] = {"name": trailing.names(r.run)["trail"], "bucket": trailing.names(r.run)["bucket"],
                         "selectors": trailing.selectors(r.outputs.get("Runtime", ""), _objects(r)),
                         "recording_from": iso(r.trail_recording),
                         "end_session_found": [rep.end_source == TRAIL_RECORD for rep in r.repeats if rep.end_after],
                         "records": r.trail_records, "kept": r.trail_kept}
+        if r.model:
+            out["trail"]["model_calls"] = (r.model_calls_kept or {}).get("file")
     return out
+
+
+def _model_trail(r: Run, rep: Repeat) -> dict[str, Any]:
+    """What CloudTrail's event history showed of a repeat's calls to the model: whether it was read, and if not why;
+    whether each call that worked in the minute before the stop has a record of its own; each record from sdk.TRAIL_LAG
+    seconds after AWS confirmed the session ended (grace_seconds) to the window's end."""
+    at = _moment(r, rep, MODEL)[0]
+    seen = _model_seen_before(r, rep, at) if at is not None else []
+    return {"read": r.model_trail is not None, "error": r.model_trail_error,
+            "before_in_trail": bool(seen) and r.model_trail is not None and sdk.in_trail(seen, r.model_trail),
+            "records_after_confirmation": [result.iso(x) for x in rep.seen_after_confirmation.get(MODEL, [])],
+            "grace_seconds": int(sdk.TRAIL_LAG)}
 
 
 def _objects(r: Run) -> str:
@@ -1031,10 +1220,13 @@ def the_result(r: Run, key=None) -> dict:
 
 def run(c: Clients, stop_ref: str, *, endpoint: str, window: float = WINDOWS["aws"], repeats: int = 1,
         clock: Clock | None = None, run_name: str | None = None, trail: bool = False, trail_folder: Path | None = None,
-        trail_wait: float = TRAIL_WAIT, say: Callable[[str], None] = lambda _: None) -> tuple[Run, dict]:
+        trail_wait: float = TRAIL_WAIT, say: Callable[[str], None] = lambda _: None,
+        model: str = "") -> tuple[Run, dict]:
     """A whole run, torn down whatever happens. Returns the run's record and its signed result. With `trail`, the run
     makes its own CloudTrail trail for the runtime's data events (trail.py), and keeps its records in `trail_folder`
-    before deleting it."""
+    before deleting it. With `model`, a Bedrock model's ID or an inference profile's, the running session calls it too
+    (MODEL), its roles carry the kit's boundary for a model, and its calls are read from CloudTrail's event history
+    after the last window (model_calls), their records kept in `trail_folder` too."""
     from arvaken_stop_test.aws.stack import new_run
     clock = clock or Clock()
     reason = firing.why_not(stop_ref)
@@ -1042,6 +1234,8 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, window: float = WINDOWS["aw
         raise firing.Refused(reason)                # before anything is made
     if not 1 <= repeats <= 5:
         raise ValueError("a run repeats one to five times")
+    if model:
+        model_resources(model)                      # an ID that is neither a model's nor a profile's: its ValueError
     if READY_WAIT + LEAD + window + HOLD + SLACK > LONGEST:
         # CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618); source: aws-agentcore-streaming-limit
         raise ValueError(f"a window on AgentCore is at most {int(LONGEST - READY_WAIT - LEAD - HOLD - SLACK)} seconds: "
@@ -1050,12 +1244,12 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, window: float = WINDOWS["aw
     aws_fire.refuse_outside_aws(c.sts, firing.Refused)  # before anything is made
     if firing.on_the_role(stop_ref) and stop_ref != firing.INLINE and not firing.covers(c.iam, stop_ref, the_name):
         raise firing.Refused(aws_fire.NOT_COVERED)  # before anything is made
-    reason = aws_fire.why_no_boundary(c.iam, c.sts)
+    reason = aws_fire.why_no_boundary(c.iam, c.sts, model=bool(model))
     if reason:
         raise firing.Refused(reason)                # before anything is made
     caller = c.sts.get_caller_identity()
     r = Run(run=the_name, stop_ref=stop_ref, window=window, region=c.region, account=caller["Account"],
-            partition=caller["Arn"].split(":")[1], trail=trail)
+            partition=caller["Arn"].split(":")[1], trail=trail, model=model)
     r.began_at = clock.now()
     try:
         make(c, r, endpoint, clock)
@@ -1070,6 +1264,8 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, window: float = WINDOWS["aw
                 recover(c, r, clock)
             r.repeats.append(time_one(c, r, clock, say=say))
         firing_moments(c, r, clock, wait=trail_wait)
+        if model:
+            model_calls(c, r, clock)
     finally:
         tear_down(c, r, clock, trail_folder=trail_folder, say=say)
         r.ended_at = clock.now()

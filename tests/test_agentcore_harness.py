@@ -687,7 +687,8 @@ def test_the_kits_agentcore_policy_lets_it_make_a_harnesss_roles_under_their_own
     policy = ta.POLICY
     [roles] = [s for s in policy["Statement"] if s["Sid"] == "TheRunsRolesEachUnderTheKitsBoundary"]
     assert roles["Condition"]["StringLike"]["iam:PermissionsBoundary"] == [
-        "arn:aws:iam::*:policy/arvaken-stop-test-boundary", f"arn:aws:iam::*:policy/{harness.HARNESS_BOUNDARY}"]
+        "arn:aws:iam::*:policy/arvaken-stop-test-boundary", "arn:aws:iam::*:policy/arvaken-stop-test-boundary-model",
+        f"arn:aws:iam::*:policy/{harness.HARNESS_BOUNDARY}"]
 
 
 # -- a call that timed out or lost its connection (the founder's ruling of 31 October 2026 on the harness runs) ----------
