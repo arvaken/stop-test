@@ -275,6 +275,16 @@
    "expected": "allowed"
   },
   {
+   "id": "role-make-model-boundary",
+   "statement": "TheRunsRolesEachUnderTheKitsBoundary",
+   "action": "iam:CreateRole",
+   "resource": "arn:aws:iam::111122223333:role/arvaken-stop-test-r0a1b2c3d-agent",
+   "context": {
+    "iam:PermissionsBoundary": "arn:aws:iam::111122223333:policy/arvaken-stop-test-boundary-model"
+   },
+   "expected": "allowed"
+  },
+  {
    "id": "role-make-no-boundary",
    "statement": "TheRunsRolesEachUnderTheKitsBoundary",
    "action": "iam:CreateRole",

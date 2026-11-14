@@ -57,16 +57,18 @@ AGENTCORE = (
     'Each thing is named with the run and tagged `arvaken-stop-test=<run>`: - the test agent: an AgentCore runtime, '
     "`arvaken_stop_test_<run>`, made from the kit's own code (Python 3.13) in AgentCore's public network mode, with a"
     ' role of its own that AgentCore may take on for this runtime alone. A session of it ends after a minute idle, '
-    "and lives at most an hour; - a second role, which only the test agent's role may assume; - an S3 bucket, "
-    "`arvaken-stop-test-<run>`, private and encrypted, holding the test agent's code and the objects its paths write.",
+    "and lives at most an hour; - a second role, which only the test agent's role may assume;",
+    "- an S3 bucket, `arvaken-stop-test-<run>`, private and encrypted, holding the test agent's code and the objects "
+    "its paths write.",
     "Both roles carry the kit's permissions boundary, as on Lambda. The test agent writes no logs of its own, and its"
     ' role may not write any. CloudTrail records what the kit does, as it records any change. The kit touches nothing'
     " it did not make, except to attach your stop to the test agent's role when your stop is a policy of yours.",
     'For every stop, the kit measures two things: - **New calls to the agent.** About once a second, the kit calls '
     'the test agent, each call starting a session of its own, and the agent answers at once. - **A session already '
     "running.** Before each stop, the kit opens one session of the test agent's. Its agent tries each of the four "
-    "paths about once a second, as on Lambda, and reports each try on the call's streaming response. If the session "
-    'ends, each of its paths reads as refused from then on.',
+    "paths about once a second, as on Lambda,",
+    "and reports each try on the call's streaming response. If the session ends, each of its paths reads as refused "
+    "from then on.",
     'When the run ends, the kit takes off the stop it fired, deletes what it made, and checks each thing by its own '
     'identifier: the runtime, its endpoints, its workload identity, its code, the bucket, both roles, any log group '
     'and the stop. Anything still there is named for you to delete.',
@@ -89,8 +91,8 @@ AGENTCORE = (
     'name: ``` stop-test agentcore clean --run <run> --region eu-central-1 ```',
     # its first sentence's end reworded by the founder, word for word, at 01:41 UTC on 31 October 2026
     '- **AgentCore:** [`permissions/aws-agentcore-policy.json`](permissions/aws-agentcore-policy.json), an IAM policy'
-    " that lets its holder make a role only under the kit's boundary, `arvaken-stop-test-boundary`, or the harness's"
-    ' below. Each statement names only what a run makes, except reading your stop policy, the reads'
+    " that lets its holder make a role only under the kit's boundary, `arvaken-stop-test-boundary`,",
+    "or the harness's below. Each statement names only what a run makes, except reading your stop policy, the reads"
     ' AWS allows only on every resource, and your default workload-identity directory, which AWS checks beside each '
     'workload identity a run reads or deletes. Its last two statements are needed only with `--trail`.',
     'On a harness, attach a second policy beside it, '
@@ -106,7 +108,41 @@ def test_the_readme_says_what_the_agentcore_module_does_in_the_approved_words():
         assert words in flat(README), words[:80]
 
 
-ROWS_AGENTCORE = tuple(("| `--stop` or `--inline-deny`, on AgentCore | `AccessDenied` from Amazon S3, on the running session's own calls and its work under another identity; `AccessDeniedException` from AgentCore, on new calls to the agent and, on a harness, on its model |", '| `--deny-calls` | `AccessDeniedException` from AgentCore, on new calls to the agent. On the running session, nothing counts |', "| `--deny-calls-and-end-sessions` | that, on new calls; on the running session, its end, from when AWS confirms it: asked to end the session again, AWS answers that there is no such session. A path seen calling after that, in the bucket or the run's trail, is not stopped. Calls to Arvaken's test address can't be seen, so its two paths rest on that confirmation |"))
+# A model in the AgentCore runtime (the Run 1 kit brief, section 5, items 4 to 6): approved by the founder, 20:05:12
+# UTC on 14 November 2026, word for word. Each is pinned as approved, so the README holds them exactly as he saw
+# them.
+AGENTCORE_MODEL_WORDS = (
+    # 4(a), after the bullet on the second role
+    "- with `--model`, the test agent's role may also call the model you name, and nothing else of Amazon Bedrock's. "
+    "Both roles then carry the kit's boundary for a model, `arvaken-stop-test-boundary-model`, as on Lambda.",
+    # 4(b), in "A session already running"
+    "Its agent tries each of the four paths about once a second, as on Lambda, and, with `--model`, calls the model "
+    "once with each try, asking for one token, and reports each try on the call's streaming response.",
+    # 4(c), after the trail paragraph
+    "With `--model`, the kit also reads CloudTrail's event history, which holds Amazon Bedrock's calls to a model, for "
+    "the test agent's calls to it, 15 minutes after the last window. It keeps the records it read in the same folder, "
+    "with the SHA-256 of the file. AWS bills each call to the model to your account.",
+    # 4(d), in "Run it"
+    "stop-test agentcore run --deny-calls-and-end-sessions --model openai.gpt-oss-20b-1:0 --trail --region "
+    "eu-central-1",
+    # 6, the AgentCore permissions bullet's first sentence
+    "an IAM policy that lets its holder make a role only under the kit's boundary, `arvaken-stop-test-boundary`, its "
+    "boundary for a model, `arvaken-stop-test-boundary-model`, or the harness's below.",
+)
+
+
+def test_the_readme_says_what_a_model_in_the_agentcore_runtime_does_in_the_approved_words():
+    for words in AGENTCORE_MODEL_WORDS:
+        assert words in flat(README), words[:80]
+    # its example is a line of its own in "Run it"
+    assert ("\nstop-test agentcore run --deny-calls-and-end-sessions --model openai.gpt-oss-20b-1:0 --trail --region "
+            "eu-central-1\n") in README
+
+
+# The three AgentCore rows as the founder approved them: the --deny-calls row on 30 October 2026; in the other two,
+# the words on a call to a model (the Run 1 kit brief, section 5, item 5, with "a call to a model that worked"),
+# approved by him, 20:05:12 UTC on 14 November 2026, word for word, the rest his signed text.
+ROWS_AGENTCORE = tuple(("| `--stop` or `--inline-deny`, on AgentCore | `AccessDenied` from Amazon S3, on the running session's own calls and its work under another identity; `AccessDeniedException` from AgentCore, on new calls to the agent and, on a harness, on its model; and `AccessDeniedException` from Amazon Bedrock, on a runtime's call to a model |", '| `--deny-calls` | `AccessDeniedException` from AgentCore, on new calls to the agent. On the running session, nothing counts |', "| `--deny-calls-and-end-sessions` | that, on new calls; on the running session, its end, from when AWS confirms it: asked to end the session again, AWS answers that there is no such session. A path seen calling after that, in the bucket or the run's trail, or, for a call to a model that worked, in CloudTrail's event history from 5 seconds after that, is not stopped. The model's path is not measured where CloudTrail's event history does not show each of its calls that worked in the minute before the stop. Calls to Arvaken's test address can't be seen, so its two paths rest on that confirmation |"))
 
 
 # The founder's approval, word for word, 30 October 2026: what counts as stopped, per kind of stop (his refusal ruling of

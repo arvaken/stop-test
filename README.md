@@ -303,6 +303,10 @@ Each thing is named with the run and tagged `arvaken-stop-test=<run>`:
   AgentCore's public network mode, with a role of its own that AgentCore may take on for this runtime alone. A session
   of it ends after a minute idle, and lives at most an hour;
 - a second role, which only the test agent's role may assume;
+- with `--model`, the test agent's role may also call the model you name, and nothing else of Amazon Bedrock's. Both
+  roles then carry the kit's boundary for a model, `arvaken-stop-test-boundary-model`, as on Lambda.
+  <!-- CUSTOMER TEXT: approved by the founder, 20:05:12 UTC on 14 November 2026, word for word (the Run 1 kit brief,
+  section 5, item 4(a)) -->
 - an S3 bucket, `arvaken-stop-test-<run>`, private and encrypted, holding the test agent's code and the objects its
   paths write.
 
@@ -315,8 +319,11 @@ For every stop, the kit measures two things:
 - **New calls to the agent.** About once a second, the kit calls the test agent, each call starting a session of its
   own, and the agent answers at once.
 - **A session already running.** Before each stop, the kit opens one session of the test agent's. Its agent tries each
-  of the four paths about once a second, as on Lambda, and reports each try on the call's streaming response. If the
-  session ends, each of its paths reads as refused from then on.
+  of the four paths about once a second, as on Lambda, and, with `--model`, calls the model once with each try, asking
+  for one token, and reports each try on the call's streaming response. If the session ends, each of its paths reads as
+  refused from then on.
+  <!-- CUSTOMER TEXT: "and, with `--model`, calls the model once with each try, asking for one token," approved by
+  the founder, 20:05:12 UTC on 14 November 2026, word for word (the Run 1 kit brief, section 5, item 4(b)) -->
 
 When the run ends, the kit takes off the stop it fired, deletes what it made, and checks each thing by its own
 identifier: the runtime, its endpoints, its workload identity, its code, the bucket, both roles, any log group and the
@@ -329,7 +336,10 @@ Run it in an account you use for testing.
 ```
 stop-test agentcore plan --deny-calls --region eu-central-1
 stop-test agentcore run --deny-calls --region eu-central-1
+stop-test agentcore run --deny-calls-and-end-sessions --model openai.gpt-oss-20b-1:0 --trail --region eu-central-1
 ```
+<!-- CUSTOMER TEXT: the example with --model approved by the founder, 20:05:12 UTC on 14 November 2026, word for word
+(the Run 1 kit brief, section 5, item 4(d)) -->
 
 Name the stop with one of:
 
@@ -349,6 +359,13 @@ bucket only CloudTrail may write to. It fires nothing until the trail has record
 trail and its bucket, it copies their records into a folder beside the result, `stop-test-<run>-trail`, each with its
 SHA-256. Without `--trail`, that moment is the kit's own clock, and the details say so. AWS charges for a trail's data
 events.
+
+<!-- CUSTOMER TEXT: approved by the founder, 20:05:12 UTC on 14 November 2026, word for word (the Run 1 kit brief,
+section 5, item 4(c)) -->
+With `--model`, the kit also reads CloudTrail's event history, which holds Amazon Bedrock's calls to a model, for the
+test agent's calls to it, 15 minutes after the last window. It keeps the records it read in the same folder, with the
+SHA-256 of the file. AWS bills each call to the model to your account.
+<!-- [source: aws-bedrock-runtime-management-events] -->
 
 A run writes the same three files as on Lambda. If a run could not clean up, remove what it made by the run's name:
 
@@ -692,9 +709,9 @@ it by its code. A refusal counts only on a path that worked before it.
 | Stop | What counts as its refusal |
 |---|---|
 | `--stop`, `--inline-deny` or `--revoke-sessions`, on AWS | `AccessDenied` from Amazon S3, on the test agent's own calls and its work under another identity; `AccessDeniedException` from Amazon Bedrock, on its call to a model; and on every path, Lambda refusing to run the test agent with `KMSAccessDeniedException`, where the agent ran before the stop |
-| `--stop` or `--inline-deny`, on AgentCore | `AccessDenied` from Amazon S3, on the running session's own calls and its work under another identity; `AccessDeniedException` from AgentCore, on new calls to the agent and, on a harness, on its model |
+| `--stop` or `--inline-deny`, on AgentCore | `AccessDenied` from Amazon S3, on the running session's own calls and its work under another identity; `AccessDeniedException` from AgentCore, on new calls to the agent and, on a harness, on its model; and `AccessDeniedException` from Amazon Bedrock, on a runtime's call to a model |
 | `--deny-calls` | `AccessDeniedException` from AgentCore, on new calls to the agent. On the running session, nothing counts |
-| `--deny-calls-and-end-sessions` | that, on new calls; on the running session, its end, from when AWS confirms it: asked to end the session again, AWS answers that there is no such session. A path seen calling after that, in the bucket or the run's trail, is not stopped. Calls to Arvaken's test address can't be seen, so its two paths rest on that confirmation |
+| `--deny-calls-and-end-sessions` | that, on new calls; on the running session, its end, from when AWS confirms it: asked to end the session again, AWS answers that there is no such session. A path seen calling after that, in the bucket or the run's trail, or, for a call to a model that worked, in CloudTrail's event history from 5 seconds after that, is not stopped. The model's path is not measured where CloudTrail's event history does not show each of its calls that worked in the minute before the stop. Calls to Arvaken's test address can't be seen, so its two paths rest on that confirmation |
 | `--stop` or `--deny-all`, on Google Cloud | a `403` from Cloud Storage whose reason is `forbidden` or `insufficientPermissions` |
 | `--disable-account` | those, a `401` whose reason is `authError` from a token not yet expired, and a `404` when the test agent asks for its own token |
 | `--via`, your gateway | its own refusal of the test agent's connection through it: a `403`, or a `407` where your gateway's address carries a user name and password, read only where Lambda runs the test agent on the Python, botocore and urllib3 the kit was tested with |
@@ -703,10 +720,14 @@ it by its code. A refusal counts only on a path that worked before it.
 
 <!-- [source: aws-s3-access-denied-example, aws-lambda-invoke-kms-access-denied, google-storage-403-forbidden,
 google-storage-403-insufficient-permissions, google-storage-401-auth-error, aws-bedrock-converse-access-denied,
-aws-agentcore-invoke-access-denied, aws-agentcore-invoke-harness-access-denied, aws-agentcore-stop-session-not-found] -->
+aws-agentcore-invoke-access-denied, aws-agentcore-invoke-harness-access-denied, aws-agentcore-stop-session-not-found,
+aws-bedrock-runtime-management-events, aws-cloudtrail-event-time] -->
 <!-- CUSTOMER TEXT: the AWS row's model path approved by the founder, word for word, 30 October 2026 -->
 <!-- CUSTOMER TEXT: the --via row approved by the founder, word for word, 30 October 2026 (D655) -->
 <!-- CUSTOMER TEXT: the three AgentCore rows approved by the founder, word for word, 30 October 2026 -->
+<!-- CUSTOMER TEXT: in the AgentCore rows for `--stop` or `--inline-deny` and for `--deny-calls-and-end-sessions`, the
+words on a call to a model approved by the founder, 20:05:12 UTC on 14 November 2026, word for word (the Run 1 kit
+brief, section 5, item 5, with "a call to a model that worked", as his ruling at 19:54:20 UTC that day has it) -->
 <!-- CUSTOMER TEXT: the --sdk row approved by the founder, word for word, 18:06:47 UTC on 2 November 2026 (part 4) -->
 
 A path whose calls after the stop were all not counted, or that was answered after the stop and then had nothing counted
@@ -752,15 +773,18 @@ The kit runs with your own credentials. To give it only what a run needs, use th
 
   Before a run makes anything, the kit checks that the boundary its options need is there and is the kit's.
 - **AgentCore:** [`permissions/aws-agentcore-policy.json`](permissions/aws-agentcore-policy.json), an IAM policy that
-  lets its holder make a role only under the kit's boundary, `arvaken-stop-test-boundary`, or the harness's below. Each
-  statement names only what a run makes, except reading your stop policy, the reads AWS allows only on every resource,
-  and your default workload-identity directory, which AWS checks beside each workload identity a run reads or deletes.
-  Its last two statements are needed only with `--trail`.
+  lets its holder make a role only under the kit's boundary, `arvaken-stop-test-boundary`, its boundary for a model,
+  `arvaken-stop-test-boundary-model`, or the harness's below. Each statement names only what a run makes, except
+  reading your stop policy, the reads AWS allows only on every resource, and your default workload-identity directory,
+  which AWS checks beside each workload identity a run reads or deletes. Its last two statements are needed only with
+  `--trail`.
   <!-- [source: aws-sar-agentcore-create-agent-runtime, aws-sar-agentcore-delete-agent-runtime,
   aws-sar-agentcore-invoke-agent-runtime, aws-sar-agentcore-delete-workload-identity,
   aws-sar-agentcore-get-workload-identity] -->
   <!-- CUSTOMER TEXT: "an IAM policy that lets its holder make a role only under the kit's boundary, ...", in place of
   "an IAM policy under the same boundary", approved by the founder, word for word, 01:41 UTC on 31 October 2026 -->
+  <!-- CUSTOMER TEXT: "its boundary for a model, `arvaken-stop-test-boundary-model`," approved by the founder,
+  20:05:12 UTC on 14 November 2026, word for word (the Run 1 kit brief, section 5, item 6) -->
 
   On a harness, attach a second policy beside it,
   [`permissions/aws-agentcore-harness-policy.json`](permissions/aws-agentcore-harness-policy.json). Its statements name

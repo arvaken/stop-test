@@ -134,6 +134,16 @@ class HarnessRun(Run):
     credentials_from: dict[str, str | None] | None = None   # each session's: where its probe found the role's keys
 
     @property
+    def session_paths(self) -> tuple[str, ...]:
+        """The session's four paths alone: a harness's model is timed from its turns (MODEL), never from its session's
+        stream, whatever run.Run says of a runtime's model."""
+        return SESSION_PATHS
+
+    @property
+    def paths(self) -> tuple[str, ...]:
+        return PATHS
+
+    @property
     def stop_kind(self) -> str:
         return HARNESS_KIND
 

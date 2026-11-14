@@ -31,14 +31,16 @@ the second role, as on Lambda; new calls to the agent call AgentCore itself, whi
 [source: aws-agentcore-invoke-access-denied, aws-agentcore-invoke-command-access-denied], and so does a harness's turn
 [source: aws-agentcore-invoke-harness-access-denied].
 - A policy on the agent's role, or on a harness's: S3's AccessDenied on the session's own calls and its work under
-  another identity; AgentCore's AccessDeniedException on new calls, and on a harness's model.
+  another identity; AgentCore's AccessDeniedException on new calls, and on a harness's model; and Bedrock's
+  AccessDeniedException on a runtime's call to a model (the kit's `--model`), as on Lambda.
 - A deny of calls to the agent: AccessDeniedException on new calls only. "On the running session's four paths nothing
   counts as stopped. Any access denied there is recorded and goes to Jeff and Amanda" (agentcore/run.py's details).
 - That deny, and the session ended: AccessDeniedException on new calls. The session's four paths count only once AWS
   confirms the session ended, "the stop call's success, and a later call to that session ID refused as ended", from the
   time of that confirmation, never the last probe report (SESSION_CONFIRMED_ENDED, which agentcore/run.py adds where
   the cross-check finds no call after it). A stream that closed, probe silence, never counts (agentcore/run.py's
-  SessionEnded).
+  SessionEnded). With a model, the session's call to it is one of its paths, and counts the same way, from the
+  confirmation alone: no answer from Bedrock counts there, its throttles and its AccessDeniedException among them.
 
 **Your own trigger** (item 5): the kit identifies the kind of stop from the cloud's audit record of your own action, and
 uses that kind's refusals. Where it cannot identify one, nothing counts as stopped (`counts` with kind None).
@@ -119,7 +121,8 @@ COUNTED: dict[str, dict[str, tuple[Refusal, ...]]] = {
                      "another_identity": (STORAGE_DENIED, STORAGE_UNAUTHENTICATED)},
     AGENTCORE_ROLE: {**_ON_A_ROLE, "new_calls": (AGENTCORE_DENIED,)},
     AGENTCORE_DENY: {"new_calls": (AGENTCORE_DENIED,)},
-    AGENTCORE_DENY_AND_END: {"new_calls": (AGENTCORE_DENIED,), **{p: (CONFIRMED_ENDED,) for p in SESSION_PATHS}},
+    AGENTCORE_DENY_AND_END: {"new_calls": (AGENTCORE_DENIED,),
+                             **{p: (CONFIRMED_ENDED,) for p in (*SESSION_PATHS, "model")}},
     HARNESS_ROLE: {**_ON_A_ROLE, "model": (AGENTCORE_DENIED,), "new_calls": (AGENTCORE_DENIED,)},
 }
 # Where Lambda's KMSAccessDeniedException counts, on every path

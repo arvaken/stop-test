@@ -21,14 +21,15 @@ on its own, against bytes as AgentCore sends them (test_the_stream_*), and the a
 from __future__ import annotations
 
 import copy
-import gzip
 import hashlib
 import io
 import json
 import re
+import struct
 import threading
 import urllib.parse
 import urllib.request
+import zlib
 from concurrent.futures import Future
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer
@@ -82,6 +83,17 @@ class Inline:
 
 def _iso(t: float) -> str:
     return datetime.fromtimestamp(int(t), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _gz(data: bytes) -> bytes:
+    """`data` as a gzip file whose bytes are the same on every platform. gzip.compress's header names the system it ran
+    on (zlib's OS_CODE: 10 on Windows, 3 on Linux), and zlib builds may deflate differently, so the fake trail's
+    records, and the SHA-256 of each the kit keeps, would differ by platform. Here: a fixed header (no time, no name,
+    system unknown) and deflate's stored blocks, of at most 65535 bytes each, then the CRC-32 and the length."""
+    chunks = [data[i:i + 65535] for i in range(0, len(data), 65535)] or [b""]
+    body = b"".join(bytes([i == len(chunks) - 1]) + struct.pack("<HH", len(c), 0xFFFF ^ len(c)) + c
+                    for i, c in enumerate(chunks))
+    return b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff" + body + struct.pack("<II", zlib.crc32(data), len(data))
 
 
 class FakeStream:
@@ -453,8 +465,7 @@ class FakeAWS:
         self.delivered += 1
         key = (f"AWSLogs/{ACCOUNT}/CloudTrail/{REGION}/2026/10/28/"
                f"{ACCOUNT}_CloudTrail_{REGION}_{self.delivered:04d}.json.gz")
-        body = gzip.compress(json.dumps({"Records": [{k: v for k, v in e.items() if k != "_at"} for e in due]})
-                             .encode(), mtime=0)
+        body = _gz(json.dumps({"Records": [{k: v for k, v in e.items() if k != "_at"} for e in due]}).encode())
         self.buckets[self.trail["bucket"]][key] = (body, self.clock.now())
 
     # -- cloudtrail: event history, and the run's trail
@@ -1008,7 +1019,7 @@ def test_the_kit_closing_the_stream_itself_is_not_a_session_ended():
 def test_the_agent_answers_a_new_call_says_it_is_healthy_and_streams_a_watch(monkeypatch):
     monkeypatch.setattr(agent, "assume", lambda: {"key": "k", "secret": "s", "token": "t", "expires": 4000.0})
     monkeypatch.setattr(agent.boto3, "client", lambda *a, **kw: object())
-    monkeypatch.setattr(agent, "probe", lambda s3, other, tag, n: {"own_calls": {"at": 1.0, "ok": True}})
+    monkeypatch.setattr(agent, "probe", lambda s3, other, tag, n, model=None: {"own_calls": {"at": 1.0, "ok": True}})
     monkeypatch.setattr(agent, "EVERY", 0.01)
     server = ThreadingHTTPServer(("127.0.0.1", 0), agent.Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -1213,3 +1224,489 @@ def test_confirming_a_sessions_end_that_timed_out_is_named_by_its_error():
             raise e
         data = type("Data", (), {"stop_runtime_session": staticmethod(raising)})()
         assert agentcore_fire.confirm_end(data, "arn:aws:bedrock-agentcore:x", "s") == type(e).__name__
+
+
+# -- a model in the runtime (the Run 1 kit brief, section 6, tests 1 to 15) -------------------------------------------
+# With `--model`, the test agent calls the model with each try of the session it watches, and its path is checked
+# against CloudTrail's event history. The fake's records of those calls are its own assumptions, not AWS's behaviour:
+# each try's call is recorded as Bedrock's Converse, an AwsApiCall made as a session of the runtime's role, at the whole
+# second it completed, about 0.3 seconds after it began; event history shows a record TRAIL_DELAY seconds after it,
+# `page_size` records a page.
+
+MODEL_ID = "openai.gpt-oss-20b-1:0"
+MODEL_SOURCE = "bedrock.amazonaws.com"
+MODEL_CALLS_FILE = "cloudtrail-r0a1b2c3d-model-calls.jsonl"
+
+
+def a_model_record(at: float, role: str, code: str | None = None, *, name: str = "Converse", kind: str = "AwsApiCall",
+                   source: str = MODEL_SOURCE) -> dict:
+    """One of the fake's records in CloudTrail's event history, to the whole second (`_at`, the fake's own)."""
+    return {"eventVersion": "1.11", "eventSource": source, "eventName": name, "eventType": kind,
+            "eventTime": _iso(at), "awsRegion": REGION,
+            "userIdentity": {"type": "AssumedRole", "arn": f"arn:aws:sts::{ACCOUNT}:assumed-role/{role}/session"},
+            "requestParameters": {"modelId": MODEL_ID}, **({"errorCode": code} if code else {}),
+            "_at": float(int(at))}
+
+
+class ModelStream(FakeStream):
+    """The fake's session with a model: each try also calls it (`model_works`, by the try's number), and Bedrock records
+    each call, worked or refused, unless `records_model` is off."""
+
+    def poll(self):
+        out = super().poll()
+        role = stack.names(self.r.run)["agent_role"]
+        for e in out:
+            if "beats" not in e:
+                continue
+            at, works = e["beats"]["own_calls"]["at"], self.aws.model_works(e["n"])
+            e["beats"]["model"] = {"at": at, "ok": True} if works else {
+                "at": at, "ok": False, "error": self.aws.model_error, "status": self.aws.model_status}
+            if self.aws.records_model:
+                self.aws.model_records.append(a_model_record(at + 0.3, role, None if works else self.aws.model_error))
+        return out
+
+    def close(self):
+        self.aws.closed.append(self.session)
+        super().close()
+
+
+class ModelAWS(FakeAWS):
+    """FakeAWS with the kit's boundary for a model in the account, Bedrock's records of the session's calls to the model
+    in event history (read by EventSource, a page at a time), and `after_confirmation`: records it adds once AWS
+    confirms a session ended, each that many seconds after the confirmation."""
+
+    def __init__(self, clock: Clock, *, model_works=lambda n: True, model_error="AccessDeniedException",
+                 model_status=403, records_model=True, page_size=50, fail_on_page=None, loose_source=False,
+                 after_confirmation=(), **kw):
+        super().__init__(clock, **kw)
+        self.model_works, self.model_error, self.model_status = model_works, model_error, model_status
+        self.records_model, self.page_size, self.fail_on_page = records_model, page_size, fail_on_page
+        self.loose_source = loose_source            # the fake answers every record, whatever its source
+        self.after_confirmation = list(after_confirmation)
+        self.model_records: list[dict] = []
+        self.model_lookups: list[tuple[float, float, float]] = []      # when, and the span asked for
+        self.closed: list[str] = []
+        self.confirmed: set[str] = set()
+
+    def get_policy_version(self, PolicyArn, VersionId):
+        if PolicyArn.endswith(":policy/arvaken-stop-test-boundary-model"):
+            return {"PolicyVersion": {"Document": json.dumps(boundary_document(model=True))}}
+        return super().get_policy_version(PolicyArn, VersionId)
+
+    def stop_runtime_session(self, agentRuntimeArn, runtimeSessionId, qualifier):
+        ended = self.sessions[runtimeSessionId].get("ended") is not None
+        try:
+            return super().stop_runtime_session(agentRuntimeArn, runtimeSessionId, qualifier)
+        except Error:
+            if ended and runtimeSessionId not in self.confirmed:
+                self.confirmed.add(runtimeSessionId)
+                for seconds, record in self.after_confirmation:
+                    record = dict(record)
+                    role = record.pop("role", stack.names(self.run)["agent_role"])
+                    self.model_records.append(a_model_record(self.clock.now() + SKEW + seconds, role, **record))
+            raise
+
+    def lookup_events_in(self, region, LookupAttributes, StartTime, EndTime, NextToken=None):
+        [attribute] = LookupAttributes
+        if attribute["AttributeKey"] != "EventSource":
+            assert NextToken is None
+            return super().lookup_events_in(region, LookupAttributes, StartTime, EndTime)
+        self.model_lookups.append((self.clock.now(), StartTime, EndTime))
+        page = int(NextToken or 0)
+        if self.fail_on_page is not None and page + 1 == self.fail_on_page:
+            raise Error("ThrottlingException")
+        found = [e for e in self.model_records if region == REGION and StartTime <= e["_at"] <= EndTime
+                 and e["_at"] + TRAIL_DELAY <= self.clock.now()
+                 and (self.loose_source or e["eventSource"] == attribute["AttributeValue"])]
+        out = {"Events": [{"EventName": e["eventName"],
+                           "EventTime": datetime.fromtimestamp(e["_at"], tz=timezone.utc),
+                           "CloudTrailEvent": json.dumps({k: v for k, v in e.items() if k != "_at"})}
+                          for e in found[page * self.page_size:(page + 1) * self.page_size]]}
+        if (page + 1) * self.page_size < len(found):
+            out["NextToken"] = str(page + 1)
+        return out
+
+
+def model_clients(aws: ModelAWS) -> running.Clients:
+    c = clients(aws)
+    c.stream = lambda c_, r, session, seconds, clock: ModelStream(aws, c_, r, session, seconds, clock)
+    return c
+
+
+def a_model_run(aws: ModelAWS, clock: Clock, tmp_path: Path, stop: str = fire.DENY_AND_END, **over):
+    """A run with a model, its records kept in `tmp_path`/trail, never in the working folder."""
+    run_name = over.pop("run_name", "r0a1b2c3d")
+    aws._run = run_name
+    return running.run(model_clients(aws), stop, endpoint=ENDPOINT, window=over.pop("window", 120.0), clock=clock,
+                       run_name=run_name, trail_folder=tmp_path / "trail", model=over.pop("model", MODEL_ID), **over)
+
+
+class _S3:
+    def put_object(self, **kw):
+        pass
+
+    def get_object(self, **kw):
+        return {"Body": io.BytesIO(b"x")}
+
+
+class _Bedrock:
+    def __init__(self, calls: list):
+        self.calls = calls
+
+    def converse(self, **kw):
+        self.calls.append(kw)
+
+
+def _watched(seconds: float = 0.05) -> list[dict]:
+    """A watch on the agent's own server, its events as streamed."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), agent.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        asked = urllib.request.Request(f"http://127.0.0.1:{server.server_address[1]}/invocations",
+                                       data=json.dumps({"action": "watch", "seconds": seconds, "tag": "x"}).encode(),
+                                       method="POST", headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(asked, timeout=5) as response:
+            return [json.loads(line[6:]) for line in response.read().decode().splitlines() if line.startswith("data: ")]
+    finally:
+        server.shutdown()
+
+
+# 1
+def test_with_a_model_the_agent_calls_it_once_a_try_for_one_token_and_without_one_makes_no_bedrock_client(monkeypatch):
+    calls, made = [], []
+    monkeypatch.setattr(agent, "_get", lambda url, headers: None)
+    for k, v in {"BUCKET": "arvaken-stop-test-r0a1b2c3d", "ENDPOINT": ENDPOINT, "OUTSIDE_KEY": "k"}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.delenv("MODEL", raising=False)
+    four = {"own_calls", "another_identity", "outside_key", "open_internet"}
+    assert set(agent.probe(_S3(), _S3(), "x", 0)) == four
+    monkeypatch.setenv("MODEL", MODEL_ID)
+    beats = agent.probe(_S3(), _S3(), "x", 0, _Bedrock(calls))
+    assert set(beats) == {*four, "model"} and beats["model"]["ok"] is True
+    assert calls == [{"modelId": MODEL_ID, "inferenceConfig": {"maxTokens": 1},
+                      "messages": [{"role": "user", "content": [{"text": "1"}]}]}]
+
+    # the watch makes the model's client once, beside S3's, and only with MODEL
+    def client(name, **kw):
+        made.append(name)
+        return _Bedrock(calls) if name == "bedrock-runtime" else _S3()
+    monkeypatch.setattr(agent.boto3, "client", client)
+    monkeypatch.setattr(agent, "assume", lambda: {"error": "AccessDenied"})
+    monkeypatch.setattr(agent, "EVERY", 0.01)
+    calls.clear()
+    tries = [e["beats"] for e in _watched() if "beats" in e]
+    assert made == ["s3", "bedrock-runtime"] and tries and all(set(b) == {*four, "model"} for b in tries)
+    assert len(calls) == len(tries) and all(b["model"]["ok"] for b in tries)
+    made.clear()
+    monkeypatch.delenv("MODEL")
+    tries = [e["beats"] for e in _watched() if "beats" in e]
+    assert made == ["s3"] and tries and all(set(b) == four for b in tries)
+
+
+# 2
+def test_a_failed_try_keeps_its_code_its_status_and_aws_own_reason_never_its_message():
+    import botocore.exceptions
+    secret = f"arn:aws:iam::{ACCOUNT}:role/someone-elses"
+
+    def raising(e):
+        def fn():
+            raise e
+        return fn
+
+    def client_error(code, status, **fields):
+        return botocore.exceptions.ClientError(
+            {"Error": {"Code": code, "Message": f"User {secret} is not authorized"},
+             "ResponseMetadata": {"HTTPStatusCode": status}, **fields}, "Converse")
+    throttled = agent._try(raising(client_error("ThrottlingException", 429, Reason="TooManyRequests")))
+    assert {k: v for k, v in throttled.items() if k != "at"} == {"ok": False, "error": "ThrottlingException",
+                                                                 "status": 429, "reason": "TooManyRequests"}
+    denied = agent._try(raising(client_error("AccessDeniedException", 403)))
+    assert {k: v for k, v in denied.items() if k != "at"} == {"ok": False, "error": "AccessDeniedException",
+                                                              "status": 403, "reason": None}
+    worded = agent._try(raising(client_error("ValidationException", 400, reason=f"no access for {secret}")))
+    assert worded["reason"] is None                     # a reason that is not one of AWS's words is not kept
+    unreachable = agent._try(raising(TimeoutError("timed out")))
+    assert (unreachable["error"], unreachable["status"], unreachable["reason"]) == ("Unreachable", None, None)
+    assert secret not in json.dumps([throttled, denied, worded, unreachable])
+
+
+# 3
+def test_the_kit_takes_a_models_tries_only_for_a_run_with_a_model_each_with_its_failure_record():
+    event = {"at": T0, "n": 0, "beats": {
+        "own_calls": {"at": T0, "ok": True},
+        "model": {"at": T0, "ok": False, "error": "ThrottlingException", "status": 429, "reason": "TooManyRequests"}}}
+    plain = running.Run(run="r0a1b2c3d", stop_ref=fire.DENY_AND_END, window=120.0)
+    rep = running.Repeat()
+    running._take(plain, rep, [event])
+    assert rep.beats["model"] == [] and len(rep.beats["own_calls"]) == 1 and plain.calls == 1
+    assert plain.session_paths == running.SESSION_PATHS and plain.paths == running.PATHS
+    with_model = running.Run(run="r0a1b2c3d", stop_ref=fire.DENY_AND_END, window=120.0, model=MODEL_ID)
+    rep = running.Repeat()
+    running._take(with_model, rep, [event])
+    [b] = rep.beats["model"]
+    assert (b.ok, b.error, b.status, b.reason) == (False, "ThrottlingException", 429, "TooManyRequests")
+    assert with_model.calls == 2
+    assert with_model.paths == (*running.SESSION_PATHS, "model", "new_calls")
+
+
+# 4
+def test_a_session_is_ready_only_once_its_calls_to_the_model_work_too():
+    def opened(model: str) -> running.Repeat:
+        clock = Clock()
+        aws = ModelAWS(clock, model_works=lambda n: n >= 6, model_error="ThrottlingException", model_status=429)
+        aws._run = "r0a1b2c3d"
+        aws.buckets[stack.names("r0a1b2c3d")["bucket"]] = {}
+        r = running.Run(run="r0a1b2c3d", stop_ref=fire.DENY_AND_END, window=120.0, region=REGION, model=model)
+        rep = running.Repeat()
+        running.open_session(model_clients(aws), r, rep, clock, 600.0)
+        return rep
+    plain, with_model = opened(""), opened(MODEL_ID)
+    # its own calls work from the first try, the model from the seventh: three of each in a row
+    assert plain.ready - plain.opened == 3.0 and with_model.ready - with_model.opened == 9.0
+    assert "model" not in plain.working and plain.beats["model"] == []
+    assert "model" in with_model.working and all(b.ok for b in with_model.beats["model"][-3:])
+    assert with_model.setup_errors["model"] == {"ThrottlingException": 6}
+
+
+# 5
+def test_a_model_that_never_works_before_the_first_stop_ends_the_run_with_nothing_fired_and_everything_removed(
+        tmp_path):
+    from arvaken_stop_test.aws.run import MODEL_DID_NOT_WORK
+    clock = Clock()
+    aws = ModelAWS(clock, model_works=lambda n: False)
+    with pytest.raises(running.NotStarted) as e:
+        a_model_run(aws, clock, tmp_path)
+    said = re.escape(MODEL_DID_NOT_WORK.format(model=MODEL_ID, codes="CODES", region=REGION))
+    assert re.fullmatch(said.replace("CODES", r"AccessDeniedException \d+"), str(e.value))
+    assert str(e.value).startswith(f"Before the stop, a call to the model {MODEL_ID} did not work (")
+    assert aws.sessions and set(aws.closed) == set(aws.sessions)            # each session's stream closed
+    assert all(s["ended"] is None for s in aws.sessions.values())           # no session ended, nothing denied
+    assert not [x for x in aws.events if x["name"] == "PutResourcePolicy"]
+    assert aws.runtime is None and not aws.roles and not aws.buckets and e.value.run.left_behind == []
+    assert e.value.run.repeats == [] and not (tmp_path / "trail").exists()
+
+
+# 6
+def test_ending_the_session_stops_the_models_path_from_aws_confirmation_timed_as_the_sessions_other_paths(tmp_path):
+    clock = Clock()
+    aws = ModelAWS(clock)
+    r, doc = a_model_run(aws, clock, tmp_path, trail=True)
+    assert result.check(doc) is doc
+    assert outcomes(doc) == {p: "stopped" for p in (*running.SESSION_PATHS, "model", "new_calls")}
+    assert len(doc["repeats"][0]) == 6
+    d = running.details(r, doc)
+    rep = d["repeats"][0]
+    assert rep["model"]["fired_at"] == rep["own_calls"]["fired_at"]
+    assert rep["model"]["fired_source"] == rep["own_calls"]["fired_source"] == running.TRAIL_RECORD
+    assert rep["new_calls"]["fired_source"] == running.AUDIT_RECORD
+    found = running.results(r)[0][1]
+    assert found["model"].stopped_at == found["own_calls"].stopped_at is not None
+    assert d["sessions"][0]["model_trail"] == {"read": True, "error": None, "before_in_trail": True,
+                                               "records_after_confirmation": [], "grace_seconds": 5}
+    assert d["model"] == MODEL_ID and "model" not in d["sessions"][0]["seen_after_confirmation"]
+
+
+# 7: only a call that worked counts; a refused call never counts against a stop (the founder's ruling at 19:54:20.132
+# UTC on 14 November 2026, uuid 112905db-d835-4a47-b5cf-e57c24d987d6, "Refusals decide")
+def test_a_call_to_the_model_that_worked_recorded_6_seconds_after_the_confirmation_is_not_stopped(tmp_path):
+    clock = Clock()
+    aws = ModelAWS(clock, after_confirmation=[(6.0, {})])
+    r, doc = a_model_run(aws, clock, tmp_path)
+    assert outcomes(doc) == {**{p: "stopped" for p in running.SESSION_PATHS}, "model": "not stopped",
+                             "new_calls": "stopped"}
+    rep = r.repeats[0]
+    assert rep.seen_after_confirmation == {"model": [float(int(rep.end_confirmed + SKEW + 6.0))]}
+    session = running.details(r, doc)["sessions"][0]
+    assert session["model_trail"]["records_after_confirmation"] == [
+        result.iso(float(int(rep.end_confirmed + SKEW + 6.0)))]
+    assert session["seen_after_confirmation"] == {"model": session["model_trail"]["records_after_confirmation"]}
+
+
+# 7b
+@pytest.mark.parametrize("code", ["AccessDeniedException", "ThrottlingException", "ValidationException"])
+def test_a_refused_call_to_the_model_after_the_confirmation_never_counts_against_the_stop_and_is_still_kept(
+        tmp_path, code):
+    clock = Clock()
+    aws = ModelAWS(clock, after_confirmation=[(6.0, {"code": code})])
+    r, doc = a_model_run(aws, clock, tmp_path)
+    assert outcomes(doc) == {p: "stopped" for p in (*running.SESSION_PATHS, "model", "new_calls")}
+    rep = r.repeats[0]
+    refused = float(int(rep.end_confirmed + SKEW + 6.0))
+    assert (refused, code) in r.model_trail and rep.seen_after_confirmation == {}
+    found = running.results(r)[0][1]
+    assert found["model"].stopped_at == found["own_calls"].stopped_at is not None     # from the confirmation
+    session = running.details(r, doc)["sessions"][0]
+    assert session["model_trail"]["records_after_confirmation"] == [] and session["seen_after_confirmation"] == {}
+    kept = [json.loads(x) for x in (tmp_path / "trail" / MODEL_CALLS_FILE).read_text(encoding="utf-8").splitlines()]
+    assert [e["eventTime"] for e in kept if e.get("errorCode") == code] == [_iso(refused)]
+
+
+# 7c
+def test_a_refused_call_then_one_that_worked_after_the_confirmation_is_not_stopped_by_the_one_that_worked(tmp_path):
+    clock = Clock()
+    aws = ModelAWS(clock, after_confirmation=[(6.0, {"code": "AccessDeniedException"}), (8.0, {})])
+    r, doc = a_model_run(aws, clock, tmp_path)
+    assert outcomes(doc)["model"] == "not stopped"
+    rep = r.repeats[0]
+    assert rep.seen_after_confirmation == {"model": [float(int(rep.end_confirmed + SKEW + 8.0))]}
+    assert running.details(r, doc)["sessions"][0]["model_trail"]["records_after_confirmation"] == [
+        result.iso(float(int(rep.end_confirmed + SKEW + 8.0)))]
+
+
+# 8
+def test_a_call_to_the_model_recorded_within_5_seconds_of_the_confirmation_may_have_begun_before_it(tmp_path):
+    clock = Clock()
+    aws = ModelAWS(clock, after_confirmation=[(4.0, {})])
+    r, doc = a_model_run(aws, clock, tmp_path)
+    assert outcomes(doc)["model"] == "stopped" and r.repeats[0].seen_after_confirmation == {}
+    assert float(int(r.repeats[0].end_confirmed + SKEW + 4.0)) in [t for t, _ in r.model_trail]
+
+
+# 9
+def test_a_call_to_the_model_that_worked_before_the_stop_with_no_record_of_its_own_is_not_measured(tmp_path):
+    from dataclasses import replace
+    clock = Clock()
+    aws = ModelAWS(clock, records_model=False)
+    r, doc = a_model_run(aws, clock, tmp_path)
+    assert outcomes(doc) == {**{p: "stopped" for p in running.SESSION_PATHS}, "model": "not measured",
+                             "new_calls": "stopped"}
+    found = running.results(r)[0][1]["model"]
+    assert found.reason == running.MODEL_NOT_IN_TRAIL and found.stopped_at is None and found.effect_between is None
+    assert found.reason == ("CloudTrail does not show every call from the test agent to the model that worked in the "
+                            "minute before the stop")
+    d = running.details(r, doc)
+    assert d["repeats"][0]["model"]["reason"] == running.MODEL_NOT_IN_TRAIL
+    assert d["sessions"][0]["model_trail"]["before_in_trail"] is False and d["sessions"][0]["model_trail"]["read"]
+    # and where no call to it worked in the minute before the stop, nothing shows that CloudTrail records them
+    rep = r.repeats[0]
+    at = running._moment(r, rep, "model")[0]
+    none_before = replace(rep, beats={**rep.beats, "model": [b for b in rep.beats["model"] if b.at < at - 60]})
+    assert running.model_not_measured(r, none_before, at) == running.MODEL_NONE_BEFORE == (
+        "no call from the test agent to the model worked in the minute before the stop, so the kit could not check "
+        "that CloudTrail records them")
+
+
+# 10
+def test_an_event_history_read_that_fails_part_way_leaves_the_models_path_not_measured_and_the_others_as_they_are(
+        tmp_path):
+    clock = Clock()
+    aws = ModelAWS(clock, page_size=3, fail_on_page=2)
+    r, doc = a_model_run(aws, clock, tmp_path)
+    assert outcomes(doc) == {**{p: "stopped" for p in running.SESSION_PATHS}, "model": "not measured",
+                             "new_calls": "stopped"}
+    found = running.results(r)[0][1]["model"]
+    assert found.reason == running.MODEL_TRAIL_UNREAD.format(code="ThrottlingException") == (
+        "the kit could not finish reading CloudTrail for the test agent's calls to the model (ThrottlingException)")
+    assert len(aws.model_lookups) == 2 and r.model_trail is None and r.model_events is None
+    d = running.details(r, doc)
+    assert d["sessions"][0]["model_trail"]["read"] is False
+    assert d["sessions"][0]["model_trail"]["error"] == "ThrottlingException"
+    assert d["model_calls"] is None and not (tmp_path / "trail" / MODEL_CALLS_FILE).exists()
+
+
+# 11
+def test_records_that_are_not_the_runs_own_calls_to_a_model_are_never_counted_nor_kept(tmp_path):
+    clock = Clock()
+    second = stack.names("r0a1b2c3d")["second_role"]
+    aws = ModelAWS(clock, loose_source=True, after_confirmation=[
+        (6.0, {"role": second}),                                                # another role's call
+        (7.0, {"name": "ConverseStream", "kind": "AwsServiceEvent"}),           # a stream's completion event
+        (8.0, {"source": "bedrock-agentcore.amazonaws.com", "name": "Converse"})])     # another source's
+    r, doc = a_model_run(aws, clock, tmp_path)
+    assert outcomes(doc)["model"] == "stopped" and r.repeats[0].seen_after_confirmation == {}
+    kept = [json.loads(line) for line in (tmp_path / "trail" / MODEL_CALLS_FILE).read_text(encoding="utf-8")
+            .splitlines()]
+    agent_role = stack.names("r0a1b2c3d")["agent_role"]
+    assert kept and len(kept) == len(r.model_trail) == len(aws.model_records) - 3
+    assert all(e["eventSource"] == MODEL_SOURCE and e["eventType"] == "AwsApiCall"
+               and f":assumed-role/{agent_role}/" in e["userIdentity"]["arn"] for e in kept)
+
+
+# 12: a run without a model is as it was. The digest is of the three runs below, each normalized (the session IDs, the
+# signature, the agent code's SHA-256 and the folder taken out; one line ending and one path separator), as the kit at
+# 5f472c4, before the model in the runtime, gave them, with this fake (its trail's records by _gz) and this
+# normalizing: read through pytest on 14 November 2026 in a worktree of 5f472c4 made for it, then removed. It is the
+# same on every platform: the fake's records were gzip.compress's, whose bytes differ by platform (_gz).
+BEFORE_THE_MODEL = "1b9ccc828f4dd8b4cfd9639bd867a9b1af62b242239f68ad95bf19679a9d8765"
+
+
+def normalized(r, doc: dict, folder: Path) -> str:
+    text = json.dumps({"result": {k: v for k, v in doc.items() if k != "signature"},
+                       "details": {k: v for k, v in running.details(r, doc).items() if k != "result_signature"}},
+                      sort_keys=True)
+    text = re.sub(r"(r0a1b2c3d-(?:session|new|recover|trail|clock))-[0-9a-f]{32}", r"\1-x", text)
+    text = re.sub(r'"code_sha256": "[0-9a-f]{64}"', '"code_sha256": "x"', text)
+    text = text.replace(folder.as_posix(), "<folder>").replace(json.dumps(str(folder))[1:-1], "<folder>")
+    # nothing of this machine's in it: no path under the test's own folder, by either separator
+    assert not any(p in text for p in (folder.parent.as_posix(), json.dumps(str(folder.parent))[1:-1]))
+    return text.replace("\\r\\n", "\\n").replace("\\\\", "/")
+
+
+def three_runs_without_a_model(tmp_path: Path) -> str:
+    texts = []
+    for i, (stop, over) in enumerate(((fire.DENY_AND_END, {"trail": True}), (fire.DENY, {}), (fire.INLINE, {}))):
+        clock = Clock()
+        folder = tmp_path / str(i)
+        r, doc = a_run(FakeAWS(clock), clock, stop, folder, **over)
+        texts.append(normalized(r, doc, folder))
+    return hashlib.sha256("\n".join(texts).encode("utf-8")).hexdigest()
+
+
+def test_a_run_without_a_model_gives_the_result_and_details_it_gave_before(tmp_path):
+    assert three_runs_without_a_model(tmp_path) == BEFORE_THE_MODEL
+
+
+# 13
+def test_the_models_records_are_kept_beside_the_trails_one_a_line_with_their_sha256_in_its_sums(tmp_path):
+    clock = Clock()
+    aws = ModelAWS(clock)
+    r, doc = a_model_run(aws, clock, tmp_path, trail=True)
+    folder = tmp_path / "trail"
+    kept = folder / MODEL_CALLS_FILE
+    body = kept.read_bytes()
+    lines = body.decode("utf-8").split("\n")
+    assert lines[-1] == "" and b"\r" not in body and len(lines) > 2
+    assert [json.loads(x) for x in lines[:-1]] == [{k: v for k, v in e.items() if k != "_at"}
+                                                   for e in aws.model_records]
+    sums = (folder / "SHA256SUMS").read_text(encoding="utf-8")
+    assert sums.endswith(f"{hashlib.sha256(body).hexdigest()}  {MODEL_CALLS_FILE}\n")
+    assert any("/CloudTrail/" in line for line in sums.splitlines())        # the trail's own records beside them
+    assert r.trail_kept["sha256sums"] == hashlib.sha256(sums.encode("utf-8")).hexdigest()
+    assert r.trail_kept["files"] == len(sums.splitlines())
+    d = running.details(r, doc)
+    assert d["model_calls"] == {"file": kept.as_posix(), "sha256": hashlib.sha256(body).hexdigest(),
+                                "events": len(lines) - 1}
+    assert d["trail"]["model_calls"] == kept.as_posix()
+
+
+# 14
+def test_with_a_model_the_result_names_the_runtimes_python_never_the_model_and_its_page_reads(tmp_path):
+    import html
+    from arvaken_stop_test.timing import PATH_WORDS
+    clock = Clock()
+    aws = ModelAWS(clock)
+    r, doc = a_model_run(aws, clock, tmp_path)
+    assert result.check(doc) is doc
+    assert doc["agent"]["runtime"] == "PYTHON_3_13" and MODEL_ID not in json.dumps(doc)
+    assert running.details(r, doc)["model"] == MODEL_ID
+    assert running.details(r, doc)["agent"]["runtime"] == "PYTHON_3_13"
+    page = report.page(doc, [d for _, d in running.results(r)])
+    assert html.escape(PATH_WORDS["model"]) in page and 'class="differs"' not in page
+    assert report.expected("deny calls to an AgentCore agent and end its sessions", "model") == "stopped"
+    assert report.expected("deny calls to an AgentCore agent", "model") is None
+
+
+# 15
+def test_the_kit_reads_the_models_calls_15_minutes_after_the_last_window_at_most_two_pages_a_second(tmp_path):
+    clock = Clock()
+    aws = ModelAWS(clock, page_size=2)
+    r, doc = a_model_run(aws, clock, tmp_path, repeats=2)
+    assert [outcomes(doc, i)["model"] for i in (0, 1)] == ["stopped", "stopped"]
+    first, last = r.repeats
+    window_end = max(last.fired_after, last.end_after) + r.window + running.HOLD
+    times = [t for t, _, _ in aws.model_lookups]
+    assert len(times) > 3 and times[0] >= window_end + 900.0
+    assert all(b - a >= 0.5 for a, b in zip(times, times[1:]))
+    first_at, last_at = running._moment(r, first, "model")[0], running._moment(r, last, "model")[0]
+    [(start, end)] = {(s, e) for _, s, e in aws.model_lookups}
+    assert start == pytest.approx(first_at - 61.0) and end == pytest.approx(last_at + r.window + running.HOLD + 5.0)

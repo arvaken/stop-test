@@ -51,13 +51,16 @@ REVOKE_NOTE = ("Revoking sessions denies the sessions issued before the moment i
 # specified session" [source: aws-agentcore-stop-session-terminates]). None where it does not follow from what the stop
 # is, which is what the run measures (the founder, 28 October 2026: no AWS claim either way): what a deny does to a
 # session already running, and whether new calls are answered while the runtime's role is denied.
+#
+# With a model (the kit's `--model`), the runtime's call to it is one of the running session's paths (agentcore/run.py),
+# expected as the session's other paths are: ending the session ends it; a deny of calls alone is what is measured.
 AGENTCORE: dict[str, dict[str, str | None]] = {
     "policy on an AgentCore agent's role": {**EXPECTED, "new_calls": None},
     "deny calls to an AgentCore agent": {"own_calls": None, "another_identity": None, "outside_key": None,
-                                         "open_internet": None, "new_calls": "stopped"},
+                                         "open_internet": None, "model": None, "new_calls": "stopped"},
     "deny calls to an AgentCore agent and end its sessions": {"own_calls": "stopped", "another_identity": "stopped",
                                                               "outside_key": "stopped", "open_internet": "stopped",
-                                                              "new_calls": "stopped"},
+                                                              "model": "stopped", "new_calls": "stopped"},
     # A harness's model calls are not expected to stop with a policy on its role until a harness is measured: a deny on
     # a Lambda agent's role left model calls succeeding for up to about 10 minutes (r47b181d2; the founder, 29 October
     # 2026).

@@ -18,6 +18,14 @@ nothing to read its code and nothing to write logs: it reaches only what the age
 runs, in its own install-test account (r52212363 and r978b7aaa, 28 October 2026), the runtime's sessions started with
 its role given neither.
 
+**With a model** (the kit's `--model`), the agent's role may also call that model, and nothing else of Amazon
+Bedrock's: one more statement in its own policy, `bedrock:InvokeModel` on what aws/stack.py's `model_resources` names
+for the ID, the model in the run's region, or for a cross-Region inference profile, the profile there and the model it
+names in every region [source: aws-bedrock-inference-profile-permissions], written as plain ARNs (MODEL_RESOURCES).
+Both roles then carry the kit's boundary for a model, `arvaken-stop-test-boundary-model` (aws/stack.py's
+`boundary_name`), as on Lambda; the second role's policy grants no model. The runtime is told the model in its
+environment (MODEL), as the Lambda agent's function is.
+
 **The runtime's session limits are the kit's** (`lifecycleConfiguration`): a session idle for IDLE seconds ends, and
 none lives past MAX_LIFETIME, an hour, which is also the longest a streaming response lasts. Each run's details record
 them (run.py), as the outcome of a running session is worded with them (the design's section 5).
@@ -44,7 +52,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-from arvaken_stop_test.aws.stack import BOUNDARY, PREFIX, TAG
+from arvaken_stop_test.aws.stack import PREFIX, TAG, boundary_name, model_resources
 
 RUNTIME = "PYTHON_3_13"
 ENTRY_POINT = "main.py"
@@ -109,14 +117,31 @@ def trust(run: str, region: str, account: str, partition: str = "aws") -> dict[s
                       "ArnLike": {"aws:SourceArn": runtime_arn_pattern(run, region, account, partition)}}}]}
 
 
-def own_policy(run: str, account: str, partition: str = "aws") -> dict[str, Any]:
-    """The agent's own calls: its objects in the run's bucket, and assuming the run's second role."""
+def model_arns(model: str, region: str, account: str, partition: str = "aws") -> list[str]:
+    """aws/stack.py's `model_resources` for the ID, as plain ARNs in the run's region and account."""
+    subs = {"${AWS::Partition}": partition, "${AWS::Region}": region, "${AWS::AccountId}": account}
+    arns = []
+    for resource in model_resources(model):
+        arn = resource["Fn::Sub"]
+        for name, value in subs.items():
+            arn = arn.replace(name, value)
+        arns.append(arn)
+    return arns
+
+
+def own_policy(run: str, account: str, partition: str = "aws", model: str = "", region: str = "") -> dict[str, Any]:
+    """The agent's own calls: its objects in the run's bucket, and assuming the run's second role; with a model, calling
+    it (model_arns)."""
     n = names(run)
-    return {"Version": "2012-10-17", "Statement": [
+    statements: list[dict[str, Any]] = [
         {"Effect": "Allow", "Action": ["s3:PutObject", "s3:GetObject"],
          "Resource": f"arn:{partition}:s3:::{n['bucket']}/own/*"},
         {"Effect": "Allow", "Action": "sts:AssumeRole",
-         "Resource": f"arn:{partition}:iam::{account}:role/{n['second_role']}"}]}
+         "Resource": f"arn:{partition}:iam::{account}:role/{n['second_role']}"}]
+    if model:
+        statements.append({"Effect": "Allow", "Action": "bedrock:InvokeModel",
+                           "Resource": model_arns(model, region, account, partition)})
+    return {"Version": "2012-10-17", "Statement": statements}
 
 
 def second_trust(agent_role_arn: str) -> dict[str, Any]:
@@ -130,14 +155,19 @@ def second_policy(run: str, partition: str = "aws") -> dict[str, Any]:
          "Resource": f"arn:{partition}:s3:::{names(run)['bucket']}/another/*"}]}
 
 
-def boundary_arn(account: str, partition: str = "aws") -> str:
-    return f"arn:{partition}:iam::{account}:policy/{BOUNDARY}"
+def boundary_arn(account: str, partition: str = "aws", model: bool = False) -> str:
+    """The boundary both roles carry: the kit's, or with a model, the kit's boundary for a model."""
+    return f"arn:{partition}:iam::{account}:policy/{boundary_name(model=model)}"
 
 
 def runtime_request(run: str, region: str, role_arn: str, endpoint: str, second_role_arn: str,
-                    outside_key: str | None = None) -> dict[str, Any]:
-    """CreateAgentRuntime's request for the run's test agent."""
+                    outside_key: str | None = None, model: str = "") -> dict[str, Any]:
+    """CreateAgentRuntime's request for the run's test agent; with a model, its environment names it (MODEL)."""
     n = names(run)
+    environment = {"BUCKET": n["bucket"], "ENDPOINT": endpoint, "OUTSIDE_KEY": outside_key or secrets.token_hex(16),
+                   "SECOND_ROLE": second_role_arn}
+    if model:
+        environment["MODEL"] = model
     return {
         "agentRuntimeName": n["runtime"],
         "description": f"Arvaken stop test, run {run}: a test agent of the kit's own. Removed when the run ends.",
@@ -148,8 +178,7 @@ def runtime_request(run: str, region: str, role_arn: str, endpoint: str, second_
         "networkConfiguration": {"networkMode": NETWORK_MODE},
         "protocolConfiguration": {"serverProtocol": PROTOCOL},
         "lifecycleConfiguration": {"idleRuntimeSessionTimeout": IDLE, "maxLifetime": MAX_LIFETIME},
-        "environmentVariables": {"BUCKET": n["bucket"], "ENDPOINT": endpoint,
-                                 "OUTSIDE_KEY": outside_key or secrets.token_hex(16), "SECOND_ROLE": second_role_arn},
+        "environmentVariables": environment,
         "tags": {TAG: run},
     }
 

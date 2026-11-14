@@ -159,3 +159,28 @@ def test_ending_the_session_counts_only_aws_confirmation_never_probe_silence():
         assert rf.counts(rf.AGENTCORE_DENY_AND_END, path, failed(rf.SESSION_CONFIRMED_ENDED), RAN)
         for code in ("SessionEnded", "AccessDenied", "AccessDeniedException"):
             assert not rf.counts(rf.AGENTCORE_DENY_AND_END, path, failed(code), RAN), (path, code)
+
+
+# -- a model in the AgentCore runtime (the Run 1 kit brief, section 6, tests 16 to 18) ---------------------------------
+# A throttle, a limit or quota, a server error, a timeout or a lost connection never counts (D644, D656, D660, D722).
+NEVER = ("ThrottlingException", "TooManyRequestsException", "ServiceQuotaExceededException", "InternalServerException",
+         "ServiceUnavailableException", "ModelTimeoutException", "Unreachable", "ReadTimeoutError", "SessionEnded")
+
+
+def test_ending_the_session_counts_the_runtimes_model_from_aws_confirmation_alone():
+    assert rf.counts(rf.AGENTCORE_DENY_AND_END, "model", failed(rf.SESSION_CONFIRMED_ENDED), RAN)
+    for code, status in (*((c, None) for c in NEVER), ("ThrottlingException", 429), ("InternalServerException", 500),
+                         ("AccessDeniedException", 403)):
+        assert not rf.counts(rf.AGENTCORE_DENY_AND_END, "model", failed(code, status=status), RAN), code
+
+
+def test_a_policy_on_an_agentcore_role_counts_bedrocks_access_denied_on_the_runtimes_model_and_never_a_throttle():
+    assert rf.counts(rf.AGENTCORE_ROLE, "model", failed("AccessDeniedException", status=403), RAN)
+    for code in (*NEVER, rf.SESSION_CONFIRMED_ENDED, "AccessDenied"):
+        assert not rf.counts(rf.AGENTCORE_ROLE, "model", failed(code), RAN), code
+    assert not rf.counts(rf.AGENTCORE_ROLE, "model", failed("ThrottlingException", status=429), RAN)
+
+
+def test_a_deny_of_calls_alone_counts_nothing_on_the_runtimes_model():
+    for code in (*NEVER, "AccessDeniedException", "AccessDenied", rf.SESSION_CONFIRMED_ENDED):
+        assert not rf.counts(rf.AGENTCORE_DENY, "model", failed(code), RAN), code

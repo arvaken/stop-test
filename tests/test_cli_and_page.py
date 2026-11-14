@@ -482,3 +482,83 @@ def test_the_google_page_says_how_many_heartbeats_got_no_answer(tmp_path, monkey
     page = (tmp_path / "stop-test-r0123abcd.html").read_text(encoding="utf-8")
     assert ("The kit got no answer to 1 of its heartbeats to the test agent (TimeoutError 1): the network failed or "
             "timed out on the way there or back. No path has a result from them.") in page
+
+
+
+# -- a model in the AgentCore runtime (the Run 1 kit brief, section 6, tests 21 to 24) --------------------------------
+AGENTCORE_COPY = "arn:aws:bedrock-agentcore:eu-central-1:123456789012:runtime/my_agent_copy-Zx9Yw8Vu7T"
+
+
+def test_agentcore_refuses_a_model_that_is_not_an_id(capsys, monkeypatch):
+    from arvaken_stop_test.agentcore import boto as agentcore_boto
+    monkeypatch.setattr(agentcore_boto, "clients_for", lambda region: pytest.fail("refused before any call"))
+    for action in ("plan", "run"):
+        with pytest.raises(SystemExit):
+            cli.main(["agentcore", action, "--deny-calls-and-end-sessions", "--model", "amazon.*", "--region",
+                      "eu-central-1"])
+        assert cli.NOT_A_MODEL in capsys.readouterr().err
+
+
+def test_the_agentcore_plan_with_a_model_says_it_is_called_and_billed_and_without_one_is_as_it_was(capsys, monkeypatch):
+    import test_agentcore as ta
+    from arvaken_stop_test.agentcore import boto as agentcore_boto
+    from arvaken_stop_test.aws.fire import not_the_boundary
+    args = ["agentcore", "plan", "--deny-calls-and-end-sessions", "--trail", "--region", "eu-central-1", "--run",
+            "r0a1b2c3d"]
+    assert cli.main([*args, "--model", ta.MODEL_ID]) == 0
+    out = capsys.readouterr().out
+    line = cli.AGENTCORE_PLAN_MODEL.format(model=ta.MODEL_ID)
+    assert line == ("- in the session it watches, the test agent also calls the model openai.gpt-oss-20b-1:0 about "
+                    "once a second, as its own role, asking for one token each time: AWS bills each call to your "
+                    "account;")
+    stop_line = cli.AGENTCORE_STOPS["deny_and_end"].format(stop=ta.fire.DENY_AND_END)
+    assert f"\n{stop_line}\n{line}\n- before each stop, opens a session" in out
+    assert cli.main(args) == 0
+    assert capsys.readouterr().out == out.replace(line + "\n", "")
+    # with your stop, the plan checks the boundary for a model, where the account holds only the kit's other one
+    stop = ["agentcore", "plan", "--stop", ta.DENY_ALL, "--region", "eu-central-1", "--run", "r0a1b2c3d"]
+    aws = ta.FakeAWS(ta.Clock())
+    monkeypatch.setattr(agentcore_boto, "clients_for", lambda region: ta.clients(aws))
+    cli.main([*stop, "--model", ta.MODEL_ID])
+    assert capsys.readouterr().out.endswith(f"\nIt will not run: {not_the_boundary(model=True).rstrip('.')}.\n")
+    cli.main(stop)
+    assert "It will not run" not in capsys.readouterr().out
+    model_aws = ta.ModelAWS(ta.Clock())
+    monkeypatch.setattr(agentcore_boto, "clients_for", lambda region: ta.clients(model_aws))
+    cli.main([*stop, "--model", ta.MODEL_ID])
+    said = capsys.readouterr().out
+    assert line in said and "It will not run" not in said
+
+
+@pytest.mark.parametrize("extra", [["--copy", AGENTCORE_COPY, "--inline-deny"],
+                                   ["--sdk", "Acme Guard", "--copy", AGENTCORE_COPY], ["--sdk", "Acme Guard"]])
+def test_a_model_on_an_agentcore_test_copy_is_refused_before_anything(extra, capsys, monkeypatch):
+    from arvaken_stop_test.agentcore import boto as agentcore_boto
+    monkeypatch.setattr(agentcore_boto, "clients_for", lambda region: pytest.fail("refused before any call"))
+    assert cli.AGENTCORE_COPY_NO_MODEL == "--model is not for a test copy on AgentCore in this version of the kit."
+    for action in ("plan", "run"):
+        with pytest.raises(SystemExit):
+            cli.main(["agentcore", action, *extra, "--model", "openai.gpt-oss-20b-1:0", "--region", "eu-central-1"])
+        assert cli.AGENTCORE_COPY_NO_MODEL in " ".join(capsys.readouterr().err.split())
+
+
+def test_agentcore_run_passes_the_model_to_the_run(capsys, monkeypatch, tmp_path):
+    import test_agentcore as ta
+    from arvaken_stop_test.agentcore import boto as agentcore_boto
+    from arvaken_stop_test.agentcore import run as running
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(agentcore_boto, "clients_for", lambda region: ta.model_clients(ta.ModelAWS(ta.Clock())))
+    monkeypatch.setattr("builtins.input", lambda prompt: "r0a1b2c3d")
+    seen = {}
+
+    def run(c, stop, **kw):
+        seen.update(stop=stop, **kw)
+        raise running.NotStarted("Nothing was timed.", running.Run(run="r0a1b2c3d", stop_ref=stop, window=0.0))
+    monkeypatch.setattr(running, "run", run)
+    args = ["agentcore", "run", "--deny-calls-and-end-sessions", "--trail", "--region", "eu-central-1", "--run",
+            "r0a1b2c3d"]
+    assert cli.main([*args, "--model", ta.MODEL_ID]) == 1
+    assert seen["model"] == ta.MODEL_ID and seen["stop"] == ta.fire.DENY_AND_END and seen["trail"] is True
+    assert cli.AGENTCORE_PLAN_MODEL.format(model=ta.MODEL_ID) in capsys.readouterr().out
+    assert cli.main(args) == 1
+    assert seen["model"] == ""
