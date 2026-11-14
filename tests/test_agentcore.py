@@ -21,14 +21,15 @@ on its own, against bytes as AgentCore sends them (test_the_stream_*), and the a
 from __future__ import annotations
 
 import copy
-import gzip
 import hashlib
 import io
 import json
 import re
+import struct
 import threading
 import urllib.parse
 import urllib.request
+import zlib
 from concurrent.futures import Future
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer
@@ -82,6 +83,17 @@ class Inline:
 
 def _iso(t: float) -> str:
     return datetime.fromtimestamp(int(t), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _gz(data: bytes) -> bytes:
+    """`data` as a gzip file whose bytes are the same on every platform. gzip.compress's header names the system it ran
+    on (zlib's OS_CODE: 10 on Windows, 3 on Linux), and zlib builds may deflate differently, so the fake trail's
+    records, and the SHA-256 of each the kit keeps, would differ by platform. Here: a fixed header (no time, no name,
+    system unknown) and deflate's stored blocks, of at most 65535 bytes each, then the CRC-32 and the length."""
+    chunks = [data[i:i + 65535] for i in range(0, len(data), 65535)] or [b""]
+    body = b"".join(bytes([i == len(chunks) - 1]) + struct.pack("<HH", len(c), 0xFFFF ^ len(c)) + c
+                    for i, c in enumerate(chunks))
+    return b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff" + body + struct.pack("<II", zlib.crc32(data), len(data))
 
 
 class FakeStream:
@@ -453,8 +465,7 @@ class FakeAWS:
         self.delivered += 1
         key = (f"AWSLogs/{ACCOUNT}/CloudTrail/{REGION}/2026/10/28/"
                f"{ACCOUNT}_CloudTrail_{REGION}_{self.delivered:04d}.json.gz")
-        body = gzip.compress(json.dumps({"Records": [{k: v for k, v in e.items() if k != "_at"} for e in due]})
-                             .encode(), mtime=0)
+        body = _gz(json.dumps({"Records": [{k: v for k, v in e.items() if k != "_at"} for e in due]}).encode())
         self.buckets[self.trail["bucket"]][key] = (body, self.clock.now())
 
     # -- cloudtrail: event history, and the run's trail
@@ -1612,9 +1623,11 @@ def test_records_that_are_not_the_runs_own_calls_to_a_model_are_never_counted_no
 
 
 # 12: a run without a model is as it was. The digest is of the three runs below, each normalized (the session IDs, the
-# signature, the agent code's SHA-256 and the folder taken out), as the kit at 5f472c4, before the model in the runtime,
-# gave them through pytest on 14 November 2026.
-BEFORE_THE_MODEL = "9f62d25bf61a1bb10b6be89fe13ec14035831a014de57dbda913c983239f3239"
+# signature, the agent code's SHA-256 and the folder taken out; one line ending and one path separator), as the kit at
+# 5f472c4, before the model in the runtime, gave them, with this fake (its trail's records by _gz) and this
+# normalizing: read through pytest on 14 November 2026 in a worktree of 5f472c4 made for it, then removed. It is the
+# same on every platform: the fake's records were gzip.compress's, whose bytes differ by platform (_gz).
+BEFORE_THE_MODEL = "1b9ccc828f4dd8b4cfd9639bd867a9b1af62b242239f68ad95bf19679a9d8765"
 
 
 def normalized(r, doc: dict, folder: Path) -> str:
@@ -1623,7 +1636,10 @@ def normalized(r, doc: dict, folder: Path) -> str:
                       sort_keys=True)
     text = re.sub(r"(r0a1b2c3d-(?:session|new|recover|trail|clock))-[0-9a-f]{32}", r"\1-x", text)
     text = re.sub(r'"code_sha256": "[0-9a-f]{64}"', '"code_sha256": "x"', text)
-    return text.replace(folder.as_posix(), "<folder>")
+    text = text.replace(folder.as_posix(), "<folder>").replace(json.dumps(str(folder))[1:-1], "<folder>")
+    # nothing of this machine's in it: no path under the test's own folder, by either separator
+    assert not any(p in text for p in (folder.parent.as_posix(), json.dumps(str(folder.parent))[1:-1]))
+    return text.replace("\\r\\n", "\\n").replace("\\\\", "/")
 
 
 def three_runs_without_a_model(tmp_path: Path) -> str:
