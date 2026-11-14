@@ -5,18 +5,20 @@ of its own, or uses a test copy of one of your own agents, fires the stop you ha
 unless you fire your own, and times what actually stops. When it finishes, it removes the stop it fired and everything
 it made.
 
-You run it yourself. Arvaken never runs tests in your account. Nothing about your account leaves it, unless you name a
-gateway or a subnet for the test agent's calls, or run it on a test copy of your own agent. Then the address they leave
-from may be your own, and is recorded as below, and whoever runs your gateway sees the calls that pass through it. Two
-of the kit's tests, of the open internet and of a key for a service outside your cloud, have the test agent call
-Arvaken's test address, stop-test.arvaken.com. Neither call carries anything of yours from the kit: the second carries
-only a random key the kit makes for the run. When you fire an in-agent SDK's switch yourself, the kit also calls the
-address from the machine it runs on, once a second and with no key, to check that the address still answers. A gateway
-you name may add its own headers to the calls it carries, and they may identify you. Our test address keeps none of
-them. Of the headers a gateway could add or change, Cloudflare keeps two: a call's user agent, which the kit sets to its
-own name, and, where Cloudflare's security checks act on the call, its referer, which the kit never sends. A gateway
-that changes either changes what Cloudflare keeps. The address answers with a fixed reply. What is kept of each call is
-Arvaken's one description of what Cloudflare records, word for word:
+<!-- CUSTOMER TEXT: from "The kit sends Arvaken nothing" to "the resources the test used.", approved by the founder, word for word, 03:53:09 UTC on 14 November 2026 ("Approve both as written (Recommended)") -->
+You run it yourself. Arvaken never runs tests in your account. The kit sends Arvaken nothing about your account, unless
+you name a gateway or a subnet for the test agent's calls, or run it on a test copy of your own agent. Then the address
+they leave from may be your own, and is recorded as below, and whoever runs your gateway sees the calls that pass
+through it. A result reaches Arvaken only if you submit it, and it names your account or project, the region the test
+ran in and the resources the test used. Two of the kit's tests, of the open internet and of a key for a service outside
+your cloud, have the test agent call Arvaken's test address, stop-test.arvaken.com. Neither call carries anything of
+yours from the kit: the second carries only a random key the kit makes for the run. When you fire an in-agent SDK's
+switch yourself, the kit also calls the address from the machine it runs on, once a second and with no key, to check
+that the address still answers. A gateway you name may add its own headers to the calls it carries, and they may
+identify you. Our test address keeps none of them. Of the headers a gateway could add or change, Cloudflare keeps two: a
+call's user agent, which the kit sets to its own name, and, where Cloudflare's security checks act on the call, its
+referer, which the kit never sends. A gateway that changes either changes what Cloudflare keeps. The address answers
+with a fixed reply. What is kept of each call is Arvaken's one description of what Cloudflare records, word for word:
 
 > Arvaken's test address (stop-test.arvaken.com) and its verification page (verify.arvaken.com) are served by
 > Cloudflare, on arvaken.com's Free plan. Arvaken's code at each writes no request log and stores no request;

@@ -194,8 +194,10 @@ def test_the_readme_no_longer_says_only_lambdas_results_can_be_sent():
 COPY_WORDS = (
     "It deploys a test agent of its own, or uses a test copy of one of your own agents, fires the stop you have "
     "declared on that test agent alone, unless you fire your own, and times what actually stops.",
-    "Nothing about your account leaves it, unless you name a gateway or a subnet for the test agent's calls, or run it "
-    "on a test copy of your own agent.",
+    "The kit sends Arvaken nothing about your account, unless you name a gateway or a subnet for the test agent's "
+    "calls, or run it on a test copy of your own agent.",
+    "A result reaches Arvaken only if you submit it, and it names your account or project, the region the test ran in "
+    "and the resources the test used.",
     "Two of the kit's tests, of the open internet and of a key for a service outside your cloud, have the test agent "
     "call Arvaken's test address, stop-test.arvaken.com. Neither call carries anything of yours from the kit: the "
     "second carries only a random key the kit makes for the run. When you fire an in-agent SDK's switch yourself, the "
@@ -294,6 +296,14 @@ COPY_WORDS = (
     "[`permissions/aws-copy-policy.json`](permissions/aws-copy-policy.json), with your copy's region, account and name, "
     "or runtime ID, in place of the capitals. It lets the kit read your copy's settings and call it, and nothing else.",
 )
+
+
+# The opening's sentence on what leaves your account, as the founder changed it at 03:53:09 UTC on 14 November 2026
+# ("Approve both as written (Recommended)"): a submitted result names the account and region, so "Nothing about your
+# account leaves it" was too broad. It is scoped to the kit itself, and says what a submitted result names.
+def test_the_readme_no_longer_says_nothing_about_your_account_leaves_it():
+    assert "Nothing about your account leaves it" not in flat(README)
+    assert "The kit sends Arvaken nothing about your account, unless you name a gateway" in flat(README)
 
 
 def test_the_readme_says_what_a_run_on_a_test_copy_does_in_the_approved_words():
