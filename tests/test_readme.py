@@ -108,9 +108,10 @@ def test_the_readme_says_what_the_agentcore_module_does_in_the_approved_words():
         assert words in flat(README), words[:80]
 
 
-# A model in the AgentCore runtime (the Run 1 kit brief, section 5, items 4 to 6): drafts, for the founder's approval
-# word for word. Each is pinned as drafted, so the README holds them exactly as he is shown them.
-AGENTCORE_MODEL_DRAFTS = (
+# A model in the AgentCore runtime (the Run 1 kit brief, section 5, items 4 to 6): approved by the founder, 20:05:12
+# UTC on 14 November 2026, word for word. Each is pinned as approved, so the README holds them exactly as he saw
+# them.
+AGENTCORE_MODEL_WORDS = (
     # 4(a), after the bullet on the second role
     "- with `--model`, the test agent's role may also call the model you name, and nothing else of Amazon Bedrock's. "
     "Both roles then carry the kit's boundary for a model, `arvaken-stop-test-boundary-model`, as on Lambda.",
@@ -130,17 +131,18 @@ AGENTCORE_MODEL_DRAFTS = (
 )
 
 
-def test_the_readme_says_what_a_model_in_the_agentcore_runtime_does_in_the_drafted_words():
-    for words in AGENTCORE_MODEL_DRAFTS:
+def test_the_readme_says_what_a_model_in_the_agentcore_runtime_does_in_the_approved_words():
+    for words in AGENTCORE_MODEL_WORDS:
         assert words in flat(README), words[:80]
     # its example is a line of its own in "Run it"
     assert ("\nstop-test agentcore run --deny-calls-and-end-sessions --model openai.gpt-oss-20b-1:0 --trail --region "
             "eu-central-1\n") in README
 
 
-# The three AgentCore rows: the --deny-calls row as the founder approved it; the other two with the words on a call to a
-# model that the Run 1 kit brief drafts (section 5, item 5), for his approval word for word, the rest his signed text.
-ROWS_AGENTCORE = tuple(("| `--stop` or `--inline-deny`, on AgentCore | `AccessDenied` from Amazon S3, on the running session's own calls and its work under another identity; `AccessDeniedException` from AgentCore, on new calls to the agent and, on a harness, on its model; and `AccessDeniedException` from Amazon Bedrock, on a runtime's call to a model |", '| `--deny-calls` | `AccessDeniedException` from AgentCore, on new calls to the agent. On the running session, nothing counts |', "| `--deny-calls-and-end-sessions` | that, on new calls; on the running session, its end, from when AWS confirms it: asked to end the session again, AWS answers that there is no such session. A path seen calling after that, in the bucket or the run's trail, or, for a call to a model, in CloudTrail's event history from 5 seconds after that, is not stopped. The model's path is not measured where CloudTrail's event history does not show each of its calls that worked in the minute before the stop. Calls to Arvaken's test address can't be seen, so its two paths rest on that confirmation |"))
+# The three AgentCore rows as the founder approved them: the --deny-calls row on 30 October 2026; in the other two,
+# the words on a call to a model (the Run 1 kit brief, section 5, item 5, with "a call to a model that worked"),
+# approved by him, 20:05:12 UTC on 14 November 2026, word for word, the rest his signed text.
+ROWS_AGENTCORE = tuple(("| `--stop` or `--inline-deny`, on AgentCore | `AccessDenied` from Amazon S3, on the running session's own calls and its work under another identity; `AccessDeniedException` from AgentCore, on new calls to the agent and, on a harness, on its model; and `AccessDeniedException` from Amazon Bedrock, on a runtime's call to a model |", '| `--deny-calls` | `AccessDeniedException` from AgentCore, on new calls to the agent. On the running session, nothing counts |', "| `--deny-calls-and-end-sessions` | that, on new calls; on the running session, its end, from when AWS confirms it: asked to end the session again, AWS answers that there is no such session. A path seen calling after that, in the bucket or the run's trail, or, for a call to a model that worked, in CloudTrail's event history from 5 seconds after that, is not stopped. The model's path is not measured where CloudTrail's event history does not show each of its calls that worked in the minute before the stop. Calls to Arvaken's test address can't be seen, so its two paths rest on that confirmation |"))
 
 
 # The founder's approval, word for word, 30 October 2026: what counts as stopped, per kind of stop (his refusal ruling of

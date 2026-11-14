@@ -62,10 +62,12 @@ history in the run's region, as Bedrock's runtime calls are management events, w
 made as a session of the run's role, never a stream's completion event (sdk.a_model_call)
 [source: aws-bedrock-stream-completion-event]. Each repeat's model calls that worked in the minute before the stop must
 each have a record of their own there (sdk.in_trail), else the path is not measured, as it is where the read was not
-finished. Under "deny calls and end its sessions", any record of a call from sdk.TRAIL_LAG seconds after the
-confirmation to the window's end, whatever its answer, makes the path not stopped: a record's time is when the request
-was completed [source: aws-cloudtrail-event-time], and the agent's call gives up after 2 seconds to connect and 2 to
-read, so a call begun before the confirmation can be recorded up to sdk.TRAIL_LAG seconds after it. The records read
+finished. Under "deny calls and end its sessions", any record of a call that worked (one with no errorCode) from
+sdk.TRAIL_LAG seconds after the confirmation to the window's end makes the path not stopped: a record's time is when
+the request was completed [source: aws-cloudtrail-event-time], and the agent's call gives up after 2 seconds to connect
+and 2 to read, so a call begun before the confirmation can be recorded up to sdk.TRAIL_LAG seconds after it. A refused
+call never counts against a stop (the founder's ruling at 19:54:20 UTC on 14 November 2026, "Refusals decide"), as
+neither the bucket nor the run's trail counts one on the session's other paths. The records read, refused ones too,
 are kept as CloudTrail returned them, one a line, in the trail's folder (keep_model_calls), with their SHA-256 in its
 SHA256SUMS. The run's own trail is unchanged: data events alone (D618).
 
@@ -138,12 +140,12 @@ POLL_TRAIL = 30.0            # how often the kit looks in the trail's bucket
 MODEL_CALLS_FILE = "cloudtrail-{run}-model-calls.jsonl"     # the model's calls' records read, in the trail's folder
 # Why the model's path is not measured: the founder's words for a copy's (sdk.py), "your copy" read as "the test agent"
 # and "your mark" as "the stop" (the Run 1 kit brief, section 5, item 3).
-# CUSTOMER TEXT: a draft, for the founder's approval
+# CUSTOMER TEXT: approved by the founder, 20:08:38 UTC on 14 November 2026, word for word
 MODEL_NOT_IN_TRAIL = ("CloudTrail does not show every call from the test agent to the model that worked in the minute "
                       "before the stop")
-# CUSTOMER TEXT: a draft, for the founder's approval
+# CUSTOMER TEXT: approved by the founder, 20:08:38 UTC on 14 November 2026, word for word
 MODEL_TRAIL_UNREAD = "the kit could not finish reading CloudTrail for the test agent's calls to the model ({code})"
-# CUSTOMER TEXT: a draft, for the founder's approval
+# CUSTOMER TEXT: approved by the founder, 20:08:38 UTC on 14 November 2026, word for word
 MODEL_NONE_BEFORE = ("no call from the test agent to the model worked in the minute before the stop, so the kit could "
                      "not check that CloudTrail records them")
 
@@ -789,8 +791,8 @@ def model_calls(c: Clients, r: Run, clock: Clock) -> None:
     record of a call to a model made as a session of the run's role (sdk.a_model_call) is kept by its time and its
     error's code, and as CloudTrail returned it, for the evidence. A lookup the kit can't finish leaves them unread, by
     the error's code, and the path not measured. Then, for each repeat whose session AWS confirmed ended, each record
-    from sdk.TRAIL_LAG seconds after the confirmation to the window's end, whatever its answer, is a call seen after
-    it."""
+    with no error's code from sdk.TRAIL_LAG seconds after the confirmation to the window's end is a call seen after it;
+    a refused one is not (the founder's ruling, "Refusals decide")."""
     timed = [(rep, at) for rep in r.repeats if (at := _moment(r, rep, MODEL)[0]) is not None]
     if not r.model or not timed:
         return
@@ -826,7 +828,9 @@ def model_calls(c: Clients, r: Run, clock: Clock) -> None:
         if rep.end_confirmed is None:
             continue
         since = rep.end_confirmed + r.offset + sdk.TRAIL_LAG
-        seen = [t for t, _ in r.model_trail if since < t <= at + r.window + HOLD]
+        # Only a call that worked: a refused call never counts against a stop (the founder, 19:54:20.132 UTC on 14
+        # November 2026, uuid 112905db-d835-4a47-b5cf-e57c24d987d6, "Refusals decide").
+        seen = [t for t, code in r.model_trail if not code and since < t <= at + r.window + HOLD]
         if seen:
             rep.seen_after_confirmation[MODEL] = seen
 

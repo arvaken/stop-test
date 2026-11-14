@@ -595,10 +595,10 @@ AGENTCORE_PLAN = (
     "- then removes the stop it fired and everything it made, and names anything left.")
 # With --model on AgentCore: the plan's line after the stop's, and what is said on a test copy there (the Run 1 kit
 # brief, section 5, items 1 and 2). PLAN_MODEL's "each invocation" is Lambda's, so it is not used here.
-# CUSTOMER TEXT: a draft, for the founder's approval
+# CUSTOMER TEXT: approved by the founder, 20:08:38 UTC on 14 November 2026, word for word
 AGENTCORE_PLAN_MODEL = ("- in the session it watches, the test agent also calls the model {model} about once a second, "
                         "as its own role, asking for one token each time: AWS bills each call to your account;")
-# CUSTOMER TEXT: a draft, for the founder's approval
+# CUSTOMER TEXT: approved by the founder, 20:08:38 UTC on 14 November 2026, word for word
 AGENTCORE_COPY_NO_MODEL = "--model is not for a test copy on AgentCore in this version of the kit."
 # CUSTOMER TEXT: approved by the founder, 04:44 UTC on 28 October 2026 (D618); its bucket's objects added, approved by
 # him word for word on 30 October 2026

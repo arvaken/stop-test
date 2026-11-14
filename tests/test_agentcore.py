@@ -1495,12 +1495,11 @@ def test_ending_the_session_stops_the_models_path_from_aws_confirmation_timed_as
     assert d["model"] == MODEL_ID and "model" not in d["sessions"][0]["seen_after_confirmation"]
 
 
-# 7
-@pytest.mark.parametrize("code", [None, "AccessDeniedException", "ThrottlingException"])
-def test_a_call_to_the_model_recorded_6_seconds_after_the_confirmation_is_not_stopped_whatever_its_answer(
-        tmp_path, code):
+# 7: only a call that worked counts; a refused call never counts against a stop (the founder's ruling at 19:54:20.132
+# UTC on 14 November 2026, uuid 112905db-d835-4a47-b5cf-e57c24d987d6, "Refusals decide")
+def test_a_call_to_the_model_that_worked_recorded_6_seconds_after_the_confirmation_is_not_stopped(tmp_path):
     clock = Clock()
-    aws = ModelAWS(clock, after_confirmation=[(6.0, {"code": code})])
+    aws = ModelAWS(clock, after_confirmation=[(6.0, {})])
     r, doc = a_model_run(aws, clock, tmp_path)
     assert outcomes(doc) == {**{p: "stopped" for p in running.SESSION_PATHS}, "model": "not stopped",
                              "new_calls": "stopped"}
@@ -1510,6 +1509,37 @@ def test_a_call_to_the_model_recorded_6_seconds_after_the_confirmation_is_not_st
     assert session["model_trail"]["records_after_confirmation"] == [
         result.iso(float(int(rep.end_confirmed + SKEW + 6.0)))]
     assert session["seen_after_confirmation"] == {"model": session["model_trail"]["records_after_confirmation"]}
+
+
+# 7b
+@pytest.mark.parametrize("code", ["AccessDeniedException", "ThrottlingException", "ValidationException"])
+def test_a_refused_call_to_the_model_after_the_confirmation_never_counts_against_the_stop_and_is_still_kept(
+        tmp_path, code):
+    clock = Clock()
+    aws = ModelAWS(clock, after_confirmation=[(6.0, {"code": code})])
+    r, doc = a_model_run(aws, clock, tmp_path)
+    assert outcomes(doc) == {p: "stopped" for p in (*running.SESSION_PATHS, "model", "new_calls")}
+    rep = r.repeats[0]
+    refused = float(int(rep.end_confirmed + SKEW + 6.0))
+    assert (refused, code) in r.model_trail and rep.seen_after_confirmation == {}
+    found = running.results(r)[0][1]
+    assert found["model"].stopped_at == found["own_calls"].stopped_at is not None     # from the confirmation
+    session = running.details(r, doc)["sessions"][0]
+    assert session["model_trail"]["records_after_confirmation"] == [] and session["seen_after_confirmation"] == {}
+    kept = [json.loads(x) for x in (tmp_path / "trail" / MODEL_CALLS_FILE).read_text(encoding="utf-8").splitlines()]
+    assert [e["eventTime"] for e in kept if e.get("errorCode") == code] == [_iso(refused)]
+
+
+# 7c
+def test_a_refused_call_then_one_that_worked_after_the_confirmation_is_not_stopped_by_the_one_that_worked(tmp_path):
+    clock = Clock()
+    aws = ModelAWS(clock, after_confirmation=[(6.0, {"code": "AccessDeniedException"}), (8.0, {})])
+    r, doc = a_model_run(aws, clock, tmp_path)
+    assert outcomes(doc)["model"] == "not stopped"
+    rep = r.repeats[0]
+    assert rep.seen_after_confirmation == {"model": [float(int(rep.end_confirmed + SKEW + 8.0))]}
+    assert running.details(r, doc)["sessions"][0]["model_trail"]["records_after_confirmation"] == [
+        result.iso(float(int(rep.end_confirmed + SKEW + 8.0)))]
 
 
 # 8
