@@ -132,6 +132,69 @@ SHAPE_V3: dict[str, tuple[str, ...]] = {
 IDENTIFYING_V3 = (*IDENTIFYING, "stop.record.name", "stop.record.sha256")
 SHAPES = {FORMAT_V1: SHAPE_V1, FORMAT: SHAPE, FORMAT_V3: SHAPE_V3}
 
+# **A run on a host you control** (D709; mark's STOP-TEST-ANY-HOST-DESIGN.md, section 5) writes a stop-test-result/3
+# whose cloud is HOST, in a shape of its own (SHAPE_HOST): /3's, with "where it ran" added as a part of its own, `host`:
+# that it was a host you control, the kind of operating system and whether the copy ran in a container, from fixed
+# lists; the stop's kind as you said it; that the copy's work on the host itself was not observable from outside it
+# (KH4); and, for each repeat, the section 3 records by time and SHA-256 (`host.evidence`). Each path says which rule
+# judged it (`rule`: "host stop", host/rule.py) and when it fell silent; its outcome is the host rule's own, never the
+# refusal rule's "stopped" (KH2), and `check` refuses either rule's outcomes under the other. The observer's arrivals
+# are signed with its own key for the run, whose public half and the signed file's SHA-256 are in `host.observer`. A
+# cloud copy's /3 is unchanged: its shape is SHAPE_V3, and a /3 is read in SHAPE_HOST only where its cloud is HOST.
+# The format's fields and values, for Arvaken's record (/3's migration) and the self-hosted connector (D712, SH8), are
+# documented in the README's "On a host you control". Every value in words below, and REFUSALS_HOST, the founder
+# approved word for word (D709), as marked. The founder approved the build's five points as recommended at 23:54:13
+# UTC on 14 November 2026 ("Approve all five (Recommended)", record 739f7db3-ecd6-4c62-8dd2-e6ef487e65a1): each path
+# timed from the mark (1), so `fired_at` is the mark and the product's record is evidence beside it; the stop host
+# software's alone (3), so HOST_STOPS names its two kinds and nothing else; and one export giving both entries of the
+# host's state (5), so `host.evidence.host_up.state` holds one SHA-256.
+HOST = "host"                     # the result's cloud for a run on a host; its region is null
+HOST_AGENT = "host-copy"            # agent.kind: a test copy on a host you control
+HOST_SOFTWARE = "host software"     # the stop's product kind on a host (PRODUCTS), attached "on its host"
+# CUSTOMER TEXT: approved by the founder, word for word, 00:32:06 UTC on 15 November 2026 (D709's words, batch 9,
+# record 7b7a8eb8-ef71-43c0-8cda-2d1d84510c8b; section 5, the design's words)
+HOST_WHERE = "a host you control"
+# CUSTOMER TEXT: approved by the founder, word for word, 00:32:06 UTC on 15 November 2026 (D709's words, batch 9,
+# record 7b7a8eb8-ef71-43c0-8cda-2d1d84510c8b; section 5: "the kind of operating system from a fixed list")
+HOST_OS = ("Linux", "Windows", "macOS", "another")
+# CUSTOMER TEXT: approved by the founder, word for word, 00:32:06 UTC on 15 November 2026 (D709's words, batch 9,
+# record 7b7a8eb8-ef71-43c0-8cda-2d1d84510c8b; section 3: "The customer says which kind of stop they fired")
+HOST_STOPS = ("ends your agent's process", "contains your host or cuts its network")
+# CUSTOMER TEXT: approved by the founder, word for word, 00:32:06 UTC on 15 November 2026 (D709's words, batch 9,
+# record 7b7a8eb8-ef71-43c0-8cda-2d1d84510c8b; KH4)
+HOST_ON_HOST = "not observable from outside the host"
+SHAPE_HOST: dict[str, tuple[str, ...]] = {
+    **SHAPE_V3,
+    "": (*SHAPE_V3[""], "host"),
+    "repeat.path": (*SHAPE_V3["repeat.path"], "rule", "silent_from"),
+    "host": ("where", "os", "container", "stop_said", "on_host", "name", "address", "observer", "evidence"),
+    "host.observer": ("address", "public_key", "arrivals_sha256"),
+    "host.evidence": ("product", "host_up"),            # one for each repeat, in order
+    "host.evidence.product": ("time", "entered_by_you", "before_mark", "name", "sha256"),      # or null
+    "host.evidence.host_up": ("by", "witness_silent_from", "state"),
+    "host.evidence.host_up.state": ("from", "from_name", "until", "until_name", "sha256"),      # or null
+}
+IDENTIFYING_HOST = (*IDENTIFYING_V3, "host.name", "host.address", "host.observer.address",
+                    "host.evidence.product.name", "host.evidence.product.sha256",
+                    "host.evidence.host_up.state.from_name", "host.evidence.host_up.state.until_name",
+                    "host.evidence.host_up.state.sha256")
+# What `check` says of a host's result it refuses.
+# CUSTOMER TEXT: approved by the founder, word for word, 00:32:06 UTC on 15 November 2026 (D709's words, batch 9,
+# record 7b7a8eb8-ef71-43c0-8cda-2d1d84510c8b)
+REFUSALS_HOST = {
+    "host": ("a run on a host you control says where it ran, the kinds of its operating system and of your stop from "
+             "the kit's lists, whether it ran in a container, your host's name, and the observer's address, key and "
+             "arrivals' SHA-256"),
+    "agent": ("a test copy on a host is yours, named in 1 to 200 characters, with its tools' and model's kinds from the "
+              "kit's lists and the probe's web client; it has no cloud client"),
+    "stop": "a stop on a host is host software's, named in 1 to 200 characters, and fired by your own trigger",
+    "evidence": ("each repeat's evidence holds your stop product's record (its entry's time as you entered it, flagged if "
+                 "before your mark, its name and its file's SHA-256) and how your host was seen to stay up"),
+    "outcomes": ("on a host, each path is judged by the rule for host stops, from your mark; 'stopped, as seen from "
+                 "outside the host' needs your product's record and your host seen to stay up. The refusal rule's "
+                 "outcomes aren't given on a host, nor the host rule's anywhere else"),
+}
+
 # What `check` says of a version-2 result it refuses, beside what it says of any result.
 # CUSTOMER TEXT: approved by the founder, 04:23:21 UTC on 27 October 2026 (D602)
 REFUSALS = {
@@ -356,13 +419,95 @@ def _check_v3(doc: dict[str, Any]) -> None:
                 raise NotAResult(REFUSALS_V3["outcomes"])
 
 
+def _is_name(v: Any) -> bool:
+    return isinstance(v, str) and 0 < len(v) <= NAME_LIMIT
+
+
+def _is_sha256(v: Any) -> bool:
+    import re
+    return isinstance(v, str) and re.fullmatch(r"[0-9a-f]{64}", v) is not None
+
+
+def _check_host(doc: dict[str, Any]) -> None:
+    """What a run on a host you control holds, each part consistent with the rest (D709): where it ran; your copy and
+    the probe's web client; host software's stop, fired by you; each repeat's records; and each path judged by the rule
+    for host stops, from your mark, its outcome the host rule's."""
+    from arvaken_stop_test.host import rule
+    from arvaken_stop_test.sdk import time_fits
+    agent, stop, host = doc["agent"], doc["stop"], doc["host"]
+    tools = agent["tools"]
+    if agent["kind"] != HOST_AGENT or agent["whose"] != WHOSE[1] or not _is_name(agent["ref"]) or \
+            any(agent[k] is not None for k in ("runtime", "memory_mb", "private_network", "role_ref")) or \
+            not isinstance(tools, list) or not tools or not all(isinstance(t, str) for t in tools) or \
+            len(set(tools)) != len(tools) or not set(tools) <= set(TOOL_KINDS) or \
+            (TOOL_KINDS[0] in tools and len(tools) > 1) or agent["model_kind"] not in MODEL_KINDS:
+        raise NotAResult(REFUSALS_HOST["agent"])
+    _exactly(agent["clients"], "agent.clients", SHAPE_HOST)
+    if agent["clients"]["cloud"] is not None or agent["clients"]["http"] not in CLIENTS:
+        raise NotAResult(REFUSALS_HOST["agent"])
+    product = stop["product"]
+    if doc["region"] is not None or product is None or product["kind"] != HOST_SOFTWARE or \
+            stop["fired_by"] != FIRED_BY[1] or stop["ref"] is not None or stop["record"] is not None:
+        raise NotAResult(REFUSALS_HOST["stop"])
+    _exactly(host, "host", SHAPE_HOST)
+    _exactly(host["observer"], "host.observer", SHAPE_HOST)
+    observer = host["observer"]
+    try:
+        key_ok = len(base64.b64decode(observer["public_key"], validate=True)) == 32
+    except (ValueError, TypeError):
+        key_ok = False
+    if host["where"] != HOST_WHERE or host["os"] not in HOST_OS or not isinstance(host["container"], bool) or \
+            host["stop_said"] not in HOST_STOPS or host["on_host"] != HOST_ON_HOST or not _is_name(host["name"]) or \
+            not (host["address"] is None or (isinstance(host["address"], str) and 0 < len(host["address"]) <= 64)) or \
+            not (isinstance(observer["address"], str) and 0 < len(observer["address"]) <= 300) or not key_ok or \
+            not _is_sha256(observer["arrivals_sha256"]):
+        raise NotAResult(REFUSALS_HOST["host"])
+    evidence = host["evidence"]
+    if not isinstance(evidence, list) or len(evidence) != len(doc["repeats"]):
+        raise NotAResult(REFUSALS_HOST["evidence"])
+    for each in evidence:
+        _exactly(each, "host.evidence", SHAPE_HOST)
+        record, up = each["product"], each["host_up"]
+        if record is not None:
+            _exactly(record, "host.evidence.product", SHAPE_HOST)
+            if not time_fits(record["time"]) or record["entered_by_you"] is not True or \
+                    not isinstance(record["before_mark"], bool) or not _is_name(record["name"]) or \
+                    not _is_sha256(record["sha256"]):
+                raise NotAResult(REFUSALS_HOST["evidence"])
+        _exactly(up, "host.evidence.host_up", SHAPE_HOST)
+        state = up["state"]
+        if state is not None:
+            _exactly(state, "host.evidence.host_up.state", SHAPE_HOST)
+            if not (time_fits(state["from"]) and time_fits(state["until"]) and _is_name(state["from_name"]) and
+                    _is_name(state["until_name"]) and _is_sha256(state["sha256"])):
+                raise NotAResult(REFUSALS_HOST["evidence"])
+        if up["by"] not in (rule.BY_WITNESS, rule.BY_STATE, None) or (up["by"] == rule.BY_STATE) != (state is not None) \
+                or (up["by"] == rule.BY_WITNESS and up["witness_silent_from"] is not None) or \
+                not (up["witness_silent_from"] is None or isinstance(up["witness_silent_from"], str)):
+            raise NotAResult(REFUSALS_HOST["evidence"])
+    for repeat, each in zip(doc["repeats"], evidence):
+        if not set(repeat) <= set(rule.HOST_PATHS):
+            raise NotAResult(REFUSALS_HOST["outcomes"])
+        for part in repeat.values():
+            outcome = part["outcome"]
+            if part["rule"] != rule.RULE or part["timed_from"] != TIMED_FROM[0] or \
+                    part["first_refused_after"] is not None or \
+                    (outcome in (rule.HOST_STOPPED, rule.HOST_FLAPPED)) != (part["silent_from"] is not None) or \
+                    (outcome == rule.HOST_STOPPED and (each["product"] is None or each["host_up"]["by"] is None)):
+                raise NotAResult(REFUSALS_HOST["outcomes"])
+
+
 def check(doc: Any) -> dict[str, Any]:
     """The result, if it is a stop-test-result/3, /2 or /1 in exactly its version's shape and its signature checks;
-    else NotAResult."""
+    else NotAResult. A /3 whose cloud is HOST is read in SHAPE_HOST, a run on a host you control (D709)."""
     # a format, a kind and a tool are each looked up by their text: anything else is refused, never hashed
     if not isinstance(doc, dict) or not isinstance(doc.get("format"), str) or doc.get("format") not in SHAPES:
         raise NotAResult(f"the result is not {FORMAT_V3}, {FORMAT}, or {FORMAT_V1}")
     shape = SHAPES[doc["format"]]
+    if doc.get("cloud") == HOST:
+        if shape is not SHAPE_V3:
+            raise NotAResult(REFUSALS_HOST["outcomes"])
+        shape = SHAPE_HOST
     _exactly(doc, "", shape)
     for part in ("kit", "run", "stop", "agent", "signature"):
         _exactly(doc[part], part, shape)
@@ -370,8 +515,11 @@ def check(doc: Any) -> dict[str, Any]:
         raise NotAResult(f"the stop was fired by one of {', '.join(FIRED_BY)}")
     if not isinstance(doc["repeats"], list) or len(doc["repeats"]) != doc["run"]["repeats"] or not doc["repeats"]:
         raise NotAResult("the repeats are a list, as many as the run says")
+    from arvaken_stop_test.host.rule import HOST_FLAPPED, HOST_STOPPED
     from arvaken_stop_test.sdk import SDK_STOPPED
-    outcomes = {id(SHAPE_V1): OUTCOMES_V1, id(SHAPE): OUTCOMES, id(SHAPE_V3): (*OUTCOMES, SDK_STOPPED)}[id(shape)]
+    # the host rule's outcomes on a host alone, with the outcomes every stop shares; never the refusal rule's own
+    outcomes = {id(SHAPE_V1): OUTCOMES_V1, id(SHAPE): OUTCOMES, id(SHAPE_V3): (*OUTCOMES, SDK_STOPPED),
+                id(SHAPE_HOST): (HOST_STOPPED, HOST_FLAPPED, NOT_STOPPED, NOT_RUN, NOT_MEASURED)}[id(shape)]
     for i, repeat in enumerate(doc["repeats"]):
         if not isinstance(repeat, dict) or not set(repeat) <= set(PATHS) or not repeat:
             raise NotAResult(f"repeat {i} names only the kit's paths")
@@ -385,6 +533,8 @@ def check(doc: Any) -> dict[str, Any]:
         _check_v2(doc)
     if shape is SHAPE_V3:
         _check_v3(doc)
+    if shape is SHAPE_HOST:
+        _check_host(doc)
     sig = doc["signature"]
     if sig["alg"] != "ed25519":
         raise NotAResult("the signature is ed25519")

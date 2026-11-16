@@ -1,6 +1,6 @@
 """The command line: `stop-test aws plan|run|clean`, `stop-test agentcore plan|run|clean`, `stop-test agentcore-harness
-plan|run|clean`, `stop-test google plan|run|clean`, and `stop-test verify` (the design's sections 2, 5 and 7; D532; on
-AgentCore, D618).
+plan|run|clean`, `stop-test google plan|run|clean`, `stop-test host plan|run|clean`, and `stop-test verify` (the
+design's sections 2, 5 and 7; D532; on AgentCore, D618; on a host you control, D709: host/run.py).
 
 It uses your own credentials: on AWS as the AWS command line would find them, on Google Cloud the Google Cloud CLI's
 (gcloud), as Cloud Shell has them. It sends nothing to Arvaken. Before a run
@@ -915,6 +915,170 @@ def _copy(args, p, agentcore: bool) -> int:
     return 0
 
 
+# A run on a test copy of your agent on a host you control (D709; host/run.py): its options, its plan, its checks and
+# what it prints, each line approved by the founder, word for word, with the build, as marked.
+# CUSTOMER TEXT: approved by the founder, word for word, 00:28:05 UTC on 15 November 2026 (D709's words, batch 4,
+# record c18ee7d5-0515-4836-a615-b39262d55681)
+HOST_HELP = {
+    "command": "the stop test on a test copy of your agent on a host you control",
+    "copy": "your test copy on your host, by a name of your own, 1 to 200 characters",
+    "host": "your host, by a name of your own, 1 to 200 characters",
+    "observer": ("the address your host reaches this machine at, as host:port: the kit's observer listens on that port "
+                 "for the run"),
+    "stop_kind": ("what your stop does: ends-process (ends your agent's process) or cuts-network (contains your host or "
+                  "cuts its network)"),
+    "product_name": "your stop product's name, in your own words, 1 to 200 characters",
+    "os": "your host's operating system: linux, windows, macos or another",
+    "container": "whether your copy runs in a container: yes or no",
+    "model": ("also time your copy's calls to a model, through a function you pass the probe: your model provider's "
+              "name, in your own words. Your provider bills each call to you"),
+    "window": "time after your mark, 15m to 60m; 15m by default",
+    "clean": "remove the run's folder an interrupted run left here",
+}
+HOST_STOP_KINDS = dict(zip(("ends-process", "cuts-network"), result.HOST_STOPS))
+HOST_OS = dict(zip(("linux", "windows", "macos", "another"), result.HOST_OS))
+# CUSTOMER TEXT: approved by the founder, word for word, 00:28:05 UTC on 15 November 2026 (D709's words, batch 4,
+# record c18ee7d5-0515-4836-a615-b39262d55681)
+HOST_NOT_AN_ADDRESS = ("--observer takes the address your host reaches this machine at, as host:port, such as "
+                       "203.0.113.5:8443 or observer.example:8443.")
+# CUSTOMER TEXT: approved by the founder, word for word, 00:28:05 UTC on 15 November 2026 (D709's words, batch 4,
+# record c18ee7d5-0515-4836-a615-b39262d55681)
+HOST_NOT_A_RUN = "--run takes a run's name, as the kit made it, such as r0123abcd."
+# CUSTOMER TEXT: approved by the founder, word for word, 00:28:05 UTC on 15 November 2026 (D709's words, batch 4,
+# record c18ee7d5-0515-4836-a615-b39262d55681)
+HOST_NAMES = "--copy, --host and --product-name each take a name in your own words, 1 to 200 characters."
+# CUSTOMER TEXT: approved by the founder, word for word, 00:28:05 UTC on 15 November 2026 (D709's words, batch 4,
+# record c18ee7d5-0515-4836-a615-b39262d55681; section 3 (a): "at least 15 minutes")
+HOST_WINDOW = "On a host, --window is 15 to 60 minutes, set before the run."
+# CUSTOMER TEXT: approved by the founder, word for word, 00:28:05 UTC on 15 November 2026 (D709's words, batch 4,
+# record c18ee7d5-0515-4836-a615-b39262d55681)
+HOST_REPEATS = "--repeats is 1 to 5."
+# CUSTOMER TEXT: approved by the founder, word for word, 00:28:05 UTC on 15 November 2026 (D709's words, batch 4,
+# record c18ee7d5-0515-4836-a615-b39262d55681; KH7)
+HOST_MODEL_NAMED = "--model takes your model provider's name, in your own words, 1 to 200 characters."
+# CUSTOMER TEXT: approved by the founder, word for word, 00:28:55 UTC on 15 November 2026 (D709's words, batch 5,
+# record 4a594ca8-b54e-4aa9-a315-4dc0d49bda3f)
+HOST_PLAN = ("Run {run}, on your test copy {copy} on your host {host}:\n"
+             "- runs the kit's observer on this machine for the run alone, listening on port {port} of each of its "
+             "addresses; your host reaches it at {observer};\n"
+             "- makes the run's folder here, {folder}, with the run's keys, the observer's certificate, and the "
+             "settings you give your copy's probe and the kit's witness on your host;\n"
+             "- you start your copy with the probe, and the witness beside it, outside your copy: the probe calls the "
+             "observer once a second with the run's key and with none, and the witness sends it a beat a second;\n"
+             "{model}"
+             "- you fire your stop, {product}, yourself, after your mark, and the kit fires nothing: it times each path "
+             "for {window} seconds, {repeats}, by this machine's clock, by the rule for host stops;\n"
+             "- after each window asks for the file you exported from your stop product, reads it only to check the "
+             "entries you name are in it, and keeps only its SHA-256 and those entries;\n"
+             "- changes nothing on your host, and never touches the probe in your copy;\n"
+             "- then removes the run's folder and names anything left, and keeps the three files it writes here: the "
+             "result, its details and the observer's arrivals.")
+# CUSTOMER TEXT: approved by the founder, word for word, 00:28:55 UTC on 15 November 2026 (D709's words, batch 5,
+# record 4a594ca8-b54e-4aa9-a315-4dc0d49bda3f; KH7)
+HOST_PLAN_MODEL = ("- your copy's probe also calls {provider} once a second, through the function you pass it, with a "
+                   "key you made for the run: your provider bills each call to you;\n")
+# What the teardown says. The result is written where the kit runs, outside the run's folder, so that it outlasts the
+# teardown, which names it: the founder's point 4, approved as recommended at 23:54:13 UTC on 14 November 2026 ("Approve
+# all five (Recommended)", record 739f7db3-ecd6-4c62-8dd2-e6ef487e65a1).
+# CUSTOMER TEXT: approved by the founder, word for word, 00:30:57 UTC on 15 November 2026 (D709's words, batch 7,
+# record 7903a000-560a-48bb-af8b-35c7032b3d6e; point 4 of record 739f7db3)
+HOST_REMOVED = "The kit removed the run's folder, {folder}."
+# CUSTOMER TEXT: approved by the founder, word for word, 00:30:57 UTC on 15 November 2026 (D709's words, batch 7,
+# record 7903a000-560a-48bb-af8b-35c7032b3d6e; point 4 of record 739f7db3)
+HOST_KEPT = ("The kit wrote three files here, and keeps them: the result, {out}; its details, {details}; and the "
+             "observer's arrivals, {arrivals}.")
+# CUSTOMER TEXT: approved by the founder, word for word, 00:30:57 UTC on 15 November 2026 (D709's words, batch 7,
+# record 7903a000-560a-48bb-af8b-35c7032b3d6e)
+HOST_NOTHING_SENT = "Nothing was sent to Arvaken: your host's calls reached only this machine."
+
+
+def _host_checks(args, p) -> None:
+    """A host run's options, checked before anything is asked or made."""
+    from arvaken_stop_test.host import observer as observing
+    from arvaken_stop_test.host.rule import LEAST_WINDOW
+    from arvaken_stop_test.host.run import LONGEST_WINDOW
+    if observing.address(args.observer) is None:
+        p.error(HOST_NOT_AN_ADDRESS)
+    if not all(0 < len((v or "").strip()) <= result.NAME_LIMIT for v in (args.copy, args.host, args.product_name)):
+        p.error(HOST_NAMES)
+    if not LEAST_WINDOW <= args.window <= LONGEST_WINDOW:
+        p.error(HOST_WINDOW)
+    if not 1 <= args.repeats <= 5:
+        p.error(HOST_REPEATS)
+    if args.model is not None and not 0 < len(args.model.strip()) <= result.NAME_LIMIT:
+        p.error(HOST_MODEL_NAMED)
+    tools = [result.TOOL_KINDS[0] if k == NO_TOOLS else k for k in args.tool or []]
+    args.tool = tools
+    if args.action == "run" and (not tools or not args.model_kind or len(set(tools)) != len(tools) or
+                                 (result.TOOL_KINDS[0] in tools and len(tools) > 1)):
+        p.error(COPY_NEEDS_KINDS)
+
+
+def _host_plan(args, run_name: str) -> str:
+    from arvaken_stop_test.host import observer as observing
+    from arvaken_stop_test.host.run import folder_for
+    _, port = observing.address(args.observer)
+    return HOST_PLAN.format(run=run_name, copy=args.copy, host=args.host, port=port, observer=args.observer,
+                            folder=folder_for(run_name, Path(".")).name, product=args.product_name,
+                            model=HOST_PLAN_MODEL.format(provider=args.model) if args.model else "",
+                            window=int(args.window), repeats=times(args.repeats))
+
+
+def _host(args, p) -> int:
+    """A run on a test copy on a host you control: its plan, then the run, whose own words ask you to confirm the copy,
+    and the model's key where the model path is on, then before every firing to type the run's name and to mark. It
+    writes its result, a stop-test-result/3 of a host, its details and the observer's signed arrivals, and prints what
+    each path found."""
+    from arvaken_stop_test.host import rule
+    from arvaken_stop_test.host import run as hosting
+    if args.run_name is not None and not hosting.RUN.fullmatch(args.run_name):
+        p.error(HOST_NOT_A_RUN)         # never a folder's name made from anything else, as clean removes it
+    if args.action == "clean":
+        left = hosting.clean(args.run_name, Path.cwd())
+        print("Nothing the kit made is left." if not left else "Left for you to delete:\n" + "\n".join(left))
+        return 0
+    _host_checks(args, p)
+    run_name = args.run_name or hosting.new_run()
+    print(_host_plan(args, run_name))
+    if args.action == "plan":
+        return 0
+    if hosting.is_administrator():
+        print(hosting.NOT_AS_ROOT)
+        return 1
+    r = hosting.HostRun(run=run_name, copy=args.copy.strip(), host=args.host.strip(), observer=args.observer.strip(),
+                        stop_said=HOST_STOP_KINDS[args.stop_kind], product=args.product_name.strip(),
+                        os=HOST_OS[args.os], container=args.container == "yes", window=args.window,
+                        repeats_wanted=args.repeats, model=(args.model or "").strip())
+    try:
+        hosting.run(r, ask=lambda words: input(words + " "), say=print)
+    except hosting.NotStarted as e:
+        print("Nothing the kit made is left." if not e.run.left_behind else
+              "Left for you to delete:\n" + "\n".join(e.run.left_behind))
+        return 1
+    doc, details, arrivals = hosting.the_result(r, args.tool, args.model_kind)
+    out, kept = Path(f"stop-test-{run_name}.json"), Path(f"stop-test-{run_name}-arrivals.json")
+    beside = Path(f"stop-test-{run_name}-details.json")
+    write(out, json.dumps(doc, indent=1, sort_keys=True))
+    write(beside, json.dumps(details, indent=1))
+    kept.write_bytes(arrivals)
+    print(COPY_FOUND)
+    for i, rep in enumerate(r.repeats, 1):
+        for path, f in rep.found.items():
+            print(f"- {f'repeat {i}, ' if len(r.repeats) > 1 else ''}{hosting.PATH_WORDS[path]}: "
+                  f"{rule.worded(f, rep.record)}" + (f" ({f.reason})" if f.reason else ""))
+    print(rule.ON_HOST)
+    print(rule.PRODUCT_CLOCK)
+    print(f'"{r.product}". {hosting.PRODUCT_AS_NAMED}')
+    # the teardown names the result it keeps (point 4 of record 739f7db3)
+    print(HOST_REMOVED.format(folder=r.folder) if not r.left_behind else
+          "Left for you to delete:\n" + "\n".join(r.left_behind))
+    print(HOST_KEPT.format(out=out, details=beside, arrivals=kept))
+    print(hosting.HOST_LEFT)
+    print(HOST_NOTHING_SENT)
+    print(f"Your result's reference: {result.reference(doc)}. It's the SHA-256 of the result's signature.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """The kit's command. A refusal raised before anything is made (fire.Refused) is said in its own words, as a copy's
     run says it, never as a traceback; one after a teardown (NotStarted) is said by its mode, with what was left."""
@@ -1031,6 +1195,26 @@ def _main(argv: list[str] | None = None) -> int:
     gclean.add_argument("--project", required=True)
     gclean.add_argument("--region", required=True)
     gclean.add_argument("--copy", default="", metavar="SERVICE", help=GOOGLE_CLEAN_COPY_HELP)
+    hosted = sub.add_parser("host", help=HOST_HELP["command"])
+    hosted_sub = hosted.add_subparsers(dest="action", required=True)
+    for name in ("plan", "run"):
+        a = hosted_sub.add_parser(name)
+        a.add_argument("--copy", required=True, metavar="NAME", help=HOST_HELP["copy"])
+        a.add_argument("--host", required=True, metavar="NAME", help=HOST_HELP["host"])
+        a.add_argument("--observer", required=True, metavar="HOST:PORT", help=HOST_HELP["observer"])
+        a.add_argument("--stop-kind", required=True, choices=sorted(HOST_STOP_KINDS), help=HOST_HELP["stop_kind"])
+        a.add_argument("--product-name", required=True, metavar="NAME", help=HOST_HELP["product_name"])
+        a.add_argument("--os", required=True, choices=list(HOST_OS), help=HOST_HELP["os"])
+        a.add_argument("--container", required=True, choices=("yes", "no"), help=HOST_HELP["container"])
+        a.add_argument("--model", default=None, metavar="PROVIDER", help=HOST_HELP["model"])
+        a.add_argument("--window", type=_duration, default=15 * 60.0, help=HOST_HELP["window"])
+        a.add_argument("--repeats", type=int, default=1, help="1 to 5")
+        a.add_argument("--run", dest="run_name", help="the run's name, if you are resuming one")
+        a.add_argument("--tool", action="append", choices=(*result.TOOL_KINDS, NO_TOOLS), metavar="KIND",
+                       help=COPY_HELP["tool"])
+        a.add_argument("--model-kind", choices=result.MODEL_KINDS, metavar="KIND", help=COPY_HELP["model_kind"])
+    hclean_host = hosted_sub.add_parser("clean", help=HOST_HELP["clean"])
+    hclean_host.add_argument("--run", dest="run_name", required=True)
     verify = sub.add_parser("verify", help="check a result file's format and signature")
     verify.add_argument("file", type=Path)
     args = p.parse_args(argv)
@@ -1044,6 +1228,8 @@ def _main(argv: list[str] | None = None) -> int:
         print(f"A valid {doc['format']}: unchanged since it was signed. That is all a signature shows: not that the kit "
               "wrote it, who ran it, or that the run was honest.")
         return 0
+    if args.command == "host":
+        return _host(args, p)
     if args.command == "google":
         return _google(args, p)
     if args.command == "agentcore":

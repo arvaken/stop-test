@@ -43,16 +43,23 @@ gives back the answer's HTTP status and its body; the runtime's own is the stand
 
 It uses only the standard library, and boto3 where it makes the runtime's own clients or reads a cloud error, so it
 adds nothing to a copy that already has boto3, as Lambda's Python runtime does. Its code keeps to Python 3.9's grammar.
+
+**On a host you control** (D709), nothing invokes the copy: the probe beats on its own, in a thread of the copy's
+process, from the settings file the kit writes for the run (`on_host`; host.py):
+
+    from arvaken_stop_test_probe import heartbeat
+
+    heartbeat.on_host("stop-test-<run>-probe.json")   # at your copy's start, before its own work
 """
 from __future__ import annotations
 
 import os
 import time
 
-from arvaken_stop_test_probe import aws, core, google
+from arvaken_stop_test_probe import aws, core, google, host
 from arvaken_stop_test_probe.core import NotTheKits, is_mine
 
-__all__ = ["NotTheKits", "is_mine", "run"]
+__all__ = ["NotTheKits", "is_mine", "on_host", "run"]
 
 EVERY = 1.0                 # seconds between a watch's tries, as the kit's AgentCore agent's
 # The longest watch, the kit's AgentCore agent's (agent.LONGEST): AWS keeps a streaming response up to 60 minutes
@@ -116,3 +123,12 @@ def _watch(s, m, make, get, clients):
         n, due = n + 1, due + EVERY
         time.sleep(max(0.0, due - time.time()))
     yield {"at": time.time(), "done": True}
+
+
+def on_host(settings, http=None, model=None):
+    """The probe on a host you control (D709; host.py): it beats once a second, in a thread of this process, from the
+    settings file the kit wrote for the run (its path, or its JSON already read), until the run is over. `http` is your
+    own GET, where an SDK of yours wraps only its own clients; `model`, where the run's settings turn the model path on,
+    a function that makes one call to your model provider with the key you made for the run. It gives back the probe,
+    whose `stop()` ends its beats."""
+    return host.start(settings, http=http, model=model)
