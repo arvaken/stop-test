@@ -697,6 +697,131 @@ add or change, Cloudflare keeps two: a call's user agent, which the kit sets to 
 security checks act on the call, its referer, which the kit never sends. A client or a proxy that changes either changes
 what Cloudflare keeps.
 
+## On a host you control
+
+<!-- CUSTOMER TEXT: approved by the founder, word for word, on 15 November 2026 (D709's words): from "On a host
+you control" through "Run it", batch 1, at 00:23:28 UTC (record 305773c5-34b7-4290-afd5-b27b0629277a); from "When a
+path reads stopped on a host" to the result's `host` part, batch 2, at 00:25:28 UTC (record
+974fa121-086a-4559-9f3c-54b2016df08b); and from the `host` part to the section's end, batch 3, at 00:26:21 UTC (record
+11754600-e427-4184-bbae-6dd8f47daf5e).
+What it describes follows the build's five points the founder approved as recommended at 23:54:13 UTC on 14 November
+2026 (record 739f7db3-ecd6-4c62-8dd2-e6ef487e65a1): timed from your mark, the record beside it (1); no cloud path yet
+(2); host software's stop alone (3); the result written where the kit runs, named at teardown (4); one export, two
+entries of the host's state (5). -->
+The kit can time a stop on a test copy of your agent that runs on a host you control: a server, a virtual machine or a
+container host, in any cloud or none. On a host there is no cloud stop for the kit to fire. You fire your own stop,
+with the host software that stops agents there, after your mark. The kit fires nothing and changes nothing on your
+host. Your host's calls reach only the kit's observer, on a machine of yours; nothing is sent to Arvaken.
+
+### How it works
+
+- **The observer.** The kit runs on a second machine you control, never the agent's host. For the run, it listens on
+  the port you name, and your host reaches it at the address you give. It keeps the time each call arrives, by that
+  machine's clock.
+- **The probe.** Your copy runs the kit's probe. Once a second, from inside your copy's process, it calls the observer
+  once with the run's key and once with none.
+- **The witness.** A small program of the kit's, on the same host but outside your copy, sends the observer a beat a
+  second. It tells a stop of your agent from a host or a network that went down.
+
+The probe and the witness need Python 3.9 or later on your host, and nothing else. Install the probe in your copy, then
+start it at your copy's start, before its own work:
+
+```python
+from arvaken_stop_test_probe import heartbeat
+
+heartbeat.on_host("stop-test-<run>-probe.json")
+```
+
+Start the witness on your host, beside your copy and outside it, as an ordinary user:
+
+```
+python -m arvaken_stop_test_probe.witness stop-test-<run>-witness.json
+```
+
+The kit writes both files when the run starts, in the run's folder, `arvaken-stop-test-<run>`, where you run the kit.
+Copy each to your host. They hold the observer's address, the certificate it presents for the run, and a key made for
+the run. The probe and the witness trust that certificate alone and use no proxy. The keys end with the run.
+
+### Run it
+
+```
+stop-test host plan --copy my-agent-test --host test-host-1 --observer 203.0.113.5:8443 --stop-kind ends-process --product-name "Acme Process Guard" --os linux --container no --tool "runs code" --model-kind "a model provider's API"
+```
+
+`--stop-kind` is `ends-process`, if your stop ends your agent's process, or `cuts-network`, if it contains your host or
+cuts its network. `--window` is 15 to 60 minutes, 15 by default; `--repeats` is 1 to 5. Name `--tool` and
+`--model-kind` as for a copy on AWS. With `--model`, your copy's probe also calls your model provider once a second,
+through a function you pass to `on_host`, with a key you made for the run. Your provider bills each call to you.
+
+The kit and the witness refuse to run as root or as an administrator. Before each firing the kit gives its warning and
+asks you to type the run's name. After each window, name the file you exported from your stop product that records it
+acting. The kit reads it only to check that the entry you name is in it, and keeps that entry's time and name and the
+file's SHA-256, never the file.
+
+When the run ends, the observer answers 410, which stops the probe's and the witness's beats, and the witness removes
+its own folder. The kit removes the run's folder, and keeps three files it writes where you ran it, naming each as it
+ends: the result, its details, and the observer's arrivals, signed. If a run could not clean up, `stop-test host clean --run <run>` removes its folder.
+
+### When a path reads stopped on a host
+
+A killed process falls silent, and a contained host times out: neither refuses a call. So on a host the kit has a rule
+of its own. A path reads "stopped, as seen from outside the host" only with all three of these:
+
+1. The observer saw it stop and stay stopped. Its calls reached the observer through the 30 seconds before your mark,
+   at least one arrived after it, and then none arrived again before the window ended.
+2. Your stop product's own record that it acted, from the window after your mark, found in the export you name.
+3. Your host stayed up. The witness kept reaching the observer through the window. If your stop contains your host,
+   the witness falls silent too; then your stop product's record of your host's state counts instead: an entry showing
+   your host contained when your stop took hold, and one showing it still contained at the window's end.
+
+Without all three, a path reads not measured, and says why. A host or a network that went down never reads stopped. A
+path whose calls stopped and came back after 30 seconds or more reads "stopped, then reached us again". Each path is
+timed from your mark, by the observer's clock; your stop product's time is kept beside it, as you entered it. Whether
+your agent kept working on the host itself can't be seen from outside the host, and the result says so.
+
+### The result's format
+
+A run on a host writes a `stop-test-result/3` whose `cloud` is `"host"` and whose `region` is null. It holds every field
+of a copy's `stop-test-result/3`, with these values and additions:
+
+- `agent.kind` is `"host-copy"`, `agent.whose` is "yours", and `agent.clients.cloud` is null; `agent.clients.http` is
+  "yours" where you passed the probe your own client, else "the runtime's". `agent.runtime`, `agent.memory_mb`,
+  `agent.private_network` and `agent.role_ref` are null; `agent.ref` is your copy's name, as you gave it.
+- `stop.kind` is "a product's control", fired by "your own trigger"; `stop.product.kind` is `"host software"`, attached
+  "on its host", named as you named it; `stop.ref` and `stop.record` are null.
+- `run.clock_gap_ms` is 0: your mark and every arrival are read from one clock, the observer's.
+- Each path of each repeat (`outside_key`, `open_internet`, and `model` with `--model`) adds `rule`, always
+  `"host stop"`, and `silent_from`: the first beat that did not arrive, as a UTC time, for an outcome of
+  `"stopped, as seen from outside the host"` or `"stopped, then reached us again"`, else null. Its `outcome` is one of
+  those two, "not stopped", "not run" or "not measured"; `fired_at` is your mark; `last_success_after` is its last
+  arrival after your mark; `timed_from` is "your mark"; `first_refused_after` is null.
+- `host`, where it ran:
+  - `where`: `"a host you control"`;
+  - `os`: one of `"Linux"`, `"Windows"`, `"macOS"` and `"another"`;
+  - `container`: true or false;
+  - `stop_said`: `"ends your agent's process"` or `"contains your host or cuts its network"`;
+  - `on_host`: `"not observable from outside the host"`;
+  - `name`: your host's name, as you gave it;
+  - `address`: the address your host's calls came from, as the observer saw it, or null;
+  - `observer`: its `address`, as you gave it (host:port); `public_key`, its Ed25519 key for the run, in base64; and
+    `arrivals_sha256`, the SHA-256 of the arrivals file, as written;
+  - `evidence`: one for each repeat, in order, each with:
+    - `product`: your stop product's record of acting, or null: `time`, as you entered it; `entered_by_you`, true;
+      `before_mark`, whether it is before your mark; `name`, the entry's name; `sha256`, the export's SHA-256;
+    - `host_up`: `by`, `"the kit's witness"` or `"the product's record of the host's state"`, or null where neither
+      showed your host up; `witness_silent_from`, when the witness fell silent, as a UTC time, or null where it didn't;
+      and `state`, null or your product's record of your host's state: `from` and `from_name`, the entry showing it
+      contained; `until` and `until_name`, the entry showing it still contained; and `sha256`, the export's.
+
+Of these, `agent.ref`, `host.name`, `host.address`, `host.observer.address`, and each record's names and SHA-256 identify
+you or your systems, as `agent.ref` does for a copy in a cloud.
+
+The arrivals file, `stop-test-<run>-arrivals.json`, is `stop-test-arrivals/1`: `run`; `clock`, "the observer's";
+`paths`, each path's arrivals as UTC times; `reports`, each of the probe's reports, with its arrival, its number, and
+each path's time by your copy's clock, whether it worked, and its failure's code and HTTP status; `witness`, the
+witness's beats; `refused_keys`, how many calls came with a key that was not the run's; and `signature`, Ed25519 over
+the rest, as a result's is. It never holds the run's keys.
+
 ## What counts as stopped
 
 <!-- CUSTOMER TEXT: approved by the founder, word for word, 30 October 2026 (his refusal ruling of 29 October 2026,
