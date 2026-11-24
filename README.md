@@ -45,11 +45,11 @@ with a fixed reply. What is kept of each call is Arvaken's one description of wh
 If you choose, you can send Arvaken a result at https://app.arvaken.com/stop-test/submit, under the kit's terms:
 https://arvaken.com/stop-test/terms.
 
-Add `--send` to a run and, when it ends, the kit opens that page with the result filled in, or prints its address where
-there is no browser. The kit itself sends nothing: the result travels in the address after `#`, which a browser never
-sends to a server, and nothing reaches Arvaken until you check it on the page and press its button.
-
 AWS, with Lambda and Amazon Bedrock AgentCore, and Google Cloud. Azure follows.
+
+Add `--send` to a run and, when it ends, the kit opens the send page with the result filled in, or prints its address
+where there is no browser. The kit itself sends nothing: the result travels in the address after `#`, which a browser
+never sends to a server, and nothing reaches Arvaken until you check it on the page and press its button.
 
 New to the kit? [QUICKSTART.md](QUICKSTART.md) is the shortest way through this guide.
 
