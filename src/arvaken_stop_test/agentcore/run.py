@@ -102,8 +102,8 @@ from arvaken_stop_test.aws import fire as aws_fire
 from arvaken_stop_test.aws.run import MODEL_DID_NOT_WORK
 from arvaken_stop_test.aws.stack import model_resources
 from arvaken_stop_test.aws.your_copy import PAGE_GAP
-from arvaken_stop_test.timing import (HOLD, NOT_MEASURED, NOT_RUN, NOT_STOPPED, PATH_WORDS, WINDOWS, Beat, PathResult,
-                                      judge)
+from arvaken_stop_test.timing import (HOLD, NOT_MEASURED, NOT_RUN, NOT_STOPPED, PATH_WORDS, WINDOWS, Beat, Early,
+                                      PathResult, judge)
 
 SESSION_PATHS = ("own_calls", "another_identity", "outside_key", "open_internet")
 NEW_CALLS = "new_calls"
@@ -554,11 +554,14 @@ def writes_after(c: Clients, r: Run, rep: Repeat) -> int:
 
 def time_one(c: Clients, r: Run, clock: Clock, say: Callable[[str], None] = lambda _: None,
              mark: Callable[[], object] | None = None, marked: str = "",
-             each_second: Callable[[], None] | None = None) -> Repeat:
+             each_second: Callable[[], None] | None = None, early: Early | None = None) -> Repeat:
     """One repeat: the running session opened and working, new calls from LEAD seconds before the stop, the stop
     fired, then both through the window and its hold. With `mark` (an SDK's stop on a copy: your_copy.py), the kit
     fires nothing: you press Enter, then fire your stop, and the kit says `marked`; `each_second` is what it does beside
-    each second of the window (the kit's witness: sdk.py)."""
+    each second of the window (the kit's witness: sdk.py). `early` says a session path's answer the moment its
+    heartbeats so far read it stopped (timing.Early), for a stop the kit fires that ends no session: new calls are read
+    only at the window's end, a model's path may yet be found not measured, and a session ended is checked against what
+    it wrote after, so none of those is said early."""
     rep = Repeat()
     seconds = READY_WAIT + LEAD + r.window + HOLD + SLACK
     stream = open_session(c, r, rep, clock, seconds)
@@ -605,6 +608,9 @@ def time_one(c: Clients, r: Run, clock: Clock, say: Callable[[str], None] = lamb
             if r.stop_ref == firing.DENY_AND_END:
                 confirm(c, r, rep, clock)
             _take(r, rep, stream.poll())
+            if early is not None and mark is None and r.stop_ref != firing.DENY_AND_END:
+                early.check(rep.beats, rep.fired_before + r.offset, [p for p in r.session_paths if p != MODEL],
+                            lambda p: (lambda b, before: refusals.counts(r.stop_kind, p, b, before)))
             if each_second is not None:
                 each_second()
             clock.sleep(1.0)
@@ -1225,7 +1231,7 @@ def the_result(r: Run, key=None) -> dict:
 def run(c: Clients, stop_ref: str, *, endpoint: str, window: float = WINDOWS["aws"], repeats: int = 1,
         clock: Clock | None = None, run_name: str | None = None, trail: bool = False, trail_folder: Path | None = None,
         trail_wait: float = TRAIL_WAIT, say: Callable[[str], None] = lambda _: None,
-        model: str = "") -> tuple[Run, dict]:
+        model: str = "", say_early: bool = True) -> tuple[Run, dict]:
     """A whole run, torn down whatever happens. Returns the run's record and its signed result. With `trail`, the run
     makes its own CloudTrail trail for the runtime's data events (trail.py), and keeps its records in `trail_folder`
     before deleting it. With `model`, a Bedrock model's ID or an inference profile's, the running session calls it too
@@ -1263,10 +1269,13 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, window: float = WINDOWS["aw
         warm_up(c, r, clock)
         if trail:
             trail_recording(c, r, clock)
+        early = Early(say, window) if say_early else None       # an early answer, as on Lambda (aws/run.py)
         for i in range(repeats):
             if i:
                 recover(c, r, clock)
-            r.repeats.append(time_one(c, r, clock, say=say))
+            if early is not None:
+                early.next_repeat()
+            r.repeats.append(time_one(c, r, clock, say=say, early=early))
         firing_moments(c, r, clock, wait=trail_wait)
         if model:
             model_calls(c, r, clock)
