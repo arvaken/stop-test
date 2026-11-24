@@ -246,7 +246,7 @@ def judge(beats: Iterable[Beat], fired_at: float | None, window: float, hold: fl
 # reads it "stopped", and the kit says so at once. It stays provisional: a success later in the window turns it into
 # "stopped, then succeeded again", which the result, the page and the final lines then say. Nothing here is written into
 # the result: the result is judged at the end, from every heartbeat, by `judge` alone.
-# CUSTOMER TEXT: draft, for the founder's approval (plan stage 3, 24 November 2026).
+# CUSTOMER TEXT: approved by the founder's "Approve, and build ready-made stop", 02:38:00 UTC on 24 November 2026 (plan stages 3 and 4 wording, lines 12 to 16).
 EARLY_STOPPED = ("So far: {path} stopped between {low:g} and {high:g} seconds after the stop, and has stayed stopped for "
                  "{hold:g} seconds. The kit keeps timing it until the window ends, so this can still change.")
 

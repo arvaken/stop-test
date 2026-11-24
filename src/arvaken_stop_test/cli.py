@@ -212,7 +212,7 @@ def times(n: int) -> str:
 
 # A quick run (plan stage 3, "Add a quick mode", 24 November 2026): one repeat with a 5-minute window, for an early answer.
 # The result is an ordinary result whose window is 5 minutes, and says so wherever its outcomes are worded.
-# CUSTOMER TEXT: draft, for the founder's approval (plan stage 3, 24 November 2026).
+# CUSTOMER TEXT: approved by the founder's "Approve, and build ready-made stop", 02:38:00 UTC on 24 November 2026 (plan stages 3 and 4 wording, lines 12 to 16).
 QUICK_WINDOW = 5 * 60.0
 QUICK_HELP = "an early answer: one repeat, timed for 5 minutes after the stop"
 QUICK_LINE = ("This is a quick run: each path is timed for 5 minutes after the stop, once. A pass the test agent took "
