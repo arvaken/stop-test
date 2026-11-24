@@ -5,7 +5,6 @@ of its own, or uses a test copy of one of your own agents, fires the stop you ha
 unless you fire your own, and times what actually stops. When it finishes, it removes the stop it fired and everything
 it made.
 
-<!-- CUSTOMER TEXT: from "The kit sends Arvaken nothing" to "the resources the test used.", approved by the founder, word for word, 03:53:09 UTC on 14 November 2026 ("Approve both as written (Recommended)") -->
 You run it yourself. Arvaken never runs tests in your account. The kit sends Arvaken nothing about your account, unless
 you name a gateway or a subnet for the test agent's calls, or run it on a test copy of your own agent. Then the address
 they leave from may be your own, and is recorded as below, and whoever runs your gateway sees the calls that pass
@@ -48,6 +47,8 @@ https://arvaken.com/stop-test/terms.
 
 AWS, with Lambda and Amazon Bedrock AgentCore, and Google Cloud. Azure follows.
 
+New to the kit? [QUICKSTART.md](QUICKSTART.md) is the shortest way through this guide.
+
 ## What it makes in your account
 
 One CloudFormation stack, `arvaken-stop-test-<run>`, whose resources are each named with that prefix and tagged
@@ -72,7 +73,6 @@ During a run, the kit invokes the test agent about once a second, and each time 
 
 With `--model`, it also tries a fifth: a call to a model (see [A call to a model](#a-call-to-a-model)).
 
-<!-- CUSTOMER TEXT: approved by the founder, word for word, 30 October 2026 -->
 On Lambda, the test agent keeps its clients, and their connections to AWS, from one call to the next while Lambda keeps
 its environment, as AWS's own libraries do.
 <!-- [source: aws-lambda-best-practices-clients-outside-handler, aws-botocore-max-pool-connections] -->
@@ -83,7 +83,6 @@ there is named for you to delete.
 
 ## Install
 
-<!-- CUSTOMER TEXT: approved by the founder, word for word, 22:07:47 UTC on 2 November 2026 ("Approve as written") -->
 You need Python 3.11 or later; for AWS, credentials where the AWS command line finds them, for an account in the AWS
 partition `aws` (the kit can't yet run in the China Regions or the AWS GovCloud (US) Regions); for Google Cloud, the
 Google Cloud CLI (`gcloud`), signed in.
@@ -162,8 +161,13 @@ And if you wish:
 
 - `--window`: how long after the stop each path is timed, such as `20m`; 15 minutes by default.
 - `--repeats`: 1 to 5. Between repeats, the kit takes the stop off and waits until the agent's own calls work again.
+- `--quick`: an early answer: one repeat, timed for 5 minutes after the stop. A pass the test agent took before the
+  stop, such as a session of another role or a token, may keep working past 5 minutes, and only a full run (15 minutes
+  or more, up to 5 repeats) times that.
 
-In our own runs, one repeat took about 20 minutes, and five about 80.
+In our own runs, one repeat took about 20 minutes, and five about 80. While a stop the kit fires is timed, the kit says
+each path's answer as soon as it is known: once a path's calls have been refused for 30 seconds in a row. That answer
+can still change, if a call gets through later in the window; the result is judged at the end, from every call.
 
 A run writes three files where you ran it:
 
@@ -261,12 +265,10 @@ minutes after your mark, or longer if you give `--window` (15m or more) before t
 says so, and you can turn your switch off. A run through a gateway is timed once and not repeated, since only you can
 take its stop off.
 
-<!-- CUSTOMER TEXT: the founder's own words, D655 (b) and open tunnels 3, 30 October 2026 -->
 Switching your gateway off can't be measured as a stop: to the kit it looks the same as a broken network. Use a rule on
 your gateway that refuses calls, such as a filter or a closed port. A rule on your gateway may not reach a connection
 already open through it. The kit keeps its connections open, as AWS's own libraries do, so its times include that.
 
-<!-- CUSTOMER TEXT: approved by the founder, word for word, 01:22 UTC on 31 October 2026 -->
 <!-- Sources, read 31 October 2026: tinyproxy 1.11.1's src/main.c, lines 317-318 (-d sets daemonized = FALSE) and
 399-400 (SIGHUP's handler is set only if daemonized, SIGUSR1's always; both reload),
 https://github.com/tinyproxy/tinyproxy/blob/1.11.1/src/main.c ; Ubuntu noble-updates' debian/tinyproxy.service
@@ -277,7 +279,6 @@ If your gateway is tinyproxy on Ubuntu, load a changed rule with `sudo systemctl
 SIGUSR1. A SIGHUP stops it there: Ubuntu's service runs tinyproxy in the foreground (`-d`), and tinyproxy 1.11.1 takes
 SIGHUP as a reload only when it runs as a daemon.
 
-<!-- CUSTOMER TEXT: approved by the founder, word for word, 30 October 2026 (D655, (c)) -->
 A refusal from a gateway that inspects TLS (`--ca-bundle`), made inside the connection it opened, and any refusal
 from a gateway reached over `https://`, read "not measured" for now: the kit can't yet tell them from AWS's own.
 
@@ -305,8 +306,6 @@ Each thing is named with the run and tagged `arvaken-stop-test=<run>`:
 - a second role, which only the test agent's role may assume;
 - with `--model`, the test agent's role may also call the model you name, and nothing else of Amazon Bedrock's. Both
   roles then carry the kit's boundary for a model, `arvaken-stop-test-boundary-model`, as on Lambda.
-  <!-- CUSTOMER TEXT: approved by the founder, 20:05:12 UTC on 14 November 2026, word for word (the Run 1 kit brief,
-  section 5, item 4(a)) -->
 - an S3 bucket, `arvaken-stop-test-<run>`, private and encrypted, holding the test agent's code and the objects its
   paths write.
 
@@ -322,8 +321,6 @@ For every stop, the kit measures two things:
   of the four paths about once a second, as on Lambda, and, with `--model`, calls the model once with each try, asking
   for one token, and reports each try on the call's streaming response. If the session ends, each of its paths reads as
   refused from then on.
-  <!-- CUSTOMER TEXT: "and, with `--model`, calls the model once with each try, asking for one token," approved by
-  the founder, 20:05:12 UTC on 14 November 2026, word for word (the Run 1 kit brief, section 5, item 4(b)) -->
 
 When the run ends, the kit takes off the stop it fired, deletes what it made, and checks each thing by its own
 identifier: the runtime, its endpoints, its workload identity, its code, the bucket, both roles, any log group and the
@@ -338,8 +335,6 @@ stop-test agentcore plan --deny-calls --region eu-central-1
 stop-test agentcore run --deny-calls --region eu-central-1
 stop-test agentcore run --deny-calls-and-end-sessions --model openai.gpt-oss-20b-1:0 --trail --region eu-central-1
 ```
-<!-- CUSTOMER TEXT: the example with --model approved by the founder, 20:05:12 UTC on 14 November 2026, word for word
-(the Run 1 kit brief, section 5, item 4(d)) -->
 
 Name the stop with one of:
 
@@ -360,8 +355,6 @@ trail and its bucket, it copies their records into a folder beside the result, `
 SHA-256. Without `--trail`, that moment is the kit's own clock, and the details say so. AWS charges for a trail's data
 events.
 
-<!-- CUSTOMER TEXT: approved by the founder, 20:05:12 UTC on 14 November 2026, word for word (the Run 1 kit brief,
-section 5, item 4(c)) -->
 With `--model`, the kit also reads CloudTrail's event history, which holds Amazon Bedrock's calls to a model, for the
 test agent's calls to it, 15 minutes after the last window. It keeps the records it read in the same folder, with the
 SHA-256 of the file. AWS bills each call to the model to your account.
@@ -407,9 +400,7 @@ For every stop, the kit measures three things:
   <!-- [source: aws-agentcore-harness-tools-reasoning, aws-agentcore-harness-execute-command] -->
 - **Its model.** About once a second, the kit asks the harness something in that session, and the harness calls its
   model as its role. <!-- [source: aws-agentcore-harness-bedrock-role] --> AWS bills each call to your account. A call
-  refused by a rate limit is never counted as stopped. <!-- CUSTOMER TEXT: this sentence as the founder changed it,
-  word for word, by 01:37:35 UTC on 2 November 2026, in place of "A call refused for a limit on your account is never
-  counted as stopped." -->
+  refused by a rate limit is never counted as stopped.
 - **New calls to the agent.** About once a second, the kit runs a command that does nothing, each in a new session of
   the harness's.
 
@@ -488,7 +479,6 @@ stop-test google clean --run <run> --project my-test-project --region europe-wes
 
 ## On a test copy of your own agent
 
-<!-- CUSTOMER TEXT: approved by the founder, word for word, 18:06:47 UTC on 2 November 2026 (part 2) -->
 On AWS, the kit can also run on a test copy of one of your own agents, in place of its own test agent: a Lambda function
 or an Amazon Bedrock AgentCore runtime. You deploy the copy with the kit's probe in it. The kit calls the copy about
 once a second, and the probe tries the same four paths as the kit's test agent, from inside your copy. The kit never
@@ -533,8 +523,6 @@ The result says which it used.
 
 ### What it makes in your account
 
-<!-- CUSTOMER TEXT: approved by the founder, word for word, 18:06:47 UTC on 2 November 2026 (part 3); the second
-paragraph approved by the founder, word for word, 17:10:07 UTC on 2 November 2026 ((c) (1)) -->
 On Lambda, one CloudFormation stack, `arvaken-stop-test-<run>`, with no function: the role your copy runs as for the
 test, `arvaken-stop-test-<run>-agent`, a second role and a bucket, as for the kit's own test agent. On AgentCore, the
 same two roles and a bucket, and no code and no runtime.
@@ -555,7 +543,6 @@ your copy runs as the run's role before it times anything. When the run ends, it
 no longer runs as it; until then, it names the role for you to delete. On Lambda, a copy whose settings are encrypted
 with your own key is refused before anything is made, since the run's role can't use that key.
 
-<!-- CUSTOMER TEXT: approved by the founder, word for word, 19:00:00 UTC on 2 November 2026 ("Approve as written") -->
 A copy in your VPC calls from your network, as your agent does: each path reaches only what your subnets' routes and
 endpoints let it reach. A path that doesn't work before the stop is reported as not run; where you name a model, its call
 must work before anything is timed. The run's role's network actions aren't limited to calls from your copy: Lambda makes
@@ -569,9 +556,6 @@ stop-test aws plan --copy arn:aws:lambda:eu-central-1:111122223333:function:my-a
 stop-test agentcore plan --copy arn:aws:bedrock-agentcore:eu-central-1:111122223333:runtime/my_agent_test-abc123 --inline-deny --tool none --model-kind "no model" --region eu-central-1
 ```
 
-<!-- CUSTOMER TEXT: approved by the founder, word for word, 18:06:47 UTC on 2 November 2026 (part 3); each flag's words
-after it are the kit's own help, approved at 01:15:37 UTC on 2 November 2026, and its lists, approved by 19:02:12 UTC on
-1 November 2026 -->
 With `--copy`, name the stop with `--stop <ARN>` or `--inline-deny`, fired on the run's role alone, or on Lambda
 `--revoke-sessions`, on the run's two roles; or with `--sdk` (below). Name also:
 
@@ -591,10 +575,6 @@ files: the result, in the format `stop-test-result/3`, and its details.
 
 ### An in-agent SDK's switch
 
-<!-- CUSTOMER TEXT: approved by the founder, word for word, 18:06:47 UTC on 2 November 2026 (part 4); the --sdk line
-approved by the founder, word for word, 17:10:07 UTC on 2 November 2026 ((c) (2)); the witness paragraph, the founder's
-own words, 01:08:36 UTC on 2 November 2026 (D722); the CloudTrail sentence approved by the founder, word for word,
-17:34:43 UTC on 2 November 2026 -->
 If your stop is an in-agent SDK's switch, name the SDK with `--sdk`, in place of a stop:
 
 - `--sdk`: your in-agent SDK's name, in your own words, 1 to 200 characters. It's shown as you wrote it. The kit doesn't
@@ -621,8 +601,6 @@ copy's calls to the model 15 minutes after the window ends, so the run ends at l
 
 ### On Google Cloud
 
-<!-- CUSTOMER TEXT: approved by the founder, word for word, by 19:45 UTC on 3 November 2026 (the Google copy, README (1)
-to (6)) -->
 On Google Cloud, the kit can run on a test copy that is a Cloud Run service, in the project and region you run the kit
 in. The probe tries the same four paths as the kit's Google test agent, from inside your copy. On Google Cloud it needs
 Python 3.9 or later and nothing else. Check its signature as on AWS, then install it in your copy's image:
@@ -670,14 +648,11 @@ With `--copy`, name the stop with `--stop <name>`, `--deny-all` or `--disable-ac
 alone, or with `--sdk`, as on AWS. Name `--tool` and `--model-kind` as on AWS. `--model` isn't offered on Google
 Cloud. `--window` and `--repeats` work as for the kit's own test agent.
 
-<!-- CUSTOMER TEXT: approved by the founder, word for word, by 20:05 UTC on 3 November 2026 (the Google copy, clean (3))
--->
 If a run on your copy could not clean up, give `stop-test google clean` your copy's name with `--copy` as well: it
 deletes the run's account only once your copy no longer runs as it.
 
 ### What Arvaken's test address sees
 
-<!-- CUSTOMER TEXT: approved by the founder, word for word, 17:50:03 UTC on 2 November 2026 (lines 1 and 2) -->
 On a test copy of yours, the probe's call with a key and its open-internet call reach Arvaken's test address from your
 copy: the address recorded is the one your copy's calls leave from, which is your own if the copy runs in a network of
 yours, and on Lambda's default network an AWS address. With your SDK's switch, the kit's witness also calls the test
@@ -685,8 +660,6 @@ address once a second, with no key, from the machine you run the kit on: the add
 calls leave from, which is your own network's if the machine is in one. Cloudflare keeps each of those addresses, with
 its network and country, for 31 days, as Arvaken's description of what Cloudflare records says above.
 
-<!-- CUSTOMER TEXT: approved by the founder, word for word, by 19:45 UTC on 3 November 2026 (the Google copy, README (7))
--->
 On Cloud Run's default network, the address your copy's calls leave from is one from Google's dynamic pool, not one of
 your project's.
 
@@ -699,15 +672,6 @@ what Cloudflare keeps.
 
 ## On a host you control
 
-<!-- CUSTOMER TEXT: approved by the founder, word for word, on 15 November 2026 (D709's words): from "On a host
-you control" through "Run it", batch 1, at 00:23:28 UTC (record 305773c5-34b7-4290-afd5-b27b0629277a); from "When a
-path reads stopped on a host" to the result's `host` part, batch 2, at 00:25:28 UTC (record
-974fa121-086a-4559-9f3c-54b2016df08b); and from the `host` part to the section's end, batch 3, at 00:26:21 UTC (record
-11754600-e427-4184-bbae-6dd8f47daf5e).
-What it describes follows the build's five points the founder approved as recommended at 23:54:13 UTC on 14 November
-2026 (record 739f7db3-ecd6-4c62-8dd2-e6ef487e65a1): timed from your mark, the record beside it (1); no cloud path yet
-(2); host software's stop alone (3); the result written where the kit runs, named at teardown (4); one export, two
-entries of the host's state (5). -->
 The kit can time a stop on a test copy of your agent that runs on a host you control: a server, a virtual machine or a
 container host, in any cloud or none. On a host there is no cloud stop for the kit to fire. You fire your own stop,
 with the host software that stops agents there, after your mark. The kit fires nothing and changes nothing on your
@@ -824,8 +788,6 @@ the rest, as a result's is. It never holds the run's keys.
 
 ## What counts as stopped
 
-<!-- CUSTOMER TEXT: approved by the founder, word for word, 30 October 2026 (his refusal ruling of 29 October 2026,
-GENERAL: "the README lists, per stop kind, which refusals count") -->
 
 After the stop, a call counts as stopped only where the stop itself refused it. Any other failure, such as a throttle,
 a server error, a timeout or a lost connection, is not counted: it is neither stopped nor a success, and the page shows
@@ -847,13 +809,6 @@ it by its code. A refusal counts only on a path that worked before it.
 google-storage-403-insufficient-permissions, google-storage-401-auth-error, aws-bedrock-converse-access-denied,
 aws-agentcore-invoke-access-denied, aws-agentcore-invoke-harness-access-denied, aws-agentcore-stop-session-not-found,
 aws-bedrock-runtime-management-events, aws-cloudtrail-event-time] -->
-<!-- CUSTOMER TEXT: the AWS row's model path approved by the founder, word for word, 30 October 2026 -->
-<!-- CUSTOMER TEXT: the --via row approved by the founder, word for word, 30 October 2026 (D655) -->
-<!-- CUSTOMER TEXT: the three AgentCore rows approved by the founder, word for word, 30 October 2026 -->
-<!-- CUSTOMER TEXT: in the AgentCore rows for `--stop` or `--inline-deny` and for `--deny-calls-and-end-sessions`, the
-words on a call to a model approved by the founder, 20:05:12 UTC on 14 November 2026, word for word (the Run 1 kit
-brief, section 5, item 5, with "a call to a model that worked", as his ruling at 19:54:20 UTC that day has it) -->
-<!-- CUSTOMER TEXT: the --sdk row approved by the founder, word for word, 18:06:47 UTC on 2 November 2026 (part 4) -->
 
 A path whose calls after the stop were all not counted, or that was answered after the stop and then had nothing counted
 until the window ended, reads "not measured": the kit cannot say whether the stop stopped it.
@@ -906,10 +861,6 @@ The kit runs with your own credentials. To give it only what a run needs, use th
   <!-- [source: aws-sar-agentcore-create-agent-runtime, aws-sar-agentcore-delete-agent-runtime,
   aws-sar-agentcore-invoke-agent-runtime, aws-sar-agentcore-delete-workload-identity,
   aws-sar-agentcore-get-workload-identity] -->
-  <!-- CUSTOMER TEXT: "an IAM policy that lets its holder make a role only under the kit's boundary, ...", in place of
-  "an IAM policy under the same boundary", approved by the founder, word for word, 01:41 UTC on 31 October 2026 -->
-  <!-- CUSTOMER TEXT: "its boundary for a model, `arvaken-stop-test-boundary-model`," approved by the founder,
-  20:05:12 UTC on 14 November 2026, word for word (the Run 1 kit brief, section 5, item 6) -->
 
   On a harness, attach a second policy beside it,
   [`permissions/aws-agentcore-harness-policy.json`](permissions/aws-agentcore-harness-policy.json). Its statements name
@@ -932,7 +883,6 @@ The kit runs with your own credentials. To give it only what a run needs, use th
 - **A test copy:** the kit's own policy doesn't reach your copy. Attach a second policy beside it,
   [`permissions/aws-copy-policy.json`](permissions/aws-copy-policy.json), with your copy's region, account and name, or
   runtime ID, in place of the capitals. It lets the kit read your copy's settings and call it, and nothing else.
-  <!-- CUSTOMER TEXT: approved by the founder, word for word, 18:06:47 UTC on 2 November 2026 (part 4) -->
 - **Google Cloud:** [`permissions/google-role.yaml`](permissions/google-role.yaml), a custom role for your test project:
 
   ```
@@ -941,8 +891,6 @@ The kit runs with your own credentials. To give it only what a run needs, use th
 
   To fire a deny policy, you also need the Deny Admin role (`roles/iam.denyAdmin`) on your organization.
 
-  <!-- CUSTOMER TEXT: approved by the founder, word for word, by 19:45 UTC on 3 November 2026 (the Google copy, README
-  (8)) -->
   On a test copy, this role is enough: it lets the kit read and call every Cloud Run service in your test project, not
   your copy alone. Pointing your copy at the run's account and back is yours to do, with your own permission to update
   your copy and to act as each account.

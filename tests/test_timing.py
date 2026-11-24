@@ -194,3 +194,28 @@ def test_one_rate_limit_among_access_denied_refusals_on_a_stop_the_kit_fires_sti
     calls = [Beat(b.at, False, "TooManyRequestsException", status=429) if b.at == 1100 else b for b in calls]
     r = judged(calls)
     assert (r.outcome, r.stopped_at) == (STOPPED, 1001) and r.not_counted == {"TooManyRequestsException": 1}
+
+
+# ---- an early answer while the window runs (timing.Early; plan stage 3, 24 November 2026) -------------------------------
+def test_an_early_answer_is_said_once_the_hold_has_passed_and_only_once():
+    from arvaken_stop_test.timing import EARLY_STOPPED, Early
+    said: list[str] = []
+    early = Early(said.append, WINDOW)
+    so_far = {"own_calls": beats((990, 1012, True), (1012, 1030, False)), "open_internet": beats((990, 1030, True))}
+    assert early.check(so_far, FIRED, so_far, lambda p: denied) == []          # 18 s of refusals: not yet held
+    so_far["own_calls"] += beats((1030, 1045, False))
+    assert early.check(so_far, FIRED, so_far, lambda p: denied) == ["own_calls"]
+    assert said == [EARLY_STOPPED.format(path="its own calls to the cloud", low=11, high=12, hold=30)]
+    so_far["own_calls"] += beats((1045, 1050, False))
+    assert early.check(so_far, FIRED, so_far, lambda p: denied) == [] and len(said) == 1
+    early.next_repeat()
+    assert early.check(so_far, FIRED, so_far, lambda p: denied) == ["own_calls"]     # said again for the next repeat
+
+
+def test_no_early_answer_before_the_stop_is_fired_or_for_a_path_that_keeps_working():
+    from arvaken_stop_test.timing import Early
+    said: list[str] = []
+    early = Early(said.append, WINDOW)
+    so_far = {"open_internet": beats((990, 1200, True))}
+    assert early.check(so_far, None, so_far, lambda p: denied) == []
+    assert early.check(so_far, FIRED, so_far, lambda p: denied) == [] and said == []

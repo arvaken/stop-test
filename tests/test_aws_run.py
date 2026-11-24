@@ -629,8 +629,11 @@ def test_a_path_that_never_worked_before_the_stop_is_not_run_and_the_page_says_w
     r, doc = a_run(FakeAWS(clock, endpoint_error="HTTP403"), clock, say=said.append)
     assert {p: v["outcome"] for p, v in doc["repeats"][0].items()} == {
         "own_calls": "stopped", "another_identity": "not stopped", "outside_key": "not run", "open_internet": "not run"}
-    assert said == [f"Before the stop, {words} did not work (HTTP403 {running.WARM_UP}): it will be reported as not run."
-                    for words in ("a key for a service outside the cloud", "the open internet")]
+    assert said[:2] == [f"Before the stop, {words} did not work (HTTP403 {running.WARM_UP}): it will be reported as not run."
+                        for words in ("a key for a service outside the cloud", "the open internet")]
+    from arvaken_stop_test.timing import EARLY_STOPPED
+    # the one path that stopped is said the moment its refusals held, before the window ends (timing.Early)
+    assert said[2:] == [EARLY_STOPPED.format(path="its own calls to the cloud", low=7.3, high=8.5, hold=30)]
     from arvaken_stop_test import report
     page = report.page(doc, [d for _, d in running.results(r)])
     assert page.count(f"the path could not be set up: HTTP403 {running.WARM_UP}") == 2

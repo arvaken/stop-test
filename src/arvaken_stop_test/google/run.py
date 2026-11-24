@@ -31,7 +31,7 @@ from arvaken_stop_test import __version__, refusals, result
 from arvaken_stop_test.google import fire as firing
 from arvaken_stop_test.google.api import Google, GoogleError
 from arvaken_stop_test.google.stack import IAM, MEMORY_MB, RUN, RUNTIME, STORAGE, deploy, names, quoted
-from arvaken_stop_test.timing import HOLD, NOT_MEASURED, PATH_WORDS, WINDOWS, Beat, PathResult, judge
+from arvaken_stop_test.timing import HOLD, NOT_MEASURED, PATH_WORDS, WINDOWS, Beat, Early, PathResult, judge
 
 GOOGLE_PATHS = ("own_calls", "another_identity", "outside_key", "open_internet")
 WARM_UP = 10
@@ -245,8 +245,8 @@ def _did_not_work(r: Run, p: str) -> str:
 def time_one(g: Google, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
              before: dict[str, list[Beat]] | None = None, mark: Callable | None = None,
              say: Callable[[str], None] = lambda _: None, marked: str = "",
-             each_second: Callable[[], None] | None = None) -> Repeat:
-    """One repeat, as aws/run.py's: `before` is each path's heartbeats before the firing. On a copy with an SDK's
+             each_second: Callable[[], None] | None = None, early: Early | None = None) -> Repeat:
+    """One repeat, as aws/run.py's, `early` too: `before` is each path's heartbeats before the firing. On a copy with an SDK's
     switch, `mark` is given the heartbeat to make each second while the kit waits for your mark, and gives back the
     kit's clock when you pressed Enter, as on Lambda; `each_second` is what the kit does beside each heartbeat after it
     (the witness)."""
@@ -287,6 +287,10 @@ def time_one(g: Google, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
             rep.beats.setdefault(p, []).append(b)
         if each_second is not None:
             each_second()
+        if early is not None:
+            kind = r.counted_kind
+            early.check(rep.beats, rep.fired_before + r.offset, GOOGLE_PATHS,
+                        lambda p: lambda b, before: refusals.counts(kind, p, b, before))
         n += 1
         clock.sleep(1.0)
     return rep
@@ -615,6 +619,7 @@ def run(g: Google, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", w
     r = Run(run=run_name or new_run(), stop_ref=stop_ref, fired_by=fired_by, window=window, project=g.project,
             region=g.region, permissions=permissions)
     r.began_at = clock.now()
+    early = Early(say, window) if fired_by == "the kit" else None      # an early answer, as on Lambda
     try:
         r.outputs = deploy(g, r.run, endpoint, sleep=clock.sleep)
         warm_up(g, r, assume(g, r, clock), clock)
@@ -625,7 +630,9 @@ def run(g: Google, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", w
         for i in range(repeats):
             if i:
                 before = recover(g, r, clock)
-            rep = time_one(g, r, clock, fired_by == "your own trigger", n, before)
+            if early is not None:
+                early.next_repeat()
+            rep = time_one(g, r, clock, fired_by == "your own trigger", n, before, early=early)
             r.repeats.append(rep)
             n += sum(len(b) for b in rep.beats.values())
         firing_moments(g, r, clock, wait=log_wait)

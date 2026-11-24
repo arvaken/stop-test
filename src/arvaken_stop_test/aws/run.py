@@ -69,7 +69,7 @@ from arvaken_stop_test import __version__, refusals, result
 from arvaken_stop_test.aws import fire as firing
 from arvaken_stop_test.aws.stack import MEMORY_MB, RUNTIME, TAG, is_model_id, names, template_body
 from arvaken_stop_test.timing import (GATEWAY_WINDOW, HOLD, NOT_MEASURED, NOT_RUN, PATH_WORDS, REFUSED_AT_THE_MARK,
-                                      WINDOWS, Beat, PathResult, judge)
+                                      WINDOWS, Beat, Early, PathResult, judge)
 
 AWS_PATHS = ("own_calls", "another_identity", "outside_key", "open_internet")
 MODEL = "model"              # the optional fifth path, for a run given a model (timing.PATHS)
@@ -486,7 +486,8 @@ def _did_not_work(r: Run, p: str) -> str:
 def time_one(c: Clients, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
              before: dict[str, list[Beat]] | None = None, mark: Callable[[], object] | None = None,
              say: Callable[[str], None] = lambda _: None, marked: str = MARKED,
-             each_second: Callable[[], None] | None = None, calling_to_the_mark: bool = False) -> Repeat:
+             each_second: Callable[[], None] | None = None, calling_to_the_mark: bool = False,
+             early: Early | None = None) -> Repeat:
     """One repeat: fire (or wait for the customer's own trigger, or their mark), then a heartbeat a second through the
     window and the hold. `before` is each path's heartbeats before the firing: the warm-up's, or those since the last
     stop was taken off. Through a gateway, the session for the other identity is taken through it, before the mark:
@@ -494,7 +495,8 @@ def time_one(c: Clients, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
     `each_second` what it does beside each heartbeat after it (for an SDK's stop on a copy, its witness: sdk.py). With
     `calling_to_the_mark`, the heartbeats go on while the kit waits for the mark: `mark` is given the heartbeat to make
     each second, and gives back the kit's clock when the customer pressed Enter (an SDK's stop on a copy: the founder's
-    answer at 17:34:43 UTC on 2 November 2026, "Keep calling until the mark")."""
+    answer at 17:34:43 UTC on 2 November 2026, "Keep calling until the mark"). `early` says each path's verdict the
+    moment the heartbeats so far read it stopped (timing.Early): a stop the kit fires, on the kit's test agent."""
     rep = Repeat()
     for p, beats in (before or {}).items():
         rep.beats.setdefault(p, []).extend(beats)
@@ -541,6 +543,8 @@ def time_one(c: Clients, r: Run, clock: Clock, watch_own_trigger: bool, n0: int,
             rep.beats.setdefault(p, []).append(b)
         if each_second is not None:
             each_second()
+        if early is not None:
+            early.check(rep.beats, rep.fired_before + r.offset, r.paths, lambda p: _counts(r, r.counted_kind, p))
         n += 1
         clock.sleep(1.0)
     return rep
@@ -1036,7 +1040,8 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", 
         repeats: int = 1, clock: Clock | None = None, run_name: str | None = None,
         trail_wait: float = TRAIL_WAIT, say: Callable[[str], None] = lambda _: None, via: str = "", ca: str = "",
         product: dict[str, str] | None = None, subnet: str = "", security_groups: tuple[str, ...] | list[str] = (),
-        mark: Callable[[], object] | None = None, eni_wait: float = ENI_WAIT, model: str = "") -> tuple[Run, dict]:
+        mark: Callable[[], object] | None = None, eni_wait: float = ENI_WAIT, model: str = "",
+        say_early: bool = True) -> tuple[Run, dict]:
     """A whole run, torn down whatever happens. Returns the run's record and its signed result. `say` is told, as the
     run goes, of a path that did not work before the stop. With `model` (a Bedrock model's ID or an inference
     profile's), the agent also calls it with each heartbeat, as a fifth path; where that call did not work before the
@@ -1088,6 +1093,9 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", 
             product=dict(product) if product else None, subnet=subnet, security_groups=list(security_groups),
             model=model)
     r.began_at = clock.now()
+    # an early answer for a stop the kit fires (timing.Early): through a gateway, or by your own trigger, the firing
+    # moment is the customer's mark or CloudTrail's, known only later
+    early = Early(say, window) if say_early and fired_by == "the kit" and not via else None
     try:
         deploy(c, r, endpoint, clock, before)
         first = assume_or_none(c, r, clock) if via else assume(c, r, clock)
@@ -1106,8 +1114,10 @@ def run(c: Clients, stop_ref: str, *, endpoint: str, fired_by: str = "the kit", 
         for i in range(repeats if not r.repeats else 0):
             if i:
                 before = recover(c, r, clock)
+            if early is not None:
+                early.next_repeat()
             rep = time_one(c, r, clock, fired_by == "your own trigger", n, before, mark=mark if via else None,
-                           say=say)
+                           say=say, early=early)
             r.repeats.append(rep)
             n += sum(len(b) for b in rep.beats.values())
             if via:

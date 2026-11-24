@@ -238,3 +238,45 @@ def judge(beats: Iterable[Beat], fired_at: float | None, window: float, hold: fl
     if tail and tail[0].at <= fired_at + window and tail[-1].at - tail[0].at >= hold:
         return PathResult(NOT_MEASURED, reason=NOTHING_COUNTED_AFTER.format(time=_clock(kept[-1].at)), **common)
     return PathResult(NOT_STOPPED, **common)
+
+
+# ---- an early answer, while the window runs (plan stage 3, "Show results as they land", 24 November 2026) ---------------
+# A full run is 20 minutes a repeat. Each path's verdict is said the moment it is known, not only at the end: once a path's
+# counted refusals have held for HOLD seconds, within the window and with no success after them, the rule above already
+# reads it "stopped", and the kit says so at once. It stays provisional: a success later in the window turns it into
+# "stopped, then succeeded again", which the result, the page and the final lines then say. Nothing here is written into
+# the result: the result is judged at the end, from every heartbeat, by `judge` alone.
+# CUSTOMER TEXT: draft, for the founder's approval (plan stage 3, 24 November 2026).
+EARLY_STOPPED = ("So far: {path} stopped between {low:g} and {high:g} seconds after the stop, and has stayed stopped for "
+                 "{hold:g} seconds. The kit keeps timing it until the window ends, so this can still change.")
+
+
+class Early:
+    """Says each path's early answer once per repeat (`say`), from the heartbeats so far. `counts_for(path)` is the
+    path's refusal rule, as `judge` takes it; the firing moment is by the kit's clock just before the call that fired,
+    moved onto the agent's, so an early time errs toward slower, as the kit's times do."""
+
+    def __init__(self, say: Callable[[str], None], window: float, hold: float = HOLD) -> None:
+        self.say, self.window, self.hold = say, window, hold
+        self.said: set[str] = set()
+
+    def next_repeat(self) -> None:
+        self.said = set()
+
+    def check(self, beats: dict[str, list[Beat]], fired_at: float | None, paths: Iterable[str],
+              counts_for: Callable[[str], Callable[[Beat, Sequence[Beat]], bool]]) -> list[str]:
+        """Each path newly read "stopped" from these heartbeats, said and returned."""
+        if fired_at is None:
+            return []
+        new = []
+        for p in paths:
+            if p in self.said or not beats.get(p):
+                continue
+            found = judge(beats[p], fired_at, self.window, self.hold, counts=counts_for(p))
+            if found.outcome == STOPPED and found.effect_between is not None:
+                low, high = found.effect_between
+                self.said.add(p)
+                new.append(p)
+                self.say(EARLY_STOPPED.format(path=PATH_WORDS.get(p, p), low=round(low, 1), high=round(high, 1),
+                                              hold=self.hold))
+        return new
