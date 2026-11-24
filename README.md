@@ -347,6 +347,10 @@ Name the stop with one of:
 is watched on one streaming response. Each call to the test agent starts a session of its own, about a thousand in a run
 of one repeat, and AWS bills each session's use to your account.
 
+The kit says a path's answer early here too, but only for the running session's own paths, and not with
+`--deny-calls-and-end-sessions`: new calls are read at the window's end, a call to a model may yet be found not
+measured, and a session ended is checked against what it wrote afterwards.
+
 The moment each stop was fired is CloudTrail's record of the call: IAM's for a policy on the role, AgentCore's for the
 deny. Ending a session is recorded as a data event, which CloudTrail's event history does not hold. With `--trail`, the
 kit makes a trail of the run's own, recording only the data events of the test agent and of its bucket's objects, into a

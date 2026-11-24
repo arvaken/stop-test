@@ -1710,3 +1710,23 @@ def test_the_kit_reads_the_models_calls_15_minutes_after_the_last_window_at_most
     first_at, last_at = running._moment(r, first, "model")[0], running._moment(r, last, "model")[0]
     [(start, end)] = {(s, e) for _, s, e in aws.model_lookups}
     assert start == pytest.approx(first_at - 61.0) and end == pytest.approx(last_at + r.window + running.HOLD + 5.0)
+
+
+def test_a_session_path_that_stopped_is_said_early_once_a_repeat_and_nothing_else_is():
+    """The plan, stage 3, "Answer early" on AgentCore: a policy on the role stops the running session's own calls, and
+    the kit says so the moment its refusals held, once in each repeat. New calls are read only at the window's end, so
+    they are never said early; and a stop that ends the session is checked against what it wrote after, so it says
+    nothing early either."""
+    from arvaken_stop_test.timing import EARLY_STOPPED
+    clock = Clock()
+    said: list[str] = []
+    r, doc = a_run(FakeAWS(clock), clock, DENY_ALL, repeats=2, say=said.append)
+    early = [s for s in said if s.startswith("So far:")]
+    assert len(early) == 2 and all("its own calls to the cloud stopped between" in s for s in early)
+    import re
+    pattern = re.escape(EARLY_STOPPED.format(path="its own calls to the cloud", low=1, high=2, hold=30))
+    assert all(re.fullmatch(pattern.replace("1", r"[\d.]+", 1).replace("2", r"[\d.]+", 1), s) for s in early)
+    said.clear()
+    clock = Clock()
+    a_run(FakeAWS(clock), clock, fire.DENY_AND_END, say=said.append)
+    assert not [s for s in said if s.startswith("So far:")]
