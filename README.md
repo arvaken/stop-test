@@ -47,6 +47,10 @@ https://arvaken.com/stop-test/terms.
 
 AWS, with Lambda and Amazon Bedrock AgentCore, and Google Cloud. Azure follows.
 
+Add `--send` to a run and, when it ends, the kit opens the send page with the result filled in, or prints its address
+where there is no browser. The kit itself sends nothing: the result travels in the address after `#`, which a browser
+never sends to a server, and nothing reaches Arvaken until you check it on the page and press its button.
+
 New to the kit? [QUICKSTART.md](QUICKSTART.md) is the shortest way through this guide.
 
 ## What it makes in your account

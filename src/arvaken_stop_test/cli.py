@@ -24,6 +24,7 @@ is refused (AGENTCORE_COPY_NO_MODEL), as D735 has "an AgentCore copy has no mode
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import re
 import sys
@@ -202,7 +203,47 @@ COPY_WROTE_WITNESS = ", and the kit's witness its checks, from the address this 
 def write(path: Path, text: str) -> None:
     """Every file the kit writes: UTF-8, with LF line endings on every platform, so a result's bytes and their SHA-256
     are the same wherever the kit ran (D536). Python's own default writes CRLF on Windows."""
+    global _RESULT
     path.write_text(text, encoding="utf-8", newline="\n")
+    if RESULT_FILE.fullmatch(path.name):
+        _RESULT = path
+
+
+# --send (the plan, stage 3; the founder's decision 3: the drill may send its result back, opt in). The kit sends nothing
+# itself: it opens Arvaken's send page in the browser with the result's own bytes after '#', which a browser never sends
+# to a server; the page checks them as it checks a chosen file, and nothing is sent until the person presses its button,
+# signed in, under the kit's terms. Without --send the kit opens nothing.
+# CUSTOMER TEXT: approved as written by the founder ("Approve as written", 13:03:05 UTC, 24 November 2026; D852).
+SEND_PAGE = "https://app.arvaken.com/stop-test/submit"
+SEND_HELP = "when the run ends, open Arvaken's send page with this result filled in; nothing is sent until you press Send"
+SEND_LINE = ("Opened Arvaken's send page with this result filled in. Nothing has been sent: check it there, and press the "
+             "button to send it under the kit's terms.")
+SEND_NO_BROWSER = ("To send this result to Arvaken, open this address in a browser where you can sign in. Nothing is sent "
+                   "until you press the button on that page:")
+RESULT_FILE = re.compile(r"stop-test-[A-Za-z0-9_.-]+(?<!-details)(?<!-arrivals)\.json")
+_RESULT: Path | None = None
+
+
+def send_address(result_path: Path, page: str = SEND_PAGE) -> str:
+    """The send page's address with the result's own bytes after '#', base64url without padding."""
+    return page + "#result=" + base64.urlsafe_b64encode(result_path.read_bytes()).decode().rstrip("=")
+
+
+def hand_over(result_path: Path, page: str = SEND_PAGE, opener=None) -> None:
+    """--send: the result's address opened in the browser where there is one, and said in full where there is none (a
+    cloud shell); the kit itself sends nothing."""
+    import webbrowser
+    address = send_address(result_path, page)
+    opened = False
+    try:
+        opened = bool((opener or webbrowser.open)(address))
+    except Exception:  # noqa: BLE001 - no browser is a reason to print the address, never to fail the run
+        opened = False
+    if opened:
+        print(SEND_LINE)
+    else:
+        print(SEND_NO_BROWSER)
+        print(address)
 
 
 def times(n: int) -> str:
@@ -1122,13 +1163,22 @@ def _host(args, p) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     """The kit's command. A refusal raised before anything is made (fire.Refused) is said in its own words, as a copy's
-    run says it, never as a traceback; one after a teardown (NotStarted) is said by its mode, with what was left."""
+    run says it, never as a traceback; one after a teardown (NotStarted) is said by its mode, with what was left. With
+    --send, a run that wrote its result opens the send page with it (hand_over)."""
     from arvaken_stop_test.aws.fire import Refused
+    global _RESULT
+    _RESULT = None
     try:
-        return _main(argv)
+        code = _main(argv)
     except Refused as e:
         print(str(e))
         return 1
+    if code == 0 and _SEND and _RESULT is not None:
+        hand_over(_RESULT, _SEND_PAGE)
+    return code
+
+
+_SEND, _SEND_PAGE = False, SEND_PAGE
 
 
 def _main(argv: list[str] | None = None) -> int:
@@ -1148,6 +1198,8 @@ def _main(argv: list[str] | None = None) -> int:
         a.add_argument("--window", type=_duration, default=WINDOWS["aws"], help=_window_help("aws"))
         a.add_argument("--repeats", type=int, default=1, help="1 to 5")
         a.add_argument("--quick", action="store_true", help=QUICK_HELP)
+        a.add_argument("--send", action="store_true", help=SEND_HELP)
+        a.add_argument("--send-page", default=SEND_PAGE, help=argparse.SUPPRESS)
         a.add_argument("--region", required=True)
         a.add_argument("--run", dest="run_name", help="the run's name, if you are resuming one")
         a.add_argument("--endpoint", default=ENDPOINT, help=argparse.SUPPRESS)
@@ -1182,6 +1234,8 @@ def _main(argv: list[str] | None = None) -> int:
         a.add_argument("--window", type=_duration, default=WINDOWS["aws"], help=_window_help("aws"))
         a.add_argument("--repeats", type=int, default=1, help="1 to 5")
         a.add_argument("--quick", action="store_true", help=QUICK_HELP)
+        a.add_argument("--send", action="store_true", help=SEND_HELP)
+        a.add_argument("--send-page", default=SEND_PAGE, help=argparse.SUPPRESS)
         a.add_argument("--region", required=True)
         a.add_argument("--run", dest="run_name", help="the run's name, if you are resuming one")
         a.add_argument("--endpoint", default=ENDPOINT, help=argparse.SUPPRESS)
@@ -1206,6 +1260,8 @@ def _main(argv: list[str] | None = None) -> int:
         a.add_argument("--window", type=_duration, default=WINDOWS["aws"], help=_window_help("aws"))
         a.add_argument("--repeats", type=int, default=1, help="1 to 5")
         a.add_argument("--quick", action="store_true", help=QUICK_HELP)
+        a.add_argument("--send", action="store_true", help=SEND_HELP)
+        a.add_argument("--send-page", default=SEND_PAGE, help=argparse.SUPPRESS)
         a.add_argument("--region", required=True)
         a.add_argument("--run", dest="run_name", help="the run's name, if you are resuming one")
         a.add_argument("--endpoint", default=ENDPOINT, help=argparse.SUPPRESS)
@@ -1225,6 +1281,8 @@ def _main(argv: list[str] | None = None) -> int:
         a.add_argument("--window", type=_duration, default=WINDOWS["google_cloud"], help=_window_help("google_cloud"))
         a.add_argument("--repeats", type=int, default=1, help="1 to 5")
         a.add_argument("--quick", action="store_true", help=QUICK_HELP)
+        a.add_argument("--send", action="store_true", help=SEND_HELP)
+        a.add_argument("--send-page", default=SEND_PAGE, help=argparse.SUPPRESS)
         a.add_argument("--project", required=True)
         a.add_argument("--region", required=True)
         a.add_argument("--run", dest="run_name", help="the run's name, if you are resuming one")
@@ -1264,6 +1322,9 @@ def _main(argv: list[str] | None = None) -> int:
     verify = sub.add_parser("verify", help="check a result file's format and signature")
     verify.add_argument("file", type=Path)
     args = p.parse_args(argv)
+    global _SEND, _SEND_PAGE
+    _SEND = bool(getattr(args, "send", False)) and getattr(args, "action", "") == "run"
+    _SEND_PAGE = getattr(args, "send_page", SEND_PAGE)
     if getattr(args, "quick", False):
         _quick(args, p)
 
