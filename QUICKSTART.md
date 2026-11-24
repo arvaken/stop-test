@@ -1,8 +1,5 @@
 # Stop test: quick start
 
-<!-- Draft (plan stage 3, 24 November 2026). The full guide, README.md, stays the
-reference: every promise the kit makes is there, and this page only points to it. -->
-
 The kit puts a test agent of its own in your cloud account, fires your stop on that test agent alone, and times what
 actually stops. Then it removes everything it made. Run it in an account you use for testing.
 
