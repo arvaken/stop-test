@@ -213,7 +213,7 @@ def write(path: Path, text: str) -> None:
 # itself: it opens Arvaken's send page in the browser with the result's own bytes after '#', which a browser never sends
 # to a server; the page checks them as it checks a chosen file, and nothing is sent until the person presses its button,
 # signed in, under the kit's terms. Without --send the kit opens nothing.
-# CUSTOMER TEXT: DRAFT for the founder's approval (SEND_HELP, SEND_LINE, SEND_NO_BROWSER).
+# CUSTOMER TEXT: approved as written by the founder ("Approve as written", 13:03:05 UTC, 24 November 2026; D852).
 SEND_PAGE = "https://app.arvaken.com/stop-test/submit"
 SEND_HELP = "when the run ends, open Arvaken's send page with this result filled in; nothing is sent until you press Send"
 SEND_LINE = ("Opened Arvaken's send page with this result filled in. Nothing has been sent: check it there, and press the "
