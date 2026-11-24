@@ -562,3 +562,20 @@ def test_agentcore_run_passes_the_model_to_the_run(capsys, monkeypatch, tmp_path
     assert cli.AGENTCORE_PLAN_MODEL.format(model=ta.MODEL_ID) in capsys.readouterr().out
     assert cli.main(args) == 1
     assert seen["model"] == ""
+
+
+# ---- a quick run (cli._quick; plan stage 3, 24 November 2026) -----------------------------------------------------------
+def test_a_quick_plan_times_each_path_for_five_minutes_once_and_says_what_it_leaves_out(capsys):
+    assert cli.main(["aws", "plan", "--own-trigger", "--quick", "--region", "eu-central-1", "--run", "r0123abcd"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith(cli.QUICK_LINE) and "for 300 seconds after" in out
+
+
+def test_a_quick_run_takes_no_window_or_repeats_of_its_own_and_no_gateway(capsys):
+    for extra in (["--window", "20m"], ["--repeats", "3"]):
+        with pytest.raises(SystemExit):
+            cli.main(["aws", "plan", "--inline-deny", "--quick", "--region", "eu-central-1", *extra])
+        assert cli.QUICK_ALONE in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        cli.main(["aws", "plan", "--quick", "--via", "http://proxy.example:3128", "--region", "eu-central-1"])
+    assert "15 minutes" in capsys.readouterr().err

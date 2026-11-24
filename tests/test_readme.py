@@ -413,3 +413,20 @@ def test_the_readmes_google_copy_example_is_the_kits_own_plan(capsys):
     role = (Path(__file__).resolve().parents[1] / "permissions" / "google-role.yaml").read_text(encoding="utf-8")
     for permission in ("run.services.get", "run.routes.invoke", "iam.serviceAccounts.list"):
         assert f"- {permission}\n" in role
+
+
+# ---- the public guide carries no internal approval notes (plan stage 3, 24 November 2026) --------------------------------
+# Who approved which words, and when, is kept in arvaken/mark (docs/stop-test/README-APPROVALS.md), not in the public
+# guide's source.
+def test_the_guide_and_the_quick_start_carry_no_internal_approval_notes():
+    quick = (Path(__file__).resolve().parents[1] / "QUICKSTART.md").read_text(encoding="utf-8")
+    for text in (README, quick):
+        assert "CUSTOMER TEXT" not in text and "approved by the founder" not in text
+
+
+def test_each_link_from_the_quick_start_into_the_guide_names_a_heading_it_has():
+    import re
+    quick = (Path(__file__).resolve().parents[1] / "QUICKSTART.md").read_text(encoding="utf-8")
+    anchors = {re.sub(r"[^a-z0-9 -]", "", h.lower()).replace(" ", "-") for h in re.findall(r"^#+ (.+)$", README, re.M)}
+    linked = re.findall(r"\(README\.md#([^)]+)\)", quick)
+    assert linked and set(linked) <= anchors

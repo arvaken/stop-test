@@ -210,6 +210,29 @@ def times(n: int) -> str:
     return "1 time" if n == 1 else f"{n} times"
 
 
+# A quick run (plan stage 3, "Add a quick mode", 24 November 2026): one repeat with a 5-minute window, for an early answer.
+# The result is an ordinary result whose window is 5 minutes, and says so wherever its outcomes are worded.
+# CUSTOMER TEXT: draft, for the founder's approval (plan stage 3, 24 November 2026).
+QUICK_WINDOW = 5 * 60.0
+QUICK_HELP = "an early answer: one repeat, timed for 5 minutes after the stop"
+QUICK_LINE = ("This is a quick run: each path is timed for 5 minutes after the stop, once. A pass the test agent took "
+              "before the stop, such as a session of another role or a token, may keep working past 5 minutes, and "
+              "only a full run (15 minutes or more, up to 5 repeats) times that.")
+QUICK_ALONE = "--quick sets the window and the repeats itself: leave out --window and --repeats"
+
+
+def _quick(args, p) -> None:
+    """--quick: a 5-minute window, once. Refused beside a window or repeats given by hand, or through a gateway, whose
+    window is at least 15 minutes (timing.GATEWAY_WINDOW)."""
+    if getattr(args, "via", ""):
+        p.error(VIA_WINDOW)
+    if args.repeats != 1 or args.window not in WINDOWS.values():
+        p.error(QUICK_ALONE)
+    args.window = QUICK_WINDOW
+    if args.action in ("plan", "run"):
+        print(QUICK_LINE)
+
+
 def _duration(text: str) -> float:
     text = text.strip().lower()
     if text.endswith("m"):
@@ -1124,6 +1147,7 @@ def _main(argv: list[str] | None = None) -> int:
                        help="the stop is a policy written on the agent's role, denying every action")
         a.add_argument("--window", type=_duration, default=WINDOWS["aws"], help=_window_help("aws"))
         a.add_argument("--repeats", type=int, default=1, help="1 to 5")
+        a.add_argument("--quick", action="store_true", help=QUICK_HELP)
         a.add_argument("--region", required=True)
         a.add_argument("--run", dest="run_name", help="the run's name, if you are resuming one")
         a.add_argument("--endpoint", default=ENDPOINT, help=argparse.SUPPRESS)
@@ -1157,6 +1181,7 @@ def _main(argv: list[str] | None = None) -> int:
         a.add_argument("--trail", action="store_true", help=AGENTCORE_HELP["trail"])
         a.add_argument("--window", type=_duration, default=WINDOWS["aws"], help=_window_help("aws"))
         a.add_argument("--repeats", type=int, default=1, help="1 to 5")
+        a.add_argument("--quick", action="store_true", help=QUICK_HELP)
         a.add_argument("--region", required=True)
         a.add_argument("--run", dest="run_name", help="the run's name, if you are resuming one")
         a.add_argument("--endpoint", default=ENDPOINT, help=argparse.SUPPRESS)
@@ -1180,6 +1205,7 @@ def _main(argv: list[str] | None = None) -> int:
         a.add_argument("--model", required=True, help=HARNESS_HELP["model"])
         a.add_argument("--window", type=_duration, default=WINDOWS["aws"], help=_window_help("aws"))
         a.add_argument("--repeats", type=int, default=1, help="1 to 5")
+        a.add_argument("--quick", action="store_true", help=QUICK_HELP)
         a.add_argument("--region", required=True)
         a.add_argument("--run", dest="run_name", help="the run's name, if you are resuming one")
         a.add_argument("--endpoint", default=ENDPOINT, help=argparse.SUPPRESS)
@@ -1198,6 +1224,7 @@ def _main(argv: list[str] | None = None) -> int:
         a.add_argument("--own-trigger", action="store_true", help="you fire your own stop; the kit watches")
         a.add_argument("--window", type=_duration, default=WINDOWS["google_cloud"], help=_window_help("google_cloud"))
         a.add_argument("--repeats", type=int, default=1, help="1 to 5")
+        a.add_argument("--quick", action="store_true", help=QUICK_HELP)
         a.add_argument("--project", required=True)
         a.add_argument("--region", required=True)
         a.add_argument("--run", dest="run_name", help="the run's name, if you are resuming one")
@@ -1237,6 +1264,8 @@ def _main(argv: list[str] | None = None) -> int:
     verify = sub.add_parser("verify", help="check a result file's format and signature")
     verify.add_argument("file", type=Path)
     args = p.parse_args(argv)
+    if getattr(args, "quick", False):
+        _quick(args, p)
 
     if args.command == "verify":
         try:
