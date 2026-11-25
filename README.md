@@ -821,6 +821,30 @@ aws-bedrock-runtime-management-events, aws-cloudtrail-event-time] -->
 A path whose calls after the stop were all not counted, or that was answered after the stop and then had nothing counted
 until the window ended, reads "not measured": the kit cannot say whether the stop stopped it.
 
+## Repeat it on a schedule
+
+If you use Arvaken's app and its runner is installed in your AWS account, you can have a stop test repeat. In the app,
+on the agent's page, choose how often under "Repeat this stop test". Then deploy
+[`templates/aws-scheduled-repeat.json`](templates/aws-scheduled-repeat.json) with CloudFormation, in the account and
+region where your agent's stop is, giving it your runner's KMS key ARN, your engagement's id, the agent's id and your
+stop.
+
+Once a day it starts an AWS CodeBuild project of its own. The project installs the kit as [Install](#install) says,
+checked against its signature, and asks Arvaken whether a run is due:
+
+```
+stop-test due --key <your runner's key ARN> --engagement <engagement id> --agent <agent id>
+```
+
+The question is signed with your runner's key and names nothing else. It says a run is due when the agent has no result
+yet, when its newest result is older than the schedule you chose, or when its stop or the agent changed since. Only then
+does the project run `stop-test aws run`, with the kit's own policy and nothing more, and keep the result in a bucket of
+the stack's own. Nothing is sent to Arvaken: you send a result as you would any other.
+
+The project's role holds [`permissions/aws-policy.json`](permissions/aws-policy.json) and three things more: signing
+with your runner's key, writing its own logs, and writing to its own bucket. The schedule may start that one project
+and nothing else. Delete the stack to stop it; its bucket and your results stay.
+
 ## The permissions it needs
 
 The kit runs with your own credentials. To give it only what a run needs, use the ready-made policy for your cloud in
