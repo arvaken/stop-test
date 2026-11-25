@@ -1321,7 +1321,15 @@ def _main(argv: list[str] | None = None) -> int:
     hclean_host.add_argument("--run", dest="run_name", required=True)
     verify = sub.add_parser("verify", help="check a result file's format and signature")
     verify.add_argument("file", type=Path)
+    from arvaken_stop_test import due  # noqa: PLC0415
+    asked = sub.add_parser("due", help=due.DUE_HELP)
+    asked.add_argument("--key", required=True, metavar="ARN", help="your runner's KMS key ARN, which signs the question")
+    asked.add_argument("--engagement", required=True, metavar="ID", help="your engagement's id, as your runner has it")
+    asked.add_argument("--agent", required=True, metavar="ID", help="the agent's id, from its page in the Arvaken app")
+    asked.add_argument("--endpoint", default=due.DUE_ENDPOINT, help=argparse.SUPPRESS)
     args = p.parse_args(argv)
+    if args.command == "due":
+        return due.run(args)
     global _SEND, _SEND_PAGE
     _SEND = bool(getattr(args, "send", False)) and getattr(args, "action", "") == "run"
     _SEND_PAGE = getattr(args, "send_page", SEND_PAGE)
