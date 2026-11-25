@@ -25,7 +25,8 @@ DUE_PATH = "/v1/due"
 KEY_ARN = re.compile(r"arn:aws:kms:[a-z0-9-]{1,30}:[0-9]{12}:key/[0-9a-f-]{36}")
 DUE, NOT_DUE, NO_ANSWER = 0, 3, 1
 
-# CUSTOMER TEXT, awaiting the founder's approval (the plan, wave 2, A; A-DUE-WORDING.md): what `stop-test due` prints.
+# CUSTOMER TEXT, approved as written by the founder's click at 17:28:55 UTC on 25 November 2026 (the plan, wave 2, A;
+# A-DUE-WORDING.md): what `stop-test due` prints, and its help.
 DUE_HELP = "whether Arvaken says a scheduled run is due for one of your agents (exit 0 if due, 3 if not)"
 WHY = {"never run": "no stop test has run for it yet",
        "schedule": "its newest stop test is older than your schedule",
