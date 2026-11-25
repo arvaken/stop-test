@@ -1327,9 +1327,23 @@ def _main(argv: list[str] | None = None) -> int:
     asked.add_argument("--engagement", required=True, metavar="ID", help="your engagement's id, as your runner has it")
     asked.add_argument("--agent", required=True, metavar="ID", help="the agent's id, from its page in the Arvaken app")
     asked.add_argument("--endpoint", default=due.DUE_ENDPOINT, help=argparse.SUPPRESS)
+    from arvaken_stop_test import gate  # noqa: PLC0415
+    gated = sub.add_parser("gate", help=gate.GATE_HELP)
+    gated.add_argument("--key", required=True, metavar="ARN", help="your runner's KMS key ARN, which signs the question")
+    gated.add_argument("--engagement", required=True, metavar="ID", help="your engagement's id, as your runner has it")
+    gated.add_argument("--agent", required=True, metavar="ARN", help="the agent's ARN, as its cloud gives it")
+    gated.add_argument("--on-no", choices=("block", "warn"), required=True,
+                       help="block: fail this step unless the agent can be stopped; warn: say so, and pass")
+    gated.add_argument("--run-ref", metavar="TEXT", help="your pipeline's own run reference, kept with the gate")
+    gated.add_argument("--wait", type=float, default=600, metavar="SECONDS",
+                       help="how long to wait for an agent not on your stop map yet (default 600)")
+    gated.add_argument("--endpoint", default=due.DUE_ENDPOINT, help=argparse.SUPPRESS)
+    gated.add_argument("--app", default=gate.APP, help=argparse.SUPPRESS)
     args = p.parse_args(argv)
     if args.command == "due":
         return due.run(args)
+    if args.command == "gate":
+        return gate.run(args)
     global _SEND, _SEND_PAGE
     _SEND = bool(getattr(args, "send", False)) and getattr(args, "action", "") == "run"
     _SEND_PAGE = getattr(args, "send_page", SEND_PAGE)

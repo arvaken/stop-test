@@ -845,6 +845,26 @@ The project's role holds [`permissions/aws-policy.json`](permissions/aws-policy.
 with your runner's key, writing its own logs, and writing to its own bucket. The schedule may start that one project
 and nothing else. Delete the stack to stop it; its bucket and your results stay.
 
+## Gate a launch
+
+If you use Arvaken's app and its runner is installed in your AWS account, your release pipeline can ask, before an
+agent goes live, whether it can be stopped:
+
+```
+stop-test gate --key <your runner's key ARN> --engagement <engagement id> --agent <the agent's ARN> --on-no block
+```
+
+Run it after the agent is deployed and before it takes real work, with a role that may sign with your runner's KMS key
+(`kms:Sign`, `ECDSA_SHA_256`). It sends one question, signed with that key, and reads nothing else of your account. The
+answer is the agent's own card on your stop map: yes where it reads Stoppable, no where it reads Not stoppable or No
+stop declared, and not determined where it reads Not determined. A new agent is on your map once your runner has read
+it; the gate waits for that, up to `--wait` seconds (600 by default), and then answers not determined.
+
+With `--on-no block`, anything but yes fails the step. With `--on-no warn`, the gate prints the answer and lets the step
+pass. If Arvaken does not answer, that counts as not determined. `--run-ref` keeps your pipeline's own reference with
+the gate. Each gate is kept in your audit trail in the app. A yes says what your stop map shows that day: it is not a
+certification.
+
 ## The permissions it needs
 
 The kit runs with your own credentials. To give it only what a run needs, use the ready-made policy for your cloud in
