@@ -24,7 +24,7 @@ POLICY = ROOT / "permissions" / "aws-policy.json"
 OUT = ROOT / "templates" / "aws-scheduled-repeat.json"
 KIT_VERSION = "0.7.0"                  # the first release with `stop-test due`; the customer may name a later one
 
-# CUSTOMER TEXT, awaiting the founder's approval (the plan, wave 2, A, part 3; A-TEMPLATE-WORDING.md).
+# CUSTOMER TEXT: approved by the founder as written at 17:36:12 UTC on 25 November 2026 (A-TEMPLATE-WORDING.md).
 DESCRIPTION = ("Arvaken stop test, repeated: once a day, asks Arvaken whether a run is due for one of your agents, and "
                "runs the stop test kit in your account only when it is. Everything here is yours to change or delete.")
 PARAMS = {
