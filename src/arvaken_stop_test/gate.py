@@ -33,7 +33,8 @@ PASSED, BLOCKED = 0, 1
 AGENT = re.compile(r"[^\s\x00-\x1f\x7f]{1,2048}")
 RUN_REF = re.compile(r"[^\x00-\x1f\x7f]{1,200}")
 
-# CUSTOMER TEXT, awaiting the founder's approval (the plan, wave 2, D; D-GATE-WORDING.md): what `stop-test gate` prints,
+# CUSTOMER TEXT, approved as written by the founder's click at 18:24:52 UTC on 25 November 2026
+# (the plan, wave 2, D; D-GATE-WORDING.md): what `stop-test gate` prints,
 # and its help.
 GATE_HELP = "before an agent goes live: ask Arvaken whether it can be stopped (exit 1 to block it, with --on-no block)"
 SAID_YES = "Yes: this agent can be stopped. {reason}"
