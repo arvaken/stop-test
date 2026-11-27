@@ -29,6 +29,35 @@
    "refused": {},
    "passed": true,
    "checked": "2026-10-29T20:56:00+00:00"
+  },
+  {
+   "run": "r9d8f32e7",
+   "agent": "aws-agentcore-runtime",
+   "commit": "0d524385961fea16dc3089e001f5a79273c9102d",
+   "policies": {
+    "permissions/aws-agentcore-policy.json": "679a7237c75b59f9fb592ae157cdfc5e787ef720b45a391e1b633d5547127773"
+   },
+   "began_at": "2026-11-27T01:50:19.966Z",
+   "ended_at": "2026-11-27T02:04:44.288Z",
+   "left": 0,
+   "refused": {},
+   "passed": true,
+   "checked": "2026-11-27T02:20:06+00:00"
+  },
+  {
+   "run": "r95e494fc",
+   "agent": "aws-agentcore-harness",
+   "commit": "0d524385961fea16dc3089e001f5a79273c9102d",
+   "policies": {
+    "permissions/aws-agentcore-policy.json": "679a7237c75b59f9fb592ae157cdfc5e787ef720b45a391e1b633d5547127773",
+    "permissions/aws-agentcore-harness-policy.json": "048a482de912b7908230049e7fc251e25263956b50d756e77b136b2bb1c6e825"
+   },
+   "began_at": "2026-11-27T02:05:39.809Z",
+   "ended_at": "2026-11-27T02:19:58.153Z",
+   "left": 0,
+   "refused": {},
+   "passed": true,
+   "checked": "2026-11-27T02:35:51+00:00"
   }
  ]
 }
