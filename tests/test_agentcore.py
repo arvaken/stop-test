@@ -37,7 +37,7 @@ from pathlib import Path
 
 import pytest
 
-from arvaken_stop_test import report, result
+from arvaken_stop_test import __version__, report, result
 from arvaken_stop_test.agentcore import agent, fire, stack, trail
 from arvaken_stop_test.agentcore import run as running
 from arvaken_stop_test.aws.stack import boundary_document
@@ -1623,10 +1623,12 @@ def test_records_that_are_not_the_runs_own_calls_to_a_model_are_never_counted_no
 
 
 # 12: a run without a model is as it was. The digest is of the three runs below, each normalized (the session IDs, the
-# signature, the agent code's SHA-256 and the folder taken out; one line ending and one path separator), as the kit at
+# signature, the agent code's SHA-256 and the folder taken out; one line ending and one path separator; the kit's
+# version written as 5f472c4's, so that a new version alone does not change it), as the kit at
 # 5f472c4, before the model in the runtime, gave them, with this fake (its trail's records by _gz) and this
 # normalizing: read through pytest on 14 November 2026 in a worktree of 5f472c4 made for it, then removed. It is the
 # same on every platform: the fake's records were gzip.compress's, whose bytes differ by platform (_gz).
+VERSION_AT_5F472C4 = "0.6.1"
 BEFORE_THE_MODEL = "1b9ccc828f4dd8b4cfd9639bd867a9b1af62b242239f68ad95bf19679a9d8765"
 
 
@@ -1636,6 +1638,7 @@ def normalized(r, doc: dict, folder: Path) -> str:
                       sort_keys=True)
     text = re.sub(r"(r0a1b2c3d-(?:session|new|recover|trail|clock))-[0-9a-f]{32}", r"\1-x", text)
     text = re.sub(r'"code_sha256": "[0-9a-f]{64}"', '"code_sha256": "x"', text)
+    text = text.replace(f'"kit": {{"version": "{__version__}"}}', f'"kit": {{"version": "{VERSION_AT_5F472C4}"}}')
     text = text.replace(folder.as_posix(), "<folder>").replace(json.dumps(str(folder))[1:-1], "<folder>")
     # nothing of this machine's in it: no path under the test's own folder, by either separator
     assert not any(p in text for p in (folder.parent.as_posix(), json.dumps(str(folder.parent))[1:-1]))
